@@ -129,13 +129,27 @@ function decodePatentXml(buffer: ArrayBuffer): string {
   }
 }
 
-function paragraphsFrom(value: unknown): string[] {
+function normalizeParagraphNumber(value: unknown): string | null {
+  const number = cleanText(value);
+  if (!number) return null;
+  return /^\d+$/.test(number) ? number.padStart(4, '0') : number;
+}
+
+function paragraphsFrom(value: unknown) {
   const paragraphs = valuesByKey(value, 'p').flatMap(asArray);
   if (paragraphs.length === 0) {
     const fallback = cleanText(value);
-    return fallback ? [fallback] : [];
+    return fallback ? [{ number: null, text: fallback }] : [];
   }
-  return paragraphs.map(cleanText).filter(Boolean);
+  return paragraphs
+    .map((paragraph) => {
+      const record = asRecord(paragraph);
+      return {
+        number: normalizeParagraphNumber(record['@_num']),
+        text: cleanText(paragraph),
+      };
+    })
+    .filter((paragraph) => paragraph.text);
 }
 
 function normalizeFullTextXml(

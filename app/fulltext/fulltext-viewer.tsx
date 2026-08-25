@@ -3,10 +3,15 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 
+type FullTextParagraph = {
+  number: string | null;
+  text: string;
+};
+
 type FullTextSection = {
   id: string;
   title: string;
-  paragraphs: string[];
+  paragraphs: FullTextParagraph[];
 };
 
 type FullTextClaim = {
@@ -17,7 +22,7 @@ type FullTextClaim = {
 type FullTextPayload = {
   applicationNumber: string;
   title: string;
-  abstract: string[];
+  abstract: FullTextParagraph[];
   sections: FullTextSection[];
   claims: FullTextClaim[];
   figureCount: number;
@@ -106,8 +111,10 @@ export default function FullTextViewer({
     if (!payload || !query.trim()) return 0;
     const needle = query.trim().toLocaleLowerCase('ko-KR');
     const texts = [
-      ...payload.abstract,
-      ...payload.sections.flatMap((section) => section.paragraphs),
+      ...payload.abstract.map((paragraph) => paragraph.text),
+      ...payload.sections.flatMap((section) =>
+        section.paragraphs.map((paragraph) => paragraph.text),
+      ),
       ...payload.claims.map((claim) => claim.text),
     ];
     return texts.filter((value) => value.toLocaleLowerCase('ko-KR').includes(needle))
@@ -205,7 +212,7 @@ export default function FullTextViewer({
                 <section id="abstract" className="fulltext-section abstract-section">
                   <header><span>01</span><div><p>ABSTRACT</p><h2>초록</h2></div></header>
                   <div className="fulltext-prose">
-                    {payload.abstract.map((paragraph, index) => <p key={index}><Highlight text={paragraph} query={query} /></p>)}
+                    {payload.abstract.map((paragraph, index) => <p key={paragraph.number ?? index}><Highlight text={paragraph.text} query={query} /></p>)}
                   </div>
                 </section>
 
@@ -214,7 +221,7 @@ export default function FullTextViewer({
                     <header><span>{String(sectionIndex + 2).padStart(2, '0')}</span><div><p>DESCRIPTION</p><h2>{section.title}</h2></div></header>
                     <div className="fulltext-prose numbered">
                       {section.paragraphs.map((paragraph, index) => (
-                        <p key={index}><span>{String(index + 1).padStart(3, '0')}</span><span><Highlight text={paragraph} query={query} /></span></p>
+                        <p key={paragraph.number ?? index}><span>{paragraph.number ? `[${paragraph.number}]` : ''}</span><span><Highlight text={paragraph.text} query={query} /></span></p>
                       ))}
                     </div>
                   </section>

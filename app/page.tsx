@@ -226,6 +226,10 @@ function formatDate(value: string) {
   return value || '—';
 }
 
+function cpcSearchUrl(code: string) {
+  return `https://cls.kipro.or.kr/classification/cpc/search?code=${code.replace(/\s+/g, '')}`;
+}
+
 function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -581,9 +585,15 @@ export default function Home() {
                 {facts.map((fact) => (
                   <article className={`fact-card ${fact.cpc ? 'interactive' : ''}`} key={fact.label}>
                     {fact.cpc ? (
-                      <button className="fact-card-button" type="button" onClick={() => setCpcOpen(true)} disabled={!caseData.cpc.length} aria-label={`주 CPC ${fact.value}, 전체 CPC 보기`}>
-                        <span>{fact.label}</span><strong>{fact.value}</strong><small>{fact.detail}</small>
-                      </button>
+                      <div className="fact-card-cpc">
+                        <span>{fact.label}</span>
+                        {caseData.cpc[0] ? (
+                          <a href={cpcSearchUrl(caseData.cpc[0].number)} target="_blank" rel="noreferrer" aria-label={`주 CPC ${caseData.cpc[0].number} 분류 검색, 새 창`}>
+                            <strong>{fact.value}</strong><i aria-hidden="true">↗</i>
+                          </a>
+                        ) : <strong>{fact.value}</strong>}
+                        <button type="button" onClick={() => setCpcOpen(true)} disabled={!caseData.cpc.length}>{fact.detail}</button>
+                      </div>
                     ) : (
                       <><span>{fact.label}</span><strong>{fact.value}</strong><small>{fact.detail}</small></>
                     )}
@@ -678,7 +688,7 @@ export default function Home() {
                 <article className="panel detail-panel">
                   <h2>분류정보</h2>
                   <div className="classification-list">
-                    {caseData.cpc.slice(0, 3).map((cpc, index) => <div key={`${cpc.number}-${index}`}><span>{index === 0 ? '주 CPC' : 'CPC'}</span><strong>{cpc.number}</strong><small>{cpc.date || ''}</small></div>)}
+                    {caseData.cpc.slice(0, 3).map((cpc, index) => <div key={`${cpc.number}-${index}`}><span>{index === 0 ? '주 CPC' : 'CPC'}</span><a className="cpc-code-link" href={cpcSearchUrl(cpc.number)} target="_blank" rel="noreferrer" aria-label={`${cpc.number} CPC 분류 검색, 새 창`}>{cpc.number}<i aria-hidden="true">↗</i></a><small>{cpc.date || ''}</small></div>)}
                     {caseData.cpc.length > 3 && <button className="classification-more" type="button" onClick={() => setCpcOpen(true)}>전체 CPC {caseData.cpc.length}개 보기 ↗</button>}
                     {!caseData.cpc.length && <p className="classification-empty">CPC 정보가 없습니다.</p>}
                   </div>
@@ -767,11 +777,11 @@ export default function Home() {
             <header><div><span className="eyebrow">COOPERATIVE PATENT CLASSIFICATION</span><h2 id="cpc-title">전체 CPC</h2><p>{caseData.applicationNumber} · 총 {caseData.cpc.length}개</p></div><button type="button" onClick={() => setCpcOpen(false)} aria-label="닫기">×</button></header>
             <div className="cpc-modal-body">
               {caseData.cpc.length ? caseData.cpc.map((cpc, index) => (
-                <article className="cpc-row" key={`${cpc.number}-${index}`}>
+                <a className="cpc-row" href={cpcSearchUrl(cpc.number)} target="_blank" rel="noreferrer" aria-label={`${cpc.number} CPC 분류 검색, 새 창`} key={`${cpc.number}-${index}`}>
                   <span>{String(index + 1).padStart(2, '0')}</span>
-                  <div><strong>{cpc.number}</strong><small>{cpc.date ? `분류일자 ${cpc.date}` : '분류일자 미수신'}</small></div>
-                  {index === 0 && <em>주 CPC</em>}
-                </article>
+                  <div><strong>{cpc.number} <i aria-hidden="true">↗</i></strong><small>{cpc.date ? `분류일자 ${cpc.date}` : '분류일자 미수신'}</small></div>
+                  {index === 0 ? <em>주 CPC</em> : <em>분류 조회</em>}
+                </a>
               )) : <p className="cpc-empty">조회된 CPC 정보가 없습니다.</p>}
             </div>
           </section>
