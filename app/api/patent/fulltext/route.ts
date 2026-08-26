@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { XMLParser } from 'fast-xml-parser';
 import demoFullText from '@/app/data/demo-fulltext.json';
 import { recordKiprisApiCall } from '@/app/lib/kipris-usage';
-import { requireUser } from '@/app/lib/auth';
-import { getApiUsage, recordApiUsage } from '@/app/lib/db';
+import { getApiUsage, recordApiUsage, WORKSPACE_USER_ID } from '@/app/lib/db';
 import { errorResponse } from '@/app/lib/http';
 import { getKiprisKey } from '@/app/lib/secrets';
 
@@ -247,12 +246,6 @@ async function fetchFullTextMetadata(applicationNumber: string, accessKey: strin
 }
 
 export async function GET(request: NextRequest) {
-  let user;
-  try {
-    user = await requireUser(request);
-  } catch (error) {
-    return errorResponse(error);
-  }
   const rawNumber = request.nextUrl.searchParams.get('applicationNumber') ?? '';
   const applicationNumber = rawNumber.replace(/\D/g, '');
 
@@ -271,13 +264,18 @@ export async function GET(request: NextRequest) {
 
   let accessKey: string;
   try {
-    accessKey = await getKiprisKey(user.id);
+    accessKey = getKiprisKey();
   } catch (error) {
     return errorResponse(error);
   }
 
   try {
-    await recordApiUsage(user.id, 'kipris', ['전문파일정보'], applicationNumber);
+    await recordApiUsage(
+      WORKSPACE_USER_ID,
+      'kipris',
+      ['전문파일정보'],
+      applicationNumber,
+    );
     const metadata = await fetchFullTextMetadata(applicationNumber, accessKey);
     const fileResponse = await fetch(metadata.fileUrl, {
       cache: 'no-store',
@@ -303,7 +301,7 @@ export async function GET(request: NextRequest) {
       applicationNumber,
       metadata.fileName,
     );
-    return NextResponse.json({ ...payload, usage: await getApiUsage(user.id) }, {
+    return NextResponse.json({ ...payload, usage: await getApiUsage(WORKSPACE_USER_ID) }, {
       headers: { 'Cache-Control': 'no-store' },
     });
   } catch (error) {

@@ -1,12 +1,10 @@
 import { NextResponse } from 'next/server';
-import { requireUser } from '@/app/lib/auth';
-import { getApiUsage } from '@/app/lib/db';
+import { getApiUsage, WORKSPACE_USER_ID } from '@/app/lib/db';
 import { errorResponse } from '@/app/lib/http';
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    const user = await requireUser(request);
-    return NextResponse.json(await getApiUsage(user.id), {
+    return NextResponse.json(await getApiUsage(WORKSPACE_USER_ID), {
       headers: { 'Cache-Control': 'private, no-store' },
     });
   } catch (error) {

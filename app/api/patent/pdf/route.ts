@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { XMLParser } from 'fast-xml-parser';
 import { recordKiprisApiCall } from '@/app/lib/kipris-usage';
-import { requireUser } from '@/app/lib/auth';
-import { getApiUsage, recordApiUsage } from '@/app/lib/db';
+import { getApiUsage, recordApiUsage, WORKSPACE_USER_ID } from '@/app/lib/db';
 import { errorResponse } from '@/app/lib/http';
 import { getKiprisKey } from '@/app/lib/secrets';
 
@@ -124,12 +123,6 @@ async function fetchPdfMetadata(
 }
 
 export async function GET(request: NextRequest) {
-  let user;
-  try {
-    user = await requireUser(request);
-  } catch (error) {
-    return errorResponse(error);
-  }
   const applicationNumber = (
     request.nextUrl.searchParams.get('applicationNumber') ?? ''
   ).replace(/\D/g, '');
@@ -153,14 +146,14 @@ export async function GET(request: NextRequest) {
 
   let accessKey: string;
   try {
-    accessKey = await getKiprisKey(user.id);
+    accessKey = getKiprisKey();
   } catch (error) {
     return errorResponse(error);
   }
 
   try {
     await recordApiUsage(
-      user.id,
+      WORKSPACE_USER_ID,
       'kipris',
       ['의견제출통지서 PDF_V2'],
       applicationNumber,
@@ -187,7 +180,9 @@ export async function GET(request: NextRequest) {
         'Content-Disposition': `inline; filename*=UTF-8''${encodedName}`,
         'Cache-Control': 'private, no-store',
         'X-Content-Type-Options': 'nosniff',
-        'X-KIPRIS-API-Calls-Total': String((await getApiUsage(user.id)).total),
+        'X-KIPRIS-API-Calls-Total': String(
+          (await getApiUsage(WORKSPACE_USER_ID)).total,
+        ),
       },
     });
   } catch (error) {

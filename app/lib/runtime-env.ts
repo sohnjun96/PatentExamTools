@@ -4,10 +4,8 @@ export type AppBindings = {
   DB?: D1Database;
   KIPRIS_API_KEY?: string;
   KIPRIS_SERVICE_KEY?: string;
-  APP_ENCRYPTION_KEY?: string;
-  CF_ACCESS_TEAM_DOMAIN?: string;
-  CF_ACCESS_AUD?: string;
-  ALLOW_DEV_AUTH?: string;
+  OPENAI_API_KEY?: string;
+  OPENAI_MODEL?: string;
 };
 
 export function bindings(): AppBindings {

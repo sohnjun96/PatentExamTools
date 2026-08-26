@@ -4,21 +4,7 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  last_login_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS user_api_keys (
-  user_id TEXT PRIMARY KEY,
-  kipris_ciphertext TEXT,
-  kipris_iv TEXT,
-  kipris_last4 TEXT,
-  openai_ciphertext TEXT,
-  openai_iv TEXT,
-  openai_last4 TEXT,
-  openai_model TEXT NOT NULL DEFAULT 'gpt-5-mini',
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS patent_cases (

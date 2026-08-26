@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
-import { requireUser } from '@/app/lib/auth';
-import { appDatabase, getPatentCase, recordApiUsage } from '@/app/lib/db';
+import {
+  appDatabase,
+  getPatentCase,
+  recordApiUsage,
+  WORKSPACE_USER_ID,
+} from '@/app/lib/db';
 import { errorResponse, HttpError } from '@/app/lib/http';
 import { getOpenAiCredentials } from '@/app/lib/secrets';
 
@@ -32,6 +36,25 @@ type ExaminationSummary = {
   searchKeywords: string[];
   cautions: string[];
 };
+
+const SUMMARY_RATE_WINDOW_MS = 60_000;
+const SUMMARY_RATE_MAX = 3;
+const summaryRequestLog = new Map<string, number[]>();
+
+function summaryRateLimited(request: Request) {
+  const client =
+    request.headers.get('cf-connecting-ip') ??
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    'local';
+  const now = Date.now();
+  const recent = (summaryRequestLog.get(client) ?? []).filter(
+    (timestamp) => now - timestamp < SUMMARY_RATE_WINDOW_MS,
+  );
+  if (recent.length >= SUMMARY_RATE_MAX) return true;
+  recent.push(now);
+  summaryRequestLog.set(client, recent);
+  return false;
+}
 
 const SUMMARY_SCHEMA = {
   type: 'object',
@@ -151,10 +174,16 @@ async function caseAndSource(userId: string, applicationNumber: string) {
 
 export async function GET(request: Request) {
   try {
-    const user = await requireUser(request);
     const applicationNumber = applicationNumberFrom(request);
-    const { sourceHash } = await caseAndSource(user.id, applicationNumber);
-    const cached = await cachedSummary(user.id, applicationNumber, sourceHash);
+    const { sourceHash } = await caseAndSource(
+      WORKSPACE_USER_ID,
+      applicationNumber,
+    );
+    const cached = await cachedSummary(
+      WORKSPACE_USER_ID,
+      applicationNumber,
+      sourceHash,
+    );
     return NextResponse.json(
       cached ?? { summary: null, cached: false },
       { headers: { 'Cache-Control': 'private, no-store' } },
@@ -166,16 +195,28 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const user = await requireUser(request);
+    if (summaryRateLimited(request)) {
+      throw new HttpError(
+        429,
+        'AI 요약 요청이 많습니다. 잠시 후 다시 시도해 주세요.',
+      );
+    }
     const applicationNumber = applicationNumberFrom(request);
-    const { source, sourceHash } = await caseAndSource(user.id, applicationNumber);
+    const { source, sourceHash } = await caseAndSource(
+      WORKSPACE_USER_ID,
+      applicationNumber,
+    );
     const force = new URL(request.url).searchParams.get('force') === 'true';
     if (!force) {
-      const cached = await cachedSummary(user.id, applicationNumber, sourceHash);
+      const cached = await cachedSummary(
+        WORKSPACE_USER_ID,
+        applicationNumber,
+        sourceHash,
+      );
       if (cached) return NextResponse.json(cached);
     }
 
-    const { apiKey, model } = await getOpenAiCredentials(user.id);
+    const { apiKey, model } = getOpenAiCredentials();
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -239,7 +280,7 @@ export async function POST(request: Request) {
            updated_at = CURRENT_TIMESTAMP`,
       )
       .bind(
-        user.id,
+        WORKSPACE_USER_ID,
         applicationNumber,
         model,
         sourceHash,
@@ -248,7 +289,12 @@ export async function POST(request: Request) {
         outputTokens,
       )
       .run();
-    await recordApiUsage(user.id, 'openai', ['특허심사 요약'], applicationNumber);
+    await recordApiUsage(
+      WORKSPACE_USER_ID,
+      'openai',
+      ['특허심사 요약'],
+      applicationNumber,
+    );
 
     return NextResponse.json({
       summary,

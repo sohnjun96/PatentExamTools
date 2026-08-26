@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { XMLParser } from 'fast-xml-parser';
 import { recordKiprisApiCall } from '@/app/lib/kipris-usage';
-import { requireUser } from '@/app/lib/auth';
 import {
   getApiUsage,
   getPatentCase,
   recordApiUsage,
   savePatentCase,
+  WORKSPACE_USER_ID,
 } from '@/app/lib/db';
 import { errorResponse } from '@/app/lib/http';
 import { envValue } from '@/app/lib/runtime-env';
@@ -254,7 +254,6 @@ function normalizeDrawing(payload: unknown) {
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await requireUser(request);
     if (rateLimited(request)) {
       return NextResponse.json(
         { error: '요청이 많습니다. 잠시 후 다시 시도해 주세요.' },
@@ -262,20 +261,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
-  const rawNumber = request.nextUrl.searchParams.get('applicationNumber') ?? '';
-  const applicationNumber = rawNumber.replace(/\D/g, '');
+    const rawNumber = request.nextUrl.searchParams.get('applicationNumber') ?? '';
+    const applicationNumber = rawNumber.replace(/\D/g, '');
 
-  if (!/^(10|20)\d{11}$/.test(applicationNumber)) {
-    return NextResponse.json(
-      { error: '특허·실용신안 출원번호 13자리를 입력해 주세요.' },
-      { status: 400 },
-    );
-  }
+    if (!/^(10|20)\d{11}$/.test(applicationNumber)) {
+      return NextResponse.json(
+        { error: '특허·실용신안 출원번호 13자리를 입력해 주세요.' },
+        { status: 400 },
+      );
+    }
 
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
     if (!refresh) {
       const stored = await getPatentCase<Record<string, unknown>>(
-        user.id,
+        WORKSPACE_USER_ID,
         applicationNumber,
       );
       if (stored) {
@@ -283,27 +282,27 @@ export async function GET(request: NextRequest) {
           {
             ...stored.payload,
             cached: true,
-            usage: await getApiUsage(user.id),
+            usage: await getApiUsage(WORKSPACE_USER_ID),
           },
           { headers: { 'Cache-Control': 'private, no-store' } },
         );
       }
     }
 
-    const accessKey = await getKiprisKey(user.id);
+    const accessKey = getKiprisKey();
     const serviceKey = envValue('KIPRIS_SERVICE_KEY') || accessKey;
 
-  const names = Object.keys(endpoints);
-  const settled = await Promise.allSettled(
-    names.map((name) => {
-      const endpoint = endpoints[name];
-      return fetchEndpoint(
-        endpoint,
-        applicationNumber,
-        endpoint.keyParameter === 'ServiceKey' ? serviceKey : accessKey,
-      );
-    }),
-  );
+    const names = Object.keys(endpoints);
+    const settled = await Promise.allSettled(
+      names.map((name) => {
+        const endpoint = endpoints[name];
+        return fetchEndpoint(
+          endpoint,
+          applicationNumber,
+          endpoint.keyParameter === 'ServiceKey' ? serviceKey : accessKey,
+        );
+      }),
+    );
 
   const payloads: Record<string, unknown> = {};
   const sources = names.map((name, index) => {
@@ -354,17 +353,23 @@ export async function GET(request: NextRequest) {
     cached: false,
   };
 
-  await recordApiUsage(
-    user.id,
-    'kipris',
-    names.map((name) => endpoints[name].operation),
-    applicationNumber,
-  );
-  await savePatentCase(user.id, applicationNumber, response, fetchedAt);
+    await recordApiUsage(
+      WORKSPACE_USER_ID,
+      'kipris',
+      names.map((name) => endpoints[name].operation),
+      applicationNumber,
+    );
+    await savePatentCase(
+      WORKSPACE_USER_ID,
+      applicationNumber,
+      response,
+      fetchedAt,
+    );
 
-  return NextResponse.json({ ...response, usage: await getApiUsage(user.id) }, {
-    headers: { 'Cache-Control': 'no-store' },
-  });
+    return NextResponse.json(
+      { ...response, usage: await getApiUsage(WORKSPACE_USER_ID) },
+      { headers: { 'Cache-Control': 'no-store' } },
+    );
   } catch (error) {
     return errorResponse(error);
   }

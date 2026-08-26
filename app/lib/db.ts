@@ -1,19 +1,12 @@
 import { database } from '@/app/lib/runtime-env';
 
+export const WORKSPACE_USER_ID = 'single-workspace';
+
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY, email TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_login_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  )`,
-  `CREATE TABLE IF NOT EXISTS user_api_keys (
-    user_id TEXT PRIMARY KEY,
-    kipris_ciphertext TEXT, kipris_iv TEXT, kipris_last4 TEXT,
-    openai_ciphertext TEXT, openai_iv TEXT, openai_last4 TEXT,
-    openai_model TEXT NOT NULL DEFAULT 'gpt-5-mini',
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
   `CREATE TABLE IF NOT EXISTS patent_cases (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,6 +45,15 @@ export async function appDatabase() {
   if (!schemaReady) {
     schemaReady = db
       .batch(SCHEMA_STATEMENTS.map((statement) => db.prepare(statement)))
+      .then(() =>
+        db
+          .prepare(
+            `INSERT INTO users (id, email) VALUES (?, ?)
+             ON CONFLICT(id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP`,
+          )
+          .bind(WORKSPACE_USER_ID, 'single-workspace@local')
+          .run(),
+      )
       .then(() => undefined)
       .catch((error) => {
         schemaReady = null;
@@ -59,21 +61,6 @@ export async function appDatabase() {
       });
   }
   await schemaReady;
-  return db;
-}
-
-export async function upsertUser(id: string, email: string) {
-  const db = await appDatabase();
-  await db
-    .prepare(
-      `INSERT INTO users (id, email) VALUES (?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         email = excluded.email,
-         updated_at = CURRENT_TIMESTAMP,
-         last_login_at = CURRENT_TIMESTAMP`,
-    )
-    .bind(id, email)
-    .run();
   return db;
 }
 

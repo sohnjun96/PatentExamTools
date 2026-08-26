@@ -44,19 +44,6 @@ type ApiUsage = {
   byOperation: Record<string, number>;
 };
 
-type AuthState = {
-  user: { id: string; email: string; isDevelopment: boolean };
-  logoutUrl: string;
-};
-
-type SecretSettings = {
-  hasKiprisKey: boolean;
-  kiprisLast4: string;
-  hasOpenAiKey: boolean;
-  openaiLast4: string;
-  openaiModel: string;
-};
-
 type ExaminationSummary = {
   oneLine: string;
   technicalProblem: string;
@@ -332,14 +319,6 @@ export default function Home() {
   const [packageOpen, setPackageOpen] = useState(false);
   const [drawingOpen, setDrawingOpen] = useState(false);
   const [cpcOpen, setCpcOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [auth, setAuth] = useState<AuthState | null>(null);
-  const [authError, setAuthError] = useState('');
-  const [settings, setSettings] = useState<SecretSettings | null>(null);
-  const [kiprisKeyInput, setKiprisKeyInput] = useState('');
-  const [openAiKeyInput, setOpenAiKeyInput] = useState('');
-  const [openAiModelInput, setOpenAiModelInput] = useState('gpt-5-mini');
-  const [settingsBusy, setSettingsBusy] = useState(false);
   const [summaryPayload, setSummaryPayload] = useState<SummaryPayload | null>(null);
   const [summaryBusy, setSummaryBusy] = useState(false);
   const [summaryError, setSummaryError] = useState('');
@@ -360,7 +339,6 @@ export default function Home() {
         setPackageOpen(false);
         setDrawingOpen(false);
         setCpcOpen(false);
-        setSettingsOpen(false);
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -368,24 +346,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    async function initializeAccount() {
-      try {
-        const authResponse = await fetch('/api/auth/me', { cache: 'no-store' });
-        const authPayload = (await authResponse.json()) as AuthState & { error?: string };
-        if (!authResponse.ok) throw new Error(authPayload.error || '로그인이 필요합니다.');
-        setAuth(authPayload);
-        const settingsResponse = await fetch('/api/settings', { cache: 'no-store' });
-        if (settingsResponse.ok) {
-          const settingsPayload = (await settingsResponse.json()) as SecretSettings;
-          setSettings(settingsPayload);
-          setOpenAiModelInput(settingsPayload.openaiModel);
-        }
-        setApiUsage(await fetchApiUsage());
-      } catch (error) {
-        setAuthError(error instanceof Error ? error.message : '로그인 상태를 확인하지 못했습니다.');
-      }
-    }
-    void initializeAccount();
+    void fetchApiUsage().then(setApiUsage).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -470,7 +431,7 @@ export default function Home() {
         throw new Error(payload.error || 'AI 요약을 불러오지 못했습니다.');
       }
       setSummaryPayload(payload);
-      if (!generate && !payload.summary && settings?.hasOpenAiKey) {
+      if (!generate && !payload.summary) {
         void loadSummary(applicationNumber, true);
         return;
       }
@@ -479,33 +440,6 @@ export default function Home() {
       setSummaryError(error instanceof Error ? error.message : 'AI 요약을 불러오지 못했습니다.');
     } finally {
       setSummaryBusy(false);
-    }
-  }
-
-  async function saveSettings(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSettingsBusy(true);
-    try {
-      const response = await fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          kiprisApiKey: kiprisKeyInput,
-          openaiApiKey: openAiKeyInput,
-          openaiModel: openAiModelInput,
-        }),
-      });
-      const payload = (await response.json()) as SecretSettings & { error?: string };
-      if (!response.ok) throw new Error(payload.error || '설정을 저장하지 못했습니다.');
-      setSettings(payload);
-      setKiprisKeyInput('');
-      setOpenAiKeyInput('');
-      setSettingsOpen(false);
-      setToast('API 키를 암호화해 저장했습니다.');
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : '설정을 저장하지 못했습니다.');
-    } finally {
-      setSettingsBusy(false);
     }
   }
 
@@ -694,10 +628,7 @@ export default function Home() {
             <span className="api-usage-pill" title={usageDetails} aria-label={`KIPRIS Plus API D1 누적 호출 ${apiUsage?.total ?? 0}회`}>
               API 호출 <strong>{apiUsage?.total ?? '—'}</strong>회 <small>D1 누적</small>
             </span>
-            <button className="account-button" type="button" onClick={() => setSettingsOpen(true)}>
-              <span>{auth?.user.email?.slice(0, 1).toUpperCase() || 'U'}</span>
-              <span><strong>{auth?.user.email || (authError ? '설정 필요' : '로그인 확인 중')}</strong><small>API 키 · 모델 설정</small></span>
-            </button>
+            <span className="secret-pill">Worker Secret 연동</span>
             <button className="export-button" type="button" onClick={() => setPackageOpen(true)}>
               심사자료 묶음 만들기 <span>↓</span>
             </button>
@@ -952,38 +883,6 @@ export default function Home() {
       {drawingOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setDrawingOpen(false)}>
           <section className="modal drawing-modal" role="dialog" aria-modal="true" aria-labelledby="drawing-title"><header><div><span className="eyebrow">REPRESENTATIVE DRAWING</span><h2 id="drawing-title">{caseData.title} · 대표도면</h2></div><button type="button" onClick={() => setDrawingOpen(false)} aria-label="닫기">×</button></header><div>{caseData.drawing?.largeUrl ? <img src={caseData.drawing.largeUrl} alt={`${caseData.title} 대표도면 확대`} /> : <p>대표도면이 없습니다.</p>}</div></section>
-        </div>
-      )}
-
-      {settingsOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSettingsOpen(false)}>
-          <section className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-            <header><div><span className="eyebrow">ACCOUNT & API SETTINGS</span><h2 id="settings-title">계정 및 API 설정</h2><p>사용자별 키는 암호화되어 Cloudflare D1에 저장됩니다.</p></div><button type="button" onClick={() => setSettingsOpen(false)} aria-label="닫기">×</button></header>
-            <div className="account-status">
-              <span>{auth?.user.email?.slice(0, 1).toUpperCase() || 'U'}</span>
-              <div><strong>{auth?.user.email || 'Cloudflare Access 연결 필요'}</strong><small>{auth?.user.isDevelopment ? '로컬 개발 계정' : auth ? 'Cloudflare Access 인증됨' : authError || '인증 확인 중'}</small></div>
-              {auth?.logoutUrl && <a href={auth.logoutUrl}>로그아웃</a>}
-            </div>
-            <form className="settings-form" onSubmit={saveSettings}>
-              <label>
-                <span>KIPRIS Plus API 키</span>
-                <small>{settings?.hasKiprisKey ? `저장됨 · 끝 4자리 ${settings.kiprisLast4}` : '아직 저장되지 않음'}</small>
-                <input type="password" autoComplete="off" value={kiprisKeyInput} onChange={(event) => setKiprisKeyInput(event.target.value)} placeholder={settings?.hasKiprisKey ? '변경할 때만 새 키 입력' : 'accessKey 입력'} />
-              </label>
-              <label>
-                <span>OpenAI API 키</span>
-                <small>{settings?.hasOpenAiKey ? `저장됨 · 끝 4자리 ${settings.openaiLast4}` : 'AI 요약 생성에 필요'}</small>
-                <input type="password" autoComplete="off" value={openAiKeyInput} onChange={(event) => setOpenAiKeyInput(event.target.value)} placeholder={settings?.hasOpenAiKey ? '변경할 때만 새 키 입력' : 'sk-…'} />
-              </label>
-              <label>
-                <span>요약 모델</span>
-                <small>비용과 속도를 고려한 기본값은 gpt-5-mini입니다.</small>
-                <input type="text" value={openAiModelInput} onChange={(event) => setOpenAiModelInput(event.target.value)} placeholder="gpt-5-mini" />
-              </label>
-              <div className="settings-security-note"><strong>보안 처리</strong><p>키는 HTTPS로 서버에 전달되고 AES-GCM으로 암호화됩니다. 저장 후에는 원문을 다시 표시하지 않습니다.</p></div>
-              <footer><button className="text-button" type="button" onClick={() => setSettingsOpen(false)}>취소</button><button className="export-button" type="submit" disabled={settingsBusy || !auth}>{settingsBusy ? '저장 중…' : '암호화하여 저장'}</button></footer>
-            </form>
-          </section>
         </div>
       )}
 
