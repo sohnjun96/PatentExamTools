@@ -8,6 +8,14 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === 'seatbelt';
 const localBindingConfig = {
   main: 'vinext/server/app-router-entry',
   compatibility_flags: ['nodejs_compat'],
+  d1_databases: [
+    {
+      binding: 'DB',
+      database_name: 'patent-examiner-db',
+      database_id: process.env.CLOUDFLARE_D1_DATABASE_ID,
+      migrations_dir: 'migrations',
+    },
+  ],
 };
 
 export default defineConfig(async () => {

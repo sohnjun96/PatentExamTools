@@ -44,6 +44,39 @@ type ApiUsage = {
   byOperation: Record<string, number>;
 };
 
+type AuthState = {
+  user: { id: string; email: string; isDevelopment: boolean };
+  logoutUrl: string;
+};
+
+type SecretSettings = {
+  hasKiprisKey: boolean;
+  kiprisLast4: string;
+  hasOpenAiKey: boolean;
+  openaiLast4: string;
+  openaiModel: string;
+};
+
+type ExaminationSummary = {
+  oneLine: string;
+  technicalProblem: string;
+  solution: string;
+  keyElements: string[];
+  effects: string[];
+  claimOverview: string;
+  examinationPoints: string[];
+  searchKeywords: string[];
+  cautions: string[];
+};
+
+type SummaryPayload = {
+  summary: ExaminationSummary | null;
+  model?: string;
+  cached: boolean;
+  generatedAt?: string;
+  usage?: { inputTokens: number; outputTokens: number };
+};
+
 type PatentCase = {
   applicationNumber: string;
   applicationNumberRaw: string;
@@ -109,6 +142,7 @@ type LivePayload = {
   sources: SourceStatus[];
   usage: ApiUsage;
   fetchedAt: string;
+  cached?: boolean;
 };
 
 const drawingUrl = '/demo-drawing.jpg';
@@ -298,6 +332,17 @@ export default function Home() {
   const [packageOpen, setPackageOpen] = useState(false);
   const [drawingOpen, setDrawingOpen] = useState(false);
   const [cpcOpen, setCpcOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [auth, setAuth] = useState<AuthState | null>(null);
+  const [authError, setAuthError] = useState('');
+  const [settings, setSettings] = useState<SecretSettings | null>(null);
+  const [kiprisKeyInput, setKiprisKeyInput] = useState('');
+  const [openAiKeyInput, setOpenAiKeyInput] = useState('');
+  const [openAiModelInput, setOpenAiModelInput] = useState('gpt-5-mini');
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const [summaryPayload, setSummaryPayload] = useState<SummaryPayload | null>(null);
+  const [summaryBusy, setSummaryBusy] = useState(false);
+  const [summaryError, setSummaryError] = useState('');
   const [apiUsage, setApiUsage] = useState<ApiUsage | null>(null);
   const [packageBusy, setPackageBusy] = useState(false);
   const [packageOptions, setPackageOptions] = useState({
@@ -315,6 +360,7 @@ export default function Home() {
         setPackageOpen(false);
         setDrawingOpen(false);
         setCpcOpen(false);
+        setSettingsOpen(false);
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -322,7 +368,24 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    void fetchApiUsage().then(setApiUsage).catch(() => undefined);
+    async function initializeAccount() {
+      try {
+        const authResponse = await fetch('/api/auth/me', { cache: 'no-store' });
+        const authPayload = (await authResponse.json()) as AuthState & { error?: string };
+        if (!authResponse.ok) throw new Error(authPayload.error || '로그인이 필요합니다.');
+        setAuth(authPayload);
+        const settingsResponse = await fetch('/api/settings', { cache: 'no-store' });
+        if (settingsResponse.ok) {
+          const settingsPayload = (await settingsResponse.json()) as SecretSettings;
+          setSettings(settingsPayload);
+          setOpenAiModelInput(settingsPayload.openaiModel);
+        }
+        setApiUsage(await fetchApiUsage());
+      } catch (error) {
+        setAuthError(error instanceof Error ? error.message : '로그인 상태를 확인하지 못했습니다.');
+      }
+    }
+    void initializeAccount();
   }, []);
 
   useEffect(() => {
@@ -364,6 +427,8 @@ export default function Home() {
       if (normalized === demoCase.applicationNumberRaw) {
         await new Promise((resolve) => window.setTimeout(resolve, 550));
         setCaseData(demoCase);
+        setSummaryPayload(null);
+        setSummaryError('');
         setActiveView('overview');
         setToast('샘플 사건 데이터를 불러왔습니다.');
         return;
@@ -374,14 +439,73 @@ export default function Home() {
       );
       const payload = (await response.json()) as LivePayload & { error?: string };
       if (!response.ok) throw new Error(payload.error || '사건 조회에 실패했습니다.');
-      setCaseData(mapLiveCase(payload as LivePayload));
+      const loadedCase = mapLiveCase(payload as LivePayload);
+      setCaseData(loadedCase);
       setApiUsage(payload.usage);
+      setSummaryPayload(null);
+      setSummaryError('');
+      void loadSummary(normalized, false);
       setActiveView('overview');
-      setToast('KIPRIS Plus 최신 데이터를 불러왔습니다.');
+      setToast(payload.cached ? 'D1에 저장된 사건 데이터를 불러왔습니다.' : 'KIPRIS Plus 최신 데이터를 불러왔습니다.');
     } catch (error) {
       setToast(error instanceof Error ? error.message : '사건 조회에 실패했습니다.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadSummary(applicationNumber: string, generate: boolean, force = false) {
+    setSummaryBusy(generate);
+    setSummaryError('');
+    try {
+      const parameters = new URLSearchParams({ applicationNumber });
+      if (force) parameters.set('force', 'true');
+      const response = await fetch(`/api/patent/summary?${parameters.toString()}`, {
+        method: generate ? 'POST' : 'GET',
+        headers: generate ? { 'Content-Type': 'application/json' } : undefined,
+      });
+      const payload = (await response.json()) as SummaryPayload & { error?: string };
+      if (!response.ok) {
+        if (!generate && response.status === 404) return;
+        throw new Error(payload.error || 'AI 요약을 불러오지 못했습니다.');
+      }
+      setSummaryPayload(payload);
+      if (!generate && !payload.summary && settings?.hasOpenAiKey) {
+        void loadSummary(applicationNumber, true);
+        return;
+      }
+      if (generate) setToast(payload.cached ? '저장된 AI 요약을 불러왔습니다.' : 'AI 심사요약을 생성했습니다.');
+    } catch (error) {
+      setSummaryError(error instanceof Error ? error.message : 'AI 요약을 불러오지 못했습니다.');
+    } finally {
+      setSummaryBusy(false);
+    }
+  }
+
+  async function saveSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSettingsBusy(true);
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kiprisApiKey: kiprisKeyInput,
+          openaiApiKey: openAiKeyInput,
+          openaiModel: openAiModelInput,
+        }),
+      });
+      const payload = (await response.json()) as SecretSettings & { error?: string };
+      if (!response.ok) throw new Error(payload.error || '설정을 저장하지 못했습니다.');
+      setSettings(payload);
+      setKiprisKeyInput('');
+      setOpenAiKeyInput('');
+      setSettingsOpen(false);
+      setToast('API 키를 암호화해 저장했습니다.');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : '설정을 저장하지 못했습니다.');
+    } finally {
+      setSettingsBusy(false);
     }
   }
 
@@ -411,6 +535,7 @@ export default function Home() {
               cpc: caseData.cpc,
               ipc: caseData.ipc,
               abstract: caseData.abstract,
+              aiExaminationSummary: summaryPayload?.summary ?? null,
             },
             null,
             2,
@@ -566,10 +691,13 @@ export default function Home() {
           </form>
           <div className="top-actions">
             <span className="demo-pill">{caseData.isDemo ? 'DEMO' : 'LIVE'}</span>
-            <span className="api-usage-pill" title={usageDetails} aria-label={`KIPRIS Plus API 누적 호출 ${apiUsage?.total ?? 0}회, 현재 서버 실행 기준`}>
-              API 호출 <strong>{apiUsage?.total ?? '—'}</strong>회 <small>서버 실행 기준</small>
+            <span className="api-usage-pill" title={usageDetails} aria-label={`KIPRIS Plus API D1 누적 호출 ${apiUsage?.total ?? 0}회`}>
+              API 호출 <strong>{apiUsage?.total ?? '—'}</strong>회 <small>D1 누적</small>
             </span>
-            <button className="text-button" type="button" onClick={() => setToast('최근 조회 저장은 다음 MVP 단계에서 연결합니다.')}>최근 조회</button>
+            <button className="account-button" type="button" onClick={() => setSettingsOpen(true)}>
+              <span>{auth?.user.email?.slice(0, 1).toUpperCase() || 'U'}</span>
+              <span><strong>{auth?.user.email || (authError ? '설정 필요' : '로그인 확인 중')}</strong><small>API 키 · 모델 설정</small></span>
+            </button>
             <button className="export-button" type="button" onClick={() => setPackageOpen(true)}>
               심사자료 묶음 만들기 <span>↓</span>
             </button>
@@ -625,9 +753,42 @@ export default function Home() {
                       <em>→</em>
                     </button>
                   </div>
-                  <div className="abstract-preview">
-                    <span>초록 요약</span>
-                    <p>{caseData.abstract}</p>
+                  <div className="ai-summary-card">
+                    <div className="ai-summary-head">
+                      <div><span>AI EXAMINATION BRIEF</span><strong>발명 요약</strong></div>
+                      {!caseData.isDemo && (
+                        <button
+                          type="button"
+                          disabled={summaryBusy}
+                          onClick={() => void loadSummary(caseData.applicationNumberRaw, true, Boolean(summaryPayload?.summary))}
+                        >
+                          {summaryBusy ? '분석 중…' : summaryPayload?.summary ? '다시 생성' : 'AI 요약 생성'}
+                        </button>
+                      )}
+                    </div>
+                    {summaryPayload?.summary ? (
+                      <div className="ai-summary-content">
+                        <p className="ai-one-line">{summaryPayload.summary.oneLine}</p>
+                        <dl>
+                          <div><dt>기술적 과제</dt><dd>{summaryPayload.summary.technicalProblem}</dd></div>
+                          <div><dt>해결수단</dt><dd>{summaryPayload.summary.solution}</dd></div>
+                          <div><dt>청구범위</dt><dd>{summaryPayload.summary.claimOverview}</dd></div>
+                        </dl>
+                        <div className="ai-summary-columns">
+                          <div><strong>핵심 구성</strong><ul>{summaryPayload.summary.keyElements.map((item) => <li key={item}>{item}</li>)}</ul></div>
+                          <div><strong>심사 확인 포인트</strong><ul>{summaryPayload.summary.examinationPoints.map((item) => <li key={item}>{item}</li>)}</ul></div>
+                        </div>
+                        <div className="keyword-row">{summaryPayload.summary.searchKeywords.map((keyword) => <span key={keyword}>{keyword}</span>)}</div>
+                        <small>{summaryPayload.model} · {summaryPayload.cached ? 'D1 저장 요약' : '새로 생성'} · AI 결과는 원문 확인이 필요합니다.</small>
+                      </div>
+                    ) : (
+                      <div className="abstract-preview ai-fallback">
+                        <span>{caseData.isDemo ? '초록 기반 미리보기' : '원문 초록'}</span>
+                        <p>{caseData.abstract}</p>
+                        {summaryError && <em>{summaryError}</em>}
+                        {!caseData.isDemo && !summaryError && <small>저장된 요약이 없으면 버튼을 눌러 최초 1회 생성합니다.</small>}
+                      </div>
+                    )}
                   </div>
                 </article>
 
@@ -791,6 +952,38 @@ export default function Home() {
       {drawingOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setDrawingOpen(false)}>
           <section className="modal drawing-modal" role="dialog" aria-modal="true" aria-labelledby="drawing-title"><header><div><span className="eyebrow">REPRESENTATIVE DRAWING</span><h2 id="drawing-title">{caseData.title} · 대표도면</h2></div><button type="button" onClick={() => setDrawingOpen(false)} aria-label="닫기">×</button></header><div>{caseData.drawing?.largeUrl ? <img src={caseData.drawing.largeUrl} alt={`${caseData.title} 대표도면 확대`} /> : <p>대표도면이 없습니다.</p>}</div></section>
+        </div>
+      )}
+
+      {settingsOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSettingsOpen(false)}>
+          <section className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+            <header><div><span className="eyebrow">ACCOUNT & API SETTINGS</span><h2 id="settings-title">계정 및 API 설정</h2><p>사용자별 키는 암호화되어 Cloudflare D1에 저장됩니다.</p></div><button type="button" onClick={() => setSettingsOpen(false)} aria-label="닫기">×</button></header>
+            <div className="account-status">
+              <span>{auth?.user.email?.slice(0, 1).toUpperCase() || 'U'}</span>
+              <div><strong>{auth?.user.email || 'Cloudflare Access 연결 필요'}</strong><small>{auth?.user.isDevelopment ? '로컬 개발 계정' : auth ? 'Cloudflare Access 인증됨' : authError || '인증 확인 중'}</small></div>
+              {auth?.logoutUrl && <a href={auth.logoutUrl}>로그아웃</a>}
+            </div>
+            <form className="settings-form" onSubmit={saveSettings}>
+              <label>
+                <span>KIPRIS Plus API 키</span>
+                <small>{settings?.hasKiprisKey ? `저장됨 · 끝 4자리 ${settings.kiprisLast4}` : '아직 저장되지 않음'}</small>
+                <input type="password" autoComplete="off" value={kiprisKeyInput} onChange={(event) => setKiprisKeyInput(event.target.value)} placeholder={settings?.hasKiprisKey ? '변경할 때만 새 키 입력' : 'accessKey 입력'} />
+              </label>
+              <label>
+                <span>OpenAI API 키</span>
+                <small>{settings?.hasOpenAiKey ? `저장됨 · 끝 4자리 ${settings.openaiLast4}` : 'AI 요약 생성에 필요'}</small>
+                <input type="password" autoComplete="off" value={openAiKeyInput} onChange={(event) => setOpenAiKeyInput(event.target.value)} placeholder={settings?.hasOpenAiKey ? '변경할 때만 새 키 입력' : 'sk-…'} />
+              </label>
+              <label>
+                <span>요약 모델</span>
+                <small>비용과 속도를 고려한 기본값은 gpt-5-mini입니다.</small>
+                <input type="text" value={openAiModelInput} onChange={(event) => setOpenAiModelInput(event.target.value)} placeholder="gpt-5-mini" />
+              </label>
+              <div className="settings-security-note"><strong>보안 처리</strong><p>키는 HTTPS로 서버에 전달되고 AES-GCM으로 암호화됩니다. 저장 후에는 원문을 다시 표시하지 않습니다.</p></div>
+              <footer><button className="text-button" type="button" onClick={() => setSettingsOpen(false)}>취소</button><button className="export-button" type="submit" disabled={settingsBusy || !auth}>{settingsBusy ? '저장 중…' : '암호화하여 저장'}</button></footer>
+            </form>
+          </section>
         </div>
       )}
 

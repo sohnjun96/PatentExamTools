@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { XMLParser } from 'fast-xml-parser';
-import {
-  getKiprisApiUsage,
-  recordKiprisApiCall,
-} from '@/app/lib/kipris-usage';
+import { recordKiprisApiCall } from '@/app/lib/kipris-usage';
+import { requireUser } from '@/app/lib/auth';
+import { getApiUsage, recordApiUsage } from '@/app/lib/db';
+import { errorResponse } from '@/app/lib/http';
+import { getKiprisKey } from '@/app/lib/secrets';
 
 const BASE_URL = 'https://plus.kipris.or.kr';
 const PDF_INFO_PATH = '/openapi/rest/IntermediateDocumentOPService/pdfInfoV2';
@@ -123,6 +124,12 @@ async function fetchPdfMetadata(
 }
 
 export async function GET(request: NextRequest) {
+  let user;
+  try {
+    user = await requireUser(request);
+  } catch (error) {
+    return errorResponse(error);
+  }
   const applicationNumber = (
     request.nextUrl.searchParams.get('applicationNumber') ?? ''
   ).replace(/\D/g, '');
@@ -144,15 +151,20 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const accessKey = process.env.KIPRIS_API_KEY?.trim();
-  if (!accessKey || /^your_/i.test(accessKey)) {
-    return NextResponse.json(
-      { error: 'KIPRIS_API_KEY가 아직 설정되지 않았습니다.' },
-      { status: 503 },
-    );
+  let accessKey: string;
+  try {
+    accessKey = await getKiprisKey(user.id);
+  } catch (error) {
+    return errorResponse(error);
   }
 
   try {
+    await recordApiUsage(
+      user.id,
+      'kipris',
+      ['의견제출통지서 PDF_V2'],
+      applicationNumber,
+    );
     const metadata = await fetchPdfMetadata(
       applicationNumber,
       sendNumber,
@@ -175,7 +187,7 @@ export async function GET(request: NextRequest) {
         'Content-Disposition': `inline; filename*=UTF-8''${encodedName}`,
         'Cache-Control': 'private, no-store',
         'X-Content-Type-Options': 'nosniff',
-        'X-KIPRIS-API-Calls-Total': String(getKiprisApiUsage().total),
+        'X-KIPRIS-API-Calls-Total': String((await getApiUsage(user.id)).total),
       },
     });
   } catch (error) {

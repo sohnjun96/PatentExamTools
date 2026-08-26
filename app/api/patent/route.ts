@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { XMLParser } from 'fast-xml-parser';
+import { recordKiprisApiCall } from '@/app/lib/kipris-usage';
+import { requireUser } from '@/app/lib/auth';
 import {
-  getKiprisApiUsage,
-  recordKiprisApiCall,
-} from '@/app/lib/kipris-usage';
+  getApiUsage,
+  getPatentCase,
+  recordApiUsage,
+  savePatentCase,
+} from '@/app/lib/db';
+import { errorResponse } from '@/app/lib/http';
+import { envValue } from '@/app/lib/runtime-env';
+import { getKiprisKey } from '@/app/lib/secrets';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -246,12 +253,14 @@ function normalizeDrawing(payload: unknown) {
 }
 
 export async function GET(request: NextRequest) {
-  if (rateLimited(request)) {
-    return NextResponse.json(
-      { error: '요청이 많습니다. 잠시 후 다시 시도해 주세요.' },
-      { status: 429 },
-    );
-  }
+  try {
+    const user = await requireUser(request);
+    if (rateLimited(request)) {
+      return NextResponse.json(
+        { error: '요청이 많습니다. 잠시 후 다시 시도해 주세요.' },
+        { status: 429 },
+      );
+    }
 
   const rawNumber = request.nextUrl.searchParams.get('applicationNumber') ?? '';
   const applicationNumber = rawNumber.replace(/\D/g, '');
@@ -263,18 +272,26 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const accessKey = process.env.KIPRIS_API_KEY?.trim();
-  if (!accessKey || /^your_/i.test(accessKey)) {
-    return NextResponse.json(
-      {
-        error: 'KIPRIS_API_KEY가 아직 설정되지 않았습니다.',
-        code: 'API_KEY_MISSING',
-        demoApplicationNumber: '1020200093844',
-      },
-      { status: 503 },
-    );
-  }
-  const serviceKey = process.env.KIPRIS_SERVICE_KEY ?? accessKey;
+    const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
+    if (!refresh) {
+      const stored = await getPatentCase<Record<string, unknown>>(
+        user.id,
+        applicationNumber,
+      );
+      if (stored) {
+        return NextResponse.json(
+          {
+            ...stored.payload,
+            cached: true,
+            usage: await getApiUsage(user.id),
+          },
+          { headers: { 'Cache-Control': 'private, no-store' } },
+        );
+      }
+    }
+
+    const accessKey = await getKiprisKey(user.id);
+    const serviceKey = envValue('KIPRIS_SERVICE_KEY') || accessKey;
 
   const names = Object.keys(endpoints);
   const settled = await Promise.allSettled(
@@ -321,6 +338,7 @@ export async function GET(request: NextRequest) {
       entry.title.includes('의견제출통지서') && entry.documentNumber.length > 0,
   );
 
+  const fetchedAt = new Date().toISOString();
   const response = {
     applicationNumber,
     bibliography,
@@ -332,11 +350,22 @@ export async function GET(request: NextRequest) {
     fullText: null,
     notices,
     sources,
-    usage: getKiprisApiUsage(),
-    fetchedAt: new Date().toISOString(),
+    fetchedAt,
+    cached: false,
   };
 
-  return NextResponse.json(response, {
+  await recordApiUsage(
+    user.id,
+    'kipris',
+    names.map((name) => endpoints[name].operation),
+    applicationNumber,
+  );
+  await savePatentCase(user.id, applicationNumber, response, fetchedAt);
+
+  return NextResponse.json({ ...response, usage: await getApiUsage(user.id) }, {
     headers: { 'Cache-Control': 'no-store' },
   });
+  } catch (error) {
+    return errorResponse(error);
+  }
 }

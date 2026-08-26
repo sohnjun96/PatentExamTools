@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
-import { requireUser } from '@/app/lib/auth';
-import { getApiUsage } from '@/app/lib/db';
+import { accessLogoutUrl, requireUser } from '@/app/lib/auth';
 import { errorResponse } from '@/app/lib/http';
 
 export async function GET(request: Request) {
   try {
     const user = await requireUser(request);
-    return NextResponse.json(await getApiUsage(user.id), {
-      headers: { 'Cache-Control': 'private, no-store' },
-    });
+    return NextResponse.json(
+      { user, logoutUrl: accessLogoutUrl() },
+      { headers: { 'Cache-Control': 'private, no-store' } },
+    );
   } catch (error) {
     return errorResponse(error);
   }
