@@ -25,6 +25,7 @@ type PatentCase = {
   history: HistoryItem[]; notices: NoticeItem[]; drawing: { fileName: string; thumbnailUrl: string; largeUrl: string } | null;
   fullText: { fileName: string; fileUrl: string } | null; sources: SourceStatus[]; isDemo: boolean;
 };
+type StoredWorkspace = { version: 1; data: PatentCase; summary: SummaryPayload | null; savedAt: string };
 type LivePayload = {
   applicationNumber: string;
   bibliography: null | { applicationNumber: string; applicationDate: string; title: string; titleEnglish: string; publicationNumber: string; publicationDate: string; registrationNumber: string; registrationDate: string; registrationStatus: string; finalDisposal: string; examinationRequestDate: string; examinerName: string; claimCount: number; abstract: string; ipc: CodeItem[]; claims: Claim[]; applicants: Array<{ name: string; englishName: string; country: string }>; inventors: Array<{ name: string; country: string }> };
@@ -70,6 +71,35 @@ function mapLiveCase(payload: LivePayload): PatentCase {
   const b = payload.bibliography; const applicant = b?.applicants?.[0];
   return { applicationNumber: formatApplicationNumber(b?.applicationNumber || payload.applicationNumber), applicationNumberRaw: payload.applicationNumber, title: b?.title || '발명의 명칭 미수신', titleEnglish: b?.titleEnglish || '', status: b?.finalDisposal || b?.registrationStatus || '심사 진행', updatedAt: new Date(payload.fetchedAt).toLocaleString('ko-KR'), applicant: applicant?.name || '출원인 미수신', applicantCountry: applicant?.country || '', applicationDate: formatDate(b?.applicationDate || ''), publicationNumber: b?.publicationNumber || '', publicationDate: formatDate(b?.publicationDate || ''), registrationNumber: b?.registrationNumber || '', registrationDate: formatDate(b?.registrationDate || ''), registrationStatus: b?.registrationStatus || '', examinationRequestDate: formatDate(b?.examinationRequestDate || ''), examinerName: b?.examinerName || '—', claimCount: b?.claimCount || b?.claims.length || 0, inventorCount: b?.inventors.length || 0, abstract: b?.abstract || '초록 데이터가 없습니다.', ipc: b?.ipc || [], cpc: payload.cpc || [], claims: b?.claims || [], family: payload.family || [], history: payload.history || [], notices: payload.notices || [], drawing: payload.drawing, fullText: payload.fullText, sources: payload.sources || [], isDemo: false };
 }
+const WORKSPACE_STORAGE_KEY = 'patent-exam-workspace:last-case-v1';
+function readStoredWorkspace() {
+  try {
+    const raw = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+    if (!raw) return null;
+    const stored = JSON.parse(raw) as StoredWorkspace;
+    return stored.version === 1 && stored.data?.applicationNumberRaw ? stored : null;
+  } catch { return null; }
+}
+function writeStoredWorkspace(data: PatentCase, summary: SummaryPayload | null = null) {
+  try { window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify({ version: 1, data, summary, savedAt: new Date().toISOString() } satisfies StoredWorkspace)); } catch { /* 브라우저 저장소를 사용할 수 없어도 조회는 계속합니다. */ }
+}
+function writeStoredSummary(applicationNumber: string, summary: SummaryPayload) {
+  const stored = readStoredWorkspace();
+  if (stored?.data.applicationNumberRaw !== applicationNumber) return;
+  writeStoredWorkspace(stored.data, summary);
+}
+function syncCaseUrl(applicationNumber: string) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('applicationNumber', applicationNumber);
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+}
+async function requestPatentCase(applicationNumber: string) {
+  if (applicationNumber === demoCase.applicationNumberRaw) return { data: demoCase, usage: null };
+  const response = await fetch(`/api/patent?applicationNumber=${encodeURIComponent(applicationNumber)}`);
+  const payload = (await response.json()) as LivePayload & { error?: string };
+  if (!response.ok) throw new Error(payload.error || '사건 조회에 실패했습니다.');
+  return { data: mapLiveCase(payload), usage: payload.usage };
+}
 function featureRows(claim: Claim | undefined): ClaimFeature[] {
   if (!claim) return [];
   const parts = claim.text.replace(/\n/g, ' ').split(/;| 및 |, 상기 /).map((part) => part.trim().replace(/^상기 /, '')).filter((part) => part.length > 8).slice(0, 7);
@@ -81,24 +111,44 @@ export default function ExamWorkspace() {
   const [data, setData] = useState<PatentCase>(demoCase); const [query, setQuery] = useState(demoCase.applicationNumber); const [mode, setMode] = useState<WorkMode>('response'); const [view, setView] = useState<WorkView>('overview');
   const [resourceOpen, setResourceOpen] = useState(false); const [resourceTab, setResourceTab] = useState<ResourceTab>('biblio'); const [loading, setLoading] = useState(false); const [loadStage, setLoadStage] = useState(0); const [toast, setToast] = useState(''); const [usage, setUsage] = useState<ApiUsage | null>(null);
   const [summary, setSummary] = useState<SummaryPayload | null>(null); const [summaryBusy, setSummaryBusy] = useState(false); const [summaryError, setSummaryError] = useState(''); const [selectedClaim, setSelectedClaim] = useState(1); const [features, setFeatures] = useState<ClaimFeature[]>(featureRows(demoCase.claims[0]));
-  const [strategyVersion, setStrategyVersion] = useState(1); const [advancedQuery, setAdvancedQuery] = useState(false); const [searchRan, setSearchRan] = useState(false); const [candidates, setCandidates] = useState<Candidate[]>([]); const [selectedCandidate, setSelectedCandidate] = useState<string | null>(null); const [selectedNotice, setSelectedNotice] = useState<NoticeItem | null>(null); const [drawingOpen, setDrawingOpen] = useState(false); const [packageBusy, setPackageBusy] = useState(false);
+  const [strategyVersion, setStrategyVersion] = useState(1); const [advancedQuery, setAdvancedQuery] = useState(false); const [searchRan, setSearchRan] = useState(false); const [candidates, setCandidates] = useState<Candidate[]>([]); const [selectedCandidate, setSelectedCandidate] = useState<string | null>(null); const [selectedNotice, setSelectedNotice] = useState<NoticeItem | null>(null); const [drawingOpen, setDrawingOpen] = useState(false); const [packageBusy, setPackageBusy] = useState(false); const [restoring, setRestoring] = useState(true);
   const steps = mode === 'response' ? responseSteps : initialSteps; const activeIndex = Math.max(0, steps.findIndex((step) => step[0] === view)); const currentClaim = data.claims.find((claim) => claim.number === selectedClaim) || data.claims[0]; const amendment = latestAmendment(data);
   const targetLabel = mode === 'response' && amendment ? `${formatDate(amendment.date)} 보정 청구항 1~${data.claimCount}` : `현재 출원 청구항 1~${data.claimCount}`;
   const sourceOk = data.sources.filter((source) => source.ok).length; const familyCountries = new Set(data.family.map((item) => item.countryCode).filter(Boolean)).size; const independentClaims = data.claims.filter((claim) => !/^제\d+항/.test(claim.text.trim()));
+  useEffect(() => {
+    let cancelled = false;
+    const requested = digits(new URLSearchParams(window.location.search).get('applicationNumber') || '');
+    const stored = readStoredWorkspace();
+    if (stored && (!requested || requested === stored.data.applicationNumberRaw)) {
+      window.queueMicrotask(() => {
+        if (cancelled) return;
+        const nextMode = modeFor(stored.data);
+        setData(stored.data); setQuery(stored.data.applicationNumber); setMode(nextMode); setView('overview'); setSelectedClaim(stored.data.claims[0]?.number || 1); setFeatures(featureRows(stored.data.claims[0])); setSummary(stored.summary); setRestoring(false);
+      });
+      return () => { cancelled = true; };
+    }
+    if (!/^(10|20)\d{11}$/.test(requested)) { window.queueMicrotask(() => { if (!cancelled) setRestoring(false); }); return () => { cancelled = true; }; }
+    void requestPatentCase(requested).then(({ data: restoredData, usage: restoredUsage }) => {
+      if (cancelled) return;
+      const nextMode = modeFor(restoredData);
+      setData(restoredData); setQuery(restoredData.applicationNumber); setMode(nextMode); setView('overview'); setSelectedClaim(restoredData.claims[0]?.number || 1); setFeatures(featureRows(restoredData.claims[0])); if (restoredUsage) setUsage(restoredUsage); writeStoredWorkspace(restoredData); syncCaseUrl(restoredData.applicationNumberRaw);
+    }).catch((error) => { if (!cancelled) setToast(error instanceof Error ? error.message : '이전 사건을 불러오지 못했습니다.'); }).finally(() => { if (!cancelled) setRestoring(false); });
+    return () => { cancelled = true; };
+  }, []);
   useEffect(() => { void fetchUsage().then(setUsage).catch(() => undefined); }, []);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 3200); return () => window.clearTimeout(timer); }, [toast]);
   function go(next: WorkView) { setView(next); window.scrollTo({ top: 0, behavior: 'smooth' }); }
   function openResource(tab: ResourceTab) { setResourceTab(tab); setResourceOpen(true); }
   async function loadSummary(applicationNumber: string, force = false) {
     setSummaryBusy(true); setSummaryError('');
-    try { const parameters = new URLSearchParams({ applicationNumber }); if (force) parameters.set('force', 'true'); let response = await fetch(`/api/patent/summary?${parameters}`, { cache: 'no-store' }); if (response.status === 404) response = await fetch(`/api/patent/summary?${parameters}`, { method: 'POST' }); const payload = (await response.json()) as SummaryPayload & { error?: string }; if (!response.ok) throw new Error(payload.error || 'AI 분석을 불러오지 못했습니다.'); setSummary(payload); }
+    try { const parameters = new URLSearchParams({ applicationNumber }); if (force) parameters.set('force', 'true'); let response = await fetch(`/api/patent/summary?${parameters}`, { cache: 'no-store' }); if (response.status === 404) response = await fetch(`/api/patent/summary?${parameters}`, { method: 'POST' }); const payload = (await response.json()) as SummaryPayload & { error?: string }; if (!response.ok) throw new Error(payload.error || 'AI 분석을 불러오지 못했습니다.'); setSummary(payload); writeStoredSummary(applicationNumber, payload); }
     catch (error) { setSummaryError(error instanceof Error ? error.message : 'AI 분석을 불러오지 못했습니다.'); } finally { setSummaryBusy(false); }
   }
   async function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const normalized = digits(query); if (!/^(10|20)\d{11}$/.test(normalized)) { setToast('특허·실용신안 출원번호 13자리를 확인해 주세요.'); return; }
     setLoading(true); setLoadStage(0); const timer = window.setInterval(() => setLoadStage((current) => Math.min(current + 1, 4)), 420);
-    try { let nextData: PatentCase; if (normalized === demoCase.applicationNumberRaw) { await new Promise((resolve) => window.setTimeout(resolve, 900)); nextData = demoCase; } else { const response = await fetch(`/api/patent?applicationNumber=${encodeURIComponent(normalized)}`); const payload = (await response.json()) as LivePayload & { error?: string }; if (!response.ok) throw new Error(payload.error || '사건 조회에 실패했습니다.'); nextData = mapLiveCase(payload); setUsage(payload.usage); }
-      const nextMode = modeFor(nextData); setData(nextData); setMode(nextMode); setView('overview'); setSelectedClaim(nextData.claims[0]?.number || 1); setFeatures(featureRows(nextData.claims[0])); setSummary(null); setSearchRan(false); setCandidates([]); if (!nextData.isDemo) void loadSummary(nextData.applicationNumberRaw); setToast(`${nextMode === 'response' ? '중간서류' : '착수'} 모드로 사건을 불러왔습니다.`);
+    try { const { data: nextData, usage: nextUsage } = await requestPatentCase(normalized); if (nextUsage) setUsage(nextUsage);
+      const nextMode = modeFor(nextData); setData(nextData); setQuery(nextData.applicationNumber); setMode(nextMode); setView('overview'); setSelectedClaim(nextData.claims[0]?.number || 1); setFeatures(featureRows(nextData.claims[0])); setSummary(null); setSearchRan(false); setCandidates([]); writeStoredWorkspace(nextData); syncCaseUrl(nextData.applicationNumberRaw); if (!nextData.isDemo) void loadSummary(nextData.applicationNumberRaw); setToast(`${nextMode === 'response' ? '중간서류' : '착수'} 모드로 사건을 불러왔습니다.`);
     } catch (error) { setToast(error instanceof Error ? error.message : '사건 조회에 실패했습니다.'); } finally { window.clearInterval(timer); setLoadStage(4); setLoading(false); }
   }
   async function downloadPackage() {
@@ -106,6 +156,8 @@ export default function ExamWorkspace() {
   }
   function runSearch() { setSearchRan(true); if (data.isDemo) { setCandidates(demoCandidates); setToast('데모 검색결과 3건을 불러왔습니다.'); } else { setCandidates([]); setToast('실데이터 검색 API는 다음 연동 단계에서 연결합니다.'); } }
   function pdfUrl(notice: NoticeItem) { return `/api/patent/pdf?${new URLSearchParams({ applicationNumber: data.applicationNumberRaw, sendNumber: notice.documentNumber })}`; }
+
+  if (restoring) return <div className="exam-app"><div className="exam-loading" role="status"><section><span>RESTORING WORKSPACE</span><h2>이전에 보던 심사 사건을 불러오는 중입니다.</h2></section></div></div>;
 
   return <div className={`exam-app mode-${mode}`}>
     <a className="skip-link" href="#exam-main">본문 바로가기</a><div className="exam-govbar"><span aria-hidden="true" /> 대한민국 공식 전자정부 누리집의 디자인 원칙을 참고한 심사 지원 MVP</div>
