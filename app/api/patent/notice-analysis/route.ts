@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { appDatabase, recordApiUsage, WORKSPACE_USER_ID } from '@/app/lib/db';
 import { errorResponse, HttpError } from '@/app/lib/http';
 import { loadNoticePdf, noticeIdentifiers } from '@/app/lib/kipris-notice';
+import { requestStructuredOpenAi } from '@/app/lib/openai-response';
 import { envValue } from '@/app/lib/runtime-env';
 import { getOpenAiCredentials } from '@/app/lib/secrets';
 
@@ -81,19 +82,6 @@ const SUMMARY_ONLY_SCHEMA = {
   required: SUMMARY_REQUIRED,
   properties: SUMMARY_PROPERTIES,
 };
-
-function outputText(payload: unknown) {
-  const response = payload as {
-    output_text?: string;
-    output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
-  };
-  if (response.output_text) return response.output_text;
-  return (response.output ?? [])
-    .flatMap((item) => item.content ?? [])
-    .filter((item) => item.type === 'output_text')
-    .map((item) => item.text ?? '')
-    .join('');
-}
 
 async function sha256(buffer: ArrayBuffer) {
   const versionBytes = new TextEncoder().encode(ANALYSIS_VERSION);
@@ -176,75 +164,47 @@ async function parseWithKordoc(pdf: ArrayBuffer, fileName: string) {
   return markdown;
 }
 
-async function callOpenAi(body: Record<string, unknown>, apiKey: string) {
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(180_000),
-  });
-  const payload = await response.json() as {
-    error?: { message?: string };
-    usage?: { input_tokens?: number; output_tokens?: number };
-  };
-  if (!response.ok) {
-    throw new HttpError(
-      502,
-      payload.error?.message || `OpenAI 응답 오류 (${response.status})`,
-      'OPENAI_REQUEST_FAILED',
-    );
-  }
-  const raw = outputText(payload);
-  if (!raw) throw new HttpError(502, '통지서 분석 결과가 비어 있습니다.');
-  try {
-    return {
-      value: JSON.parse(raw) as Record<string, unknown>,
-      inputTokens: Number(payload.usage?.input_tokens ?? 0),
-      outputTokens: Number(payload.usage?.output_tokens ?? 0),
-    };
-  } catch {
-    throw new HttpError(502, '통지서 분석 결과를 해석하지 못했습니다.');
-  }
-}
-
 async function analyzePdfWithOpenAi(
   pdf: ArrayBuffer,
   fileName: string,
   apiKey: string,
   model: string,
 ) {
-  const result = await callOpenAi({
-    model,
-    store: false,
-    max_output_tokens: 16_000,
-    instructions:
-      '당신은 대한민국 특허청 의견제출통지서를 원문에 충실하게 디지털화하는 문서 분석가입니다. PDF의 모든 페이지에서 제목, 본문, 번호 목록, 인용문헌, 청구항 번호, 기간과 표를 빠짐없이 읽으세요. markdown에는 원문 구조를 보존한 마크다운을 작성하세요. 표는 반드시 GitHub Flavored Markdown 파이프 표로 복원하고, 병합 셀은 의미가 사라지지 않도록 필요한 값을 반복 기재하세요. 페이지 머리글·꼬리글의 단순 반복은 제거하되 법적·절차적 문구는 생략하지 마세요. 판독 불가능한 부분은 [판독 불가]로 표시하고 추측하지 마세요. 요약 필드는 통지서에 실제로 기재된 내용만 사실형 문장으로 정리하세요. 거절이유 또는 의견제출 사유, 대상 청구항, 인용문헌과 대응 요구사항을 구체적으로 적고, 사용자에게 일반적인 조언을 하지 마세요.',
-    input: [{
-      role: 'user',
-      content: [
-        {
-          type: 'input_file',
-          filename: fileName,
-          file_data: `data:application/pdf;base64,${Buffer.from(pdf).toString('base64')}`,
+  const result = await requestStructuredOpenAi<Record<string, unknown>>({
+    apiKey,
+    label: '통지서 분석',
+    timeoutMs: 180_000,
+    maxOutputTokens: 16_000,
+    retryMaxOutputTokens: 24_000,
+    body: {
+      model,
+      store: false,
+      instructions:
+        '당신은 대한민국 특허청 의견제출통지서를 원문에 충실하게 디지털화하는 문서 분석가입니다. PDF의 모든 페이지에서 제목, 본문, 번호 목록, 인용문헌, 청구항 번호, 기간과 표를 빠짐없이 읽으세요. markdown에는 원문 구조를 보존한 마크다운을 작성하세요. 표는 반드시 GitHub Flavored Markdown 파이프 표로 복원하고, 병합 셀은 의미가 사라지지 않도록 필요한 값을 반복 기재하세요. 페이지 머리글·꼬리글의 단순 반복은 제거하되 법적·절차적 문구는 생략하지 마세요. 판독 불가능한 부분은 [판독 불가]로 표시하고 추측하지 마세요. 요약 필드는 통지서에 실제로 기재된 내용만 사실형 문장으로 정리하세요. 거절이유 또는 의견제출 사유, 대상 청구항, 인용문헌과 대응 요구사항을 구체적으로 적고, 사용자에게 일반적인 조언을 하지 마세요.',
+      input: [{
+        role: 'user',
+        content: [
+          {
+            type: 'input_file',
+            filename: fileName,
+            file_data: `data:application/pdf;base64,${Buffer.from(pdf).toString('base64')}`,
+          },
+          {
+            type: 'input_text',
+            text: '첨부한 의견제출통지서를 표까지 보존한 마크다운으로 변환하고 심사 대응 검토용 요약을 작성하세요.',
+          },
+        ],
+      }],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'office_action_markdown_analysis',
+          strict: true,
+          schema: PDF_ANALYSIS_SCHEMA,
         },
-        {
-          type: 'input_text',
-          text: '첨부한 의견제출통지서를 표까지 보존한 마크다운으로 변환하고 심사 대응 검토용 요약을 작성하세요.',
-        },
-      ],
-    }],
-    text: {
-      format: {
-        type: 'json_schema',
-        name: 'office_action_markdown_analysis',
-        strict: true,
-        schema: PDF_ANALYSIS_SCHEMA,
       },
     },
-  }, apiKey);
+  });
   const value = result.value as unknown as NoticeSummary & { markdown: string };
   return {
     markdown: value.markdown,
@@ -267,22 +227,28 @@ async function summarizeKordocMarkdown(
   apiKey: string,
   model: string,
 ) {
-  const result = await callOpenAi({
-    model,
-    store: false,
-    max_output_tokens: 4_000,
-    instructions:
-      '당신은 대한민국 특허청 의견제출통지서를 검토하는 특허심사 보조 분석가입니다. 제공된 kordoc 마크다운만 근거로 통지서의 핵심 내용을 한국어로 요약하세요. 거절이유 또는 의견제출 사유, 대상 청구항, 인용문헌, 제출기한과 요구된 대응을 구체적으로 적으세요. 문서에 없는 사항은 추정하지 말고 cautions에만 표시하세요. 일반적인 조언이나 “확인해야 합니다” 같은 빈 안내문을 출력하지 마세요.',
-    input: `<office_action_markdown>\n${markdown.slice(0, 180_000)}\n</office_action_markdown>`,
-    text: {
-      format: {
-        type: 'json_schema',
-        name: 'office_action_summary',
-        strict: true,
-        schema: SUMMARY_ONLY_SCHEMA,
+  const result = await requestStructuredOpenAi<Record<string, unknown>>({
+    apiKey,
+    label: '통지서 요약',
+    timeoutMs: 120_000,
+    maxOutputTokens: 6_000,
+    retryMaxOutputTokens: 10_000,
+    body: {
+      model,
+      store: false,
+      instructions:
+        '당신은 대한민국 특허청 의견제출통지서를 검토하는 특허심사 보조 분석가입니다. 제공된 kordoc 마크다운만 근거로 통지서의 핵심 내용을 한국어로 요약하세요. 거절이유 또는 의견제출 사유, 대상 청구항, 인용문헌, 제출기한과 요구된 대응을 구체적으로 적으세요. 문서에 없는 사항은 추정하지 말고 cautions에만 표시하세요. 일반적인 조언이나 “확인해야 합니다” 같은 빈 안내문을 출력하지 마세요.',
+      input: `<office_action_markdown>\n${markdown.slice(0, 180_000)}\n</office_action_markdown>`,
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'office_action_summary',
+          strict: true,
+          schema: SUMMARY_ONLY_SCHEMA,
+        },
       },
     },
-  }, apiKey);
+  });
   return {
     summary: result.value as unknown as NoticeSummary,
     inputTokens: result.inputTokens,
