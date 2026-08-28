@@ -114,23 +114,40 @@ function stripTrailingGuidance(markdown: string) {
     .trim();
 }
 
+const COMMON_GUIDANCE_PATTERN =
+  /지정기간\s*연장\s*안내|연장가능기간\s*\(?4개월\)?|소명서를\s*첨부하여\s*지정기간연장신청서/u;
+
+function stripGuidanceFromSummary(summary: NoticeSummary) {
+  const withoutGuidance = (items: string[]) =>
+    items.filter((item) => !COMMON_GUIDANCE_PATTERN.test(item));
+  return {
+    ...summary,
+    keyIssues: withoutGuidance(summary.keyIssues),
+    affectedClaims: withoutGuidance(summary.affectedClaims),
+    citedReferences: withoutGuidance(summary.citedReferences),
+    deadlines: withoutGuidance(summary.deadlines),
+    requiredActions: withoutGuidance(summary.requiredActions),
+    cautions: withoutGuidance(summary.cautions),
+  };
+}
+
 async function cachedAnalysis(
   applicationNumber: string,
   sendNumber: string,
   sourceHash?: string,
 ) {
   const db = await appDatabase();
-  const sourceSelector = sourceHash ?? `${ANALYSIS_VERSION}:%`;
   const statement = db.prepare(
     `SELECT markdown_text, summary_json, parser, model,
             input_tokens, output_tokens, updated_at
      FROM notice_analyses
      WHERE user_id = ? AND application_number = ? AND send_number = ?
-       AND source_hash ${sourceHash ? '= ?' : 'LIKE ?'}
+       ${sourceHash ? 'AND source_hash = ?' : ''}
      ORDER BY updated_at DESC LIMIT 1`,
   );
-  const row = await statement
-    .bind(WORKSPACE_USER_ID, applicationNumber, sendNumber, sourceSelector)
+  const row = await (sourceHash
+    ? statement.bind(WORKSPACE_USER_ID, applicationNumber, sendNumber, sourceHash)
+    : statement.bind(WORKSPACE_USER_ID, applicationNumber, sendNumber))
     .first<{
       markdown_text: string;
       summary_json: string;
@@ -142,8 +159,10 @@ async function cachedAnalysis(
     }>();
   if (!row) return null;
   return {
-    markdown: row.markdown_text,
-    summary: JSON.parse(row.summary_json) as NoticeSummary,
+    markdown: stripTrailingGuidance(row.markdown_text),
+    summary: stripGuidanceFromSummary(
+      JSON.parse(row.summary_json) as NoticeSummary,
+    ),
     parser: row.parser,
     model: row.model,
     cached: true,
@@ -315,6 +334,7 @@ export async function POST(request: Request) {
     const analyzed = kordocMarkdown
       ? { markdown: kordocMarkdown, ...await summarizeKordocMarkdown(kordocMarkdown, apiKey, model) }
       : await analyzePdfWithOpenAi(pdf.buffer, pdf.fileName, apiKey, model);
+    const summary = stripGuidanceFromSummary(analyzed.summary);
 
     const db = await appDatabase();
     await db.prepare(
@@ -337,7 +357,7 @@ export async function POST(request: Request) {
       model,
       sourceHash,
       analyzed.markdown,
-      JSON.stringify(analyzed.summary),
+      JSON.stringify(summary),
       analyzed.inputTokens,
       analyzed.outputTokens,
     ).run();
@@ -350,7 +370,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       markdown: analyzed.markdown,
-      summary: analyzed.summary,
+      summary,
       parser,
       model,
       cached: false,
