@@ -8,7 +8,7 @@ KIPRIS Plus의 특허·실용신안 데이터를 출원번호 기준으로 모�
 - 서지정보, 초록, 주 CPC·전체 CPC, 대표도면, 패밀리 상태
 - 전문 XML의 명세서 장·문단과 전체 청구항 읽기 화면
 - 서지상세정보에 포함된 행정처리 이력과 의견제출통지서 표시
-- 의견제출통지서 PDF_V2 원문 인라인 조회
+- 의견제출통지서 PDF_V2 원문, 표 보존 마크다운과 AI 요약 조회
 - OpenAI Responses API 기반 발명·청구범위·심사 포인트 구조화 요약
 - D1 사건 캐시·AI 요약 캐시·KIPRIS API 누적 호출량 저장
 - 선택한 가공 데이터를 검토용 ZIP으로 다운로드
@@ -31,10 +31,21 @@ KIPRIS Plus의 특허·실용신안 데이터를 출원번호 기준으로 모�
 
 - `GET /api/patent/fulltext?applicationNumber=...`: 전문을 열 때만 전문파일정보와 XML 원문을 조회합니다.
 - `GET /api/patent/pdf?applicationNumber=...&sendNumber=...`: 통지서를 열 때만 PDF_V2를 조회합니다.
+- `GET|POST /api/patent/notice-analysis?applicationNumber=...&sendNumber=...`: 저장된 통지서 마크다운·요약을 조회하거나 새로 생성합니다.
 - `GET|POST /api/patent/summary?applicationNumber=...`: 저장된 AI 요약을 조회하거나 OpenAI로 생성합니다.
 - `GET /api/patent/usage`: D1에 누적된 KIPRIS 호출량을 반환합니다.
 
 OpenAI 요청에는 `store: false`를 사용합니다. AI 결과는 심사 결론이 아니라 원문 확인을 돕는 보조자료로 표시합니다.
+
+### kordoc 연동
+
+`kordoc`은 PDF 표 복원에 적합하지만 패키지의 PDF 진입점이 `onnxruntime-node`, `fs`, `child_process` 등 Node 전용 모듈을 함께 참조하므로 현재 Cloudflare Worker 번들에 직접 포함하지 않습니다. 기본 배포에서는 OpenAI PDF 입력으로 마크다운과 요약을 생성합니다.
+
+별도의 Node.js kordoc 파서 서비스를 배포한 경우 `KORDOC_API_URL`과 선택 Secret `KORDOC_API_TOKEN`을 설정하면 kordoc 마크다운을 우선 사용하고 OpenAI는 요약만 수행합니다. 파서 서비스는 `Content-Type: application/pdf` 요청을 받아 다음 중 하나를 반환해야 합니다.
+
+```json
+{ "success": true, "markdown": "# 의견제출통지서\n..." }
+```
 
 ## 로컬 실행
 
@@ -69,6 +80,8 @@ Cloudflare의 `Workers & Pages`에서 이 저장소를 가져오고 다음 값�
 - Secret: `KIPRIS_SERVICE_KEY` (별도 키가 있을 때만)
 - Secret: `OPENAI_API_KEY`
 - Variable: `OPENAI_MODEL` (선택, 기본값 `gpt-5-mini`)
+- Variable: `KORDOC_API_URL` (별도 Node 파서 서비스를 사용할 때만)
+- Secret: `KORDOC_API_TOKEN` (파서 서비스 인증을 사용할 때만)
 - Variable: `NEXT_PUBLIC_SITE_URL`
 
 첫 배포에서는 `DB` D1 바인딩의 `patent-examiner-db`가 자동 프로비저닝됩니다. 이미 만든 D1을 사용하면 빌드 환경변수 `CLOUDFLARE_D1_DATABASE_ID`에 데이터베이스 ID를 지정합니다. `migrations/0001_initial.sql`과 런타임 초기화가 동일한 스키마를 보장합니다.
