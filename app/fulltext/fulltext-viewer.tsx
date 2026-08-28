@@ -132,7 +132,7 @@ export default function FullTextViewer({
     <>
       <a className="skip-link" href="#fulltext-main">본문 바로가기</a>
       <div className="krds-masthead">
-        <div><span className="krds-flag" aria-hidden="true" />이 누리집은 대한민국 공식 전자정부 누리집입니다.</div>
+        <div><span className="krds-flag" aria-hidden="true" />대한민국 디지털 정부 디자인 시스템(KRDS)을 참고한 특허심사 지원 도구입니다.</div>
       </div>
       <header className="fulltext-site-header">
         <div className="fulltext-site-header-inner">
