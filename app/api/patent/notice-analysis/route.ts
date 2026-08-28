@@ -26,7 +26,7 @@ type NoticeAnalysis = {
   usage: { inputTokens: number; outputTokens: number };
 };
 
-const ANALYSIS_VERSION = 'notice-markdown-2026-08-28-v2';
+const ANALYSIS_VERSION = 'notice-markdown-2026-08-28-v3';
 const ANALYSIS_RATE_WINDOW_MS = 60_000;
 const ANALYSIS_RATE_MAX = 2;
 const analysisRequestLog = new Map<string, number[]>();
@@ -96,8 +96,19 @@ async function sha256(buffer: ArrayBuffer) {
   return `${ANALYSIS_VERSION}:${hash}`;
 }
 
-function stripTrailingGuidance(markdown: string) {
+function trimNoticeMarkdown(markdown: string) {
   const lines = markdown.replace(/\r\n/g, '\n').split('\n');
+  const resultIndex = lines.findIndex((line) => {
+    const text = line
+      .trim()
+      .replace(/^#{1,6}\s*/, '')
+      .replace(/^\*\*(.*?)\*\*$/, '$1')
+      .trim()
+      .replace(/^[\[【〔〈《＜<(]\s*/, '')
+      .replace(/\s*[\]】〕〉》＞>)]$/, '')
+      .replace(/\s/g, '');
+    return text === '심사결과';
+  });
   const markerIndex = lines.findIndex((line, index) => {
     const text = line
       .trim()
@@ -109,7 +120,10 @@ function stripTrailingGuidance(markdown: string) {
     const following = lines.slice(index + 1, index + 9).join(' ');
     return /지정기간\s*연장\s*안내|연장가능기간/u.test(following);
   });
-  return (markerIndex >= 0 ? lines.slice(0, markerIndex) : lines)
+  const start = resultIndex >= 0 ? resultIndex : 0;
+  const end = markerIndex >= start ? markerIndex : lines.length;
+  return lines
+    .slice(start, end)
     .join('\n')
     .trim();
 }
@@ -159,7 +173,7 @@ async function cachedAnalysis(
     }>();
   if (!row) return null;
   return {
-    markdown: stripTrailingGuidance(row.markdown_text),
+    markdown: trimNoticeMarkdown(row.markdown_text),
     summary: stripGuidanceFromSummary(
       JSON.parse(row.summary_json) as NoticeSummary,
     ),
@@ -197,7 +211,7 @@ async function parseWithKordoc(pdf: ArrayBuffer, fileName: string) {
   if (!response.ok || payload.success === false) {
     throw new Error(payload.error || `kordoc 파서 응답 오류 (${response.status})`);
   }
-  const markdown = stripTrailingGuidance(
+  const markdown = trimNoticeMarkdown(
     payload.markdown || payload.data?.markdown || '',
   );
   if (!markdown.trim()) throw new Error('kordoc 파서가 빈 마크다운을 반환했습니다.');
@@ -220,7 +234,7 @@ async function analyzePdfWithOpenAi(
       model,
       store: false,
       instructions:
-        '당신은 대한민국 특허청 의견제출통지서를 원문에 충실하게 디지털화하는 문서 분석가입니다. PDF의 모든 페이지에서 제목, 본문, 번호 목록, 인용문헌, 청구항 번호, 기간과 표를 빠짐없이 읽으세요. markdown에는 원문 구조를 보존한 마크다운을 작성하세요. 표는 반드시 GitHub Flavored Markdown 파이프 표로 복원하고, 병합 셀은 의미가 사라지지 않도록 필요한 값을 반복 기재하세요. 페이지 머리글·꼬리글의 단순 반복은 제거하되 법적·절차적 문구는 생략하지 마세요. 단, 문서 말미에 << 안내 >>, 〈〈 안내 〉〉 또는 같은 의미의 안내 제목이 나오면 그 제목부터 이후의 지정기간연장 안내 등 정형 공통 안내문은 markdown과 요약에서 모두 완전히 제외하세요. 판독 불가능한 부분은 [판독 불가]로 표시하고 추측하지 마세요. 요약 필드는 통지서에 실제로 기재된 내용만 사실형 문장으로 정리하세요. 거절이유 또는 의견제출 사유, 대상 청구항, 인용문헌과 대응 요구사항을 구체적으로 적고, 사용자에게 일반적인 조언을 하지 마세요.',
+        '당신은 대한민국 특허청 의견제출통지서를 원문에 충실하게 디지털화하는 문서 분석가입니다. PDF의 모든 페이지에서 제목, 본문, 번호 목록, 인용문헌, 청구항 번호, 기간과 표를 빠짐없이 읽으세요. markdown은 반드시 [심사결과] 제목부터 시작하고, 그 위에 있는 출원번호·출원인 등의 서지사항과 정형 안내 문구는 모두 제외하세요. [심사결과] 이후의 원문 구조는 보존하세요. 표는 반드시 GitHub Flavored Markdown 파이프 표로 복원하고, 병합 셀은 의미가 사라지지 않도록 필요한 값을 반복 기재하세요. 페이지 머리글·꼬리글의 단순 반복은 제거하되 심사결과에 포함된 법적·절차적 문구는 생략하지 마세요. 문서 말미에 << 안내 >>, 〈〈 안내 〉〉 또는 같은 의미의 안내 제목이 나오면 그 제목부터 이후의 지정기간연장 안내 등 정형 공통 안내문은 markdown과 요약에서 모두 완전히 제외하세요. 판독 불가능한 부분은 [판독 불가]로 표시하고 추측하지 마세요. 요약 필드는 통지서에 실제로 기재된 내용만 사실형 문장으로 정리하세요. 거절이유 또는 의견제출 사유, 대상 청구항, 인용문헌과 대응 요구사항을 구체적으로 적고, 사용자에게 일반적인 조언을 하지 마세요.',
       input: [{
         role: 'user',
         content: [
@@ -247,7 +261,7 @@ async function analyzePdfWithOpenAi(
   });
   const value = result.value as unknown as NoticeSummary & { markdown: string };
   return {
-    markdown: stripTrailingGuidance(value.markdown),
+    markdown: trimNoticeMarkdown(value.markdown),
     summary: {
       oneLine: value.oneLine,
       keyIssues: value.keyIssues,
