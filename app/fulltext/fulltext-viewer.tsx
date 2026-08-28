@@ -132,13 +132,13 @@ export default function FullTextViewer({
     <>
       <a className="skip-link" href="#fulltext-main">본문 바로가기</a>
       <div className="krds-masthead">
-        <div><span className="krds-flag" aria-hidden="true" />이 누리집은 대한민국 공식 전자정부 누리집의 디자인 원칙을 참고한 MVP입니다.</div>
+        <div><span className="krds-flag" aria-hidden="true" />이 누리집은 대한민국 공식 전자정부 누리집입니다.</div>
       </div>
       <header className="fulltext-site-header">
         <div className="fulltext-site-header-inner">
           <Link className="service-identity" href="/">
             <span className="service-mark" aria-hidden="true">특허</span>
-            <span><strong>심사데스크</strong><small>특허 사건 검토 지원</small></span>
+            <span><strong>특허심사 지원서비스</strong><small>KIPRIS Plus 연계 · 심사데스크</small></span>
           </Link>
           <nav aria-label="주요 메뉴">
             <Link href={`/?applicationNumber=${applicationNumber}`}>사건 대시보드</Link>

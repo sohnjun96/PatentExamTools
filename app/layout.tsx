@@ -5,10 +5,10 @@ export const metadata: Metadata = {
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000',
   ),
-  title: '심사데스크 | 특허 사건 검토',
+  title: '특허심사 지원서비스 | 심사데스크',
   description: 'KIPRIS Plus 데이터를 심사 흐름에 맞춰 정리하는 특허 사건 대시보드',
   openGraph: {
-    title: '심사데스크',
+    title: '특허심사 지원서비스 | 심사데스크',
     description: 'KIPRIS Plus 특허 사건 검토 대시보드',
     type: 'website',
     images: [
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: '심사데스크',
+    title: '특허심사 지원서비스 | 심사데스크',
     description: 'KIPRIS Plus 특허 사건 검토 대시보드',
     images: ['/og.png'],
   },
