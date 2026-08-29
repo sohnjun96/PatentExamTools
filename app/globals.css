@@ -2790,3 +2790,268 @@ mark { padding: 1px 2px; color: inherit; background: #ffe0a3; }
   .strategy-change-focus { padding: 14px 16px; }
   .exam-step-footer button.is-optional { max-width: 54%; font-size: 11px; }
 }
+
+/* Result-centered review workspace ----------------------------------- */
+.exam-header { grid-template-columns: 250px minmax(360px, 720px) auto; }
+.exam-header-actions .mobile-more-menu { display: inline-flex; }
+.exam-modebar { grid-template-columns: minmax(0, 1fr) auto; min-height: 62px; gap: 16px; padding: 10px 28px; border-top: 0; }
+.exam-modebar > .case-primary { display: grid; gap: 2px; }
+.case-primary > small { color: var(--exam-muted); font-size: 10px; }
+.exam-modebar > .mobile-case-details-toggle { display: block; min-height: 36px; padding: 0 10px; border: 1px solid #8a949e; border-radius: 6px; color: var(--exam-navy); background: #fff; cursor: pointer; font-size: 11px; font-weight: 750; }
+.exam-modebar > .mobile-case-details { display: none; grid-column: 1 / -1; }
+.exam-modebar > .mobile-case-details.open { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; padding: 12px; border: 1px solid var(--exam-line); border-radius: 7px; background: #f8f9fa; }
+.exam-modebar > .mobile-case-details > div { display: grid; gap: 2px; }
+.exam-modebar > .mobile-case-details .mode-switch { display: flex; }
+.exam-main { padding-bottom: 48px; }
+.mobile-lifecycle-badge.success { color: #083891; background: #d8e5fd; }
+
+.pre-review-launch,
+.pre-review-progress,
+.review-result-head,
+.review-technology-summary,
+.review-issues,
+.review-search-decision,
+.round-result-summary,
+.document-summary-strip,
+.response-issue-list,
+.allowable-claims-result,
+.search-workspace-card,
+.search-query-simple,
+.candidate-simple-list { margin-bottom: 16px; border: 1px solid var(--exam-line); border-radius: 10px; background: #fff; }
+
+.pre-review-launch { display: grid; gap: 18px; padding: 28px; border-top: 4px solid var(--exam-blue); }
+.pre-review-case { display: grid; gap: 5px; }
+.pre-review-case > span,
+.review-result-head > div > span,
+.review-technology-summary > div > span,
+.review-issues > header span,
+.review-search-decision > div > span,
+.search-workspace-card > header span,
+.search-query-simple > header span,
+.candidate-simple-list > header span { color: #0b50d0; font-size: 11px; font-weight: 850; }
+.pre-review-case h2 { margin: 0; color: var(--exam-navy); font-size: 24px; }
+.pre-review-case p,
+.pre-review-materials p { margin: 0; color: var(--exam-muted); line-height: 1.65; }
+.pre-review-materials { display: grid; gap: 5px; padding: 16px; border-radius: 7px; background: #f4f7fb; }
+.pre-review-warnings { display: flex; flex-wrap: wrap; gap: 7px; }
+.pre-review-warnings span { padding: 6px 9px; border: 1px solid #ef9aa9; border-radius: 5px; color: #a30028; background: #fff4f6; font-size: 11px; font-weight: 750; }
+.pre-review-launch footer { display: flex; justify-content: flex-end; gap: 8px; }
+.pre-review-launch footer button { min-height: 44px; padding: 0 16px; }
+.pre-review-launch > small { color: var(--exam-muted); text-align: right; }
+
+.pre-review-progress { padding: 24px; border-color: #8fb4f7; background: #f7f9ff; }
+.pre-review-progress header span { color: #0b50d0; font-size: 11px; font-weight: 850; }
+.pre-review-progress h2 { margin: 5px 0 18px; font-size: 20px; }
+.pre-review-progress ol { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.pre-review-progress li { display: grid; min-height: 74px; place-items: center; padding: 10px; border: 1px solid #cdd5df; border-radius: 7px; color: #6d7885; background: #fff; text-align: center; }
+.pre-review-progress li span { font-size: 17px; }
+.pre-review-progress li strong { font-size: 11px; }
+.pre-review-progress li.complete,
+.pre-review-progress li.current { border-color: #3f78d5; color: #083891; background: #eaf1ff; }
+.pre-review-progress li.current { box-shadow: inset 0 0 0 2px #8fb4f7; }
+.pre-review-progress > p { margin: 14px 0 0; color: var(--exam-muted); font-size: 11px; }
+
+.review-result-head { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 22px 24px; border-top: 4px solid var(--exam-blue); }
+.review-result-head h2 { margin: 4px 0; font-size: 23px; }
+.review-result-head p { margin: 0; color: var(--exam-muted); font-size: 11px; }
+.review-result-head dl { display: flex; gap: 26px; margin: 0; }
+.review-result-head dl > div { display: grid; gap: 3px; }
+.review-result-head dt { color: var(--exam-muted); font-size: 10px; }
+.review-result-head dd { margin: 0; color: var(--exam-navy); font-size: 19px; font-weight: 850; }
+.source-warning.compact { grid-template-columns: 1fr auto; }
+.compact-opinion-alert { margin: 0 0 16px; padding: 11px 14px; border-left: 4px solid #6b86b3; color: #3b4c67; background: #eef3fa; font-size: 12px; }
+
+.review-technology-summary { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(250px, .8fr) auto; align-items: center; gap: 22px; padding: 22px 24px; }
+.review-technology-summary h2 { margin: 5px 0 0; font-size: 18px; line-height: 1.55; }
+.review-technology-summary ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.review-technology-summary li { padding: 5px 8px; border-radius: 5px; color: #083891; background: #eaf1ff; font-size: 10px; }
+.review-technology-summary button,
+.review-issues > header button,
+.review-search-decision button,
+.candidate-simple-list > header button { min-height: 40px; padding: 0 12px; border: 1px solid #6b7890; border-radius: 6px; color: var(--exam-navy); background: #fff; cursor: pointer; font-weight: 750; }
+
+.review-issues { overflow: hidden; }
+.review-issues > header,
+.response-issue-list > header,
+.search-workspace-card > header,
+.search-query-simple > header,
+.candidate-simple-list > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--exam-line-light); }
+.review-issues > header h2,
+.response-issue-list > header h2,
+.search-workspace-card > header h2,
+.search-query-simple > header h2,
+.candidate-simple-list > header h2 { margin: 3px 0 0; font-size: 18px; }
+.review-issues > div,
+.response-issue-list { display: grid; gap: 12px; padding: 16px; }
+.review-issue-card { overflow: hidden; border: 1px solid #91a7c8; border-left: 5px solid #316bc5; border-radius: 8px; background: #fff; }
+.review-issue-card.status-not_resolved,
+.review-issue-card.status-insufficient { border-color: #e794a4; border-left-color: #c8143e; }
+.review-issue-card > header { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 16px; background: #f2f6fc; }
+.review-issue-card.status-not_resolved > header,
+.review-issue-card.status-insufficient > header { background: #fff3f5; }
+.review-issue-card > header > div { display: flex; align-items: center; gap: 9px; }
+.review-issue-card > header span { padding: 4px 7px; border-radius: 4px; color: #083891; background: #d8e5fd; font-size: 10px; font-weight: 850; }
+.review-issue-card.status-not_resolved > header span,
+.review-issue-card.status-insufficient > header span { color: #a30028; background: #ffdfe6; }
+.review-issue-card > header strong { font-size: 14px; }
+.review-issue-card > header small { color: var(--exam-muted); }
+.review-issue-card > section { display: grid; gap: 5px; padding: 16px; }
+.review-issue-card > section small { color: var(--exam-muted); font-size: 10px; font-weight: 750; }
+.review-issue-card > section p { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.6; }
+.review-evidence-links { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 0 16px 14px; }
+.review-evidence-links > span { color: var(--exam-muted); font-size: 10px; font-weight: 750; }
+.review-evidence-links button { min-height: 34px; padding: 0 9px; border: 1px solid #8eaad6; border-radius: 5px; color: #083891; background: #f7faff; cursor: pointer; font-size: 11px; font-weight: 700; }
+.review-issue-card > details { padding: 11px 16px; border-top: 1px solid var(--exam-line-light); }
+.review-issue-card > details summary { color: #3b4c67; cursor: pointer; font-size: 11px; font-weight: 750; }
+.review-issue-card > details p { color: #464c53; font-size: 12px; line-height: 1.65; }
+.review-issue-card > footer { display: flex; justify-content: flex-end; padding: 0 16px 14px; }
+.review-issue-card > footer button { min-height: 36px; padding: 0 11px; border: 1px solid var(--exam-blue); border-radius: 5px; color: #0b50d0; background: #fff; cursor: pointer; font-weight: 750; }
+.review-empty-block { margin-bottom: 16px; padding: 24px; border: 1px solid var(--exam-line); border-radius: 9px; background: #fff; }
+.review-empty-block h2 { margin: 0 0 6px; font-size: 18px; }
+.review-empty-block p { color: var(--exam-muted); }
+
+.review-search-decision { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 16px; padding: 20px 22px; border-left: 5px solid #316bc5; }
+.review-search-decision.decision-recommended,
+.review-search-decision.decision-insufficient { border-left-color: #c8143e; }
+.review-search-decision h2 { margin: 4px 0; font-size: 18px; }
+.review-search-decision p { margin: 0; color: var(--exam-muted); font-size: 12px; }
+.review-search-decision > small { grid-column: 1 / -1; color: var(--exam-muted); font-size: 10px; }
+.review-search-decision.compact { margin-bottom: 16px; }
+.review-source-note { display: block; margin: -7px 0 18px; color: var(--exam-muted); text-align: right; }
+
+.technical-ai-brief.concise > header { position: relative; }
+.technical-ai-brief.concise > header .technical-evidence { margin-top: 4px; }
+.technical-core-elements { padding: 18px 20px; }
+.technical-core-elements h3 { margin: 0 0 12px; }
+.technical-core-elements ol { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 22px; margin: 0; padding-left: 22px; }
+.technical-core-elements li { padding: 7px 0; }
+.technical-core-elements li p { margin: 0 0 5px; color: #202632; font-size: 13px; font-weight: 700; }
+.technical-evidence { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; color: var(--exam-muted); font-size: 10px; }
+.technical-evidence button { min-height: 28px; padding: 0 7px; border: 1px solid #8eaad6; border-radius: 4px; color: #083891; background: #fff; cursor: pointer; font-size: 10px; }
+.evidence-missing { color: #a30028; font-size: 10px; }
+.technical-ai-brief.concise > details { padding: 13px 20px; }
+.technical-ai-brief.concise > details summary { color: #0b50d0; }
+.technical-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; padding: 18px 0 8px; }
+.technical-detail-grid section { min-width: 0; }
+.technical-detail-grid ul { padding-left: 18px; }
+.technical-caution { margin: 0; padding: 10px 20px 14px; border-top: 1px solid #f0bdc8; color: #8c1832 !important; background: #fff6f7; }
+.feature-row.compact { display: block; }
+.feature-type { display: inline-flex; width: fit-content; margin-top: 8px; padding: 3px 6px; border-radius: 4px; color: #083891 !important; background: #eaf1ff; font-size: 9px !important; font-weight: 800; }
+
+.round-result-summary { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 22px; border-top: 4px solid var(--exam-blue); }
+.round-result-summary > div > span { color: #0b50d0; font-size: 11px; font-weight: 850; }
+.round-result-summary h2 { margin: 4px 0 0; font-size: 21px; }
+.round-result-summary dl { display: flex; gap: 24px; margin: 0; }
+.round-result-summary dl > div { display: grid; gap: 3px; }
+.round-result-summary dt { color: var(--exam-muted); font-size: 10px; }
+.round-result-summary dd { margin: 0; font-weight: 850; }
+.document-summary-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: hidden; }
+.document-summary-strip > * { display: grid; min-width: 0; gap: 5px; padding: 18px; border: 0; border-left: 1px solid var(--exam-line-light); color: inherit; background: #fff; text-align: left; }
+.document-summary-strip > *:first-child { border-left: 0; }
+.document-summary-strip > button { cursor: pointer; }
+.document-summary-strip strong { font-size: 18px; }
+.document-summary-strip small { color: var(--exam-muted); font-size: 10px; }
+.response-issue-list { margin-bottom: 16px; border: 1px solid var(--exam-line); border-radius: 9px; background: #fff; }
+.response-issue-list > header { margin: -16px -16px 0; }
+.allowable-claims-result { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-left: 5px solid var(--exam-blue); }
+.allowable-claims-result span { color: #0b50d0; font-size: 11px; font-weight: 850; }
+.allowable-claims-result strong { font-size: 17px; }
+.compact-change-review { margin-top: 0; }
+.compact-change-review > header { margin-bottom: 14px; }
+.compact-change-document { margin-top: 12px; overflow: hidden; border: 1px solid var(--exam-line); border-radius: 8px; background: #fff; }
+.compact-change-document > header { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 15px 17px; border-bottom: 1px solid var(--exam-line-light); background: #f4f7fb; }
+.compact-change-document > header > div { display: grid; gap: 3px; }
+.compact-change-document > header strong { font-size: 18px; }
+.compact-change-document > header small { color: var(--exam-muted); font-size: 10px; }
+.compact-change-document > header > span { color: #0b50d0; font-size: 11px; font-weight: 750; }
+.compact-change-document > div > details { padding: 14px 17px; border-top: 1px solid var(--exam-line-light); }
+.compact-change-document > div > details:first-child { border-top: 0; }
+.compact-change-document summary { display: flex; justify-content: space-between; cursor: pointer; }
+.compact-change-document summary span { color: #0b50d0; font-size: 11px; }
+
+.search-workspace-card,
+.search-query-simple,
+.candidate-simple-list { overflow: hidden; }
+.search-workspace-card > header > strong { color: #083891; font-size: 11px; }
+.search-feature-roles { display: grid; gap: 8px; padding: 16px 20px; }
+.search-feature-roles label { display: grid; grid-template-columns: minmax(0, 1fr) 150px; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--exam-line-light); }
+.search-feature-roles label:last-child { border-bottom: 0; }
+.search-feature-roles label > span { overflow: hidden; color: #303740; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.search-feature-roles label b { margin-right: 8px; color: #0b50d0; }
+.search-feature-roles select { height: 40px; border: 1px solid #8a949e; border-radius: 6px; background: #fff; }
+.search-query-simple > .concept-groups { padding: 18px 20px; }
+.search-query-simple > .search-expression { margin: 0 20px 12px; }
+.search-query-simple > p { margin: 0; padding: 0 20px 18px; color: var(--exam-muted); font-size: 11px; }
+.search-query-simple > .exam-secondary { margin: 0 20px 18px; }
+.candidate-simple-list > article { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(320px, .7fr); gap: 20px; padding: 18px 20px; border-top: 1px solid var(--exam-line-light); }
+.candidate-simple-list > article:first-of-type { border-top: 0; }
+.candidate-simple-list article > div > span { color: #0b50d0; font-size: 10px; font-weight: 850; }
+.candidate-simple-list article > div > strong { display: block; margin-top: 4px; font-size: 13px; }
+.candidate-simple-list h3 { margin: 5px 0 0; font-size: 15px; }
+.candidate-simple-list dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0; }
+.candidate-simple-list dt { color: var(--exam-muted); font-size: 9px; }
+.candidate-simple-list dd { margin: 3px 0 0; font-size: 11px; font-weight: 750; }
+
+@media (max-width: 900px) {
+  .exam-header { grid-template-columns: 1fr; }
+  .exam-modebar { padding-inline: 18px; }
+  .review-technology-summary { grid-template-columns: 1fr; }
+  .candidate-simple-list > article { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 600px) {
+  .exam-header { grid-template-columns: minmax(0, 1fr) auto; }
+  .exam-modebar { grid-template-columns: minmax(0, 1fr) auto; padding: 9px 14px; }
+  .exam-modebar > .mobile-case-details.open { grid-template-columns: 1fr; }
+  .exam-modebar > .mobile-case-details .mode-switch { grid-template-columns: 1fr 1fr; }
+  .exam-main { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
+  .pre-review-launch,
+  .pre-review-progress { padding: 18px 16px; }
+  .pre-review-case h2 { font-size: 19px; }
+  .pre-review-launch footer { align-items: stretch; flex-direction: column; }
+  .pre-review-launch footer button { width: 100%; }
+  .pre-review-progress ol { grid-template-columns: 1fr; }
+  .pre-review-progress li { min-height: 44px; grid-template-columns: 28px 1fr; place-items: center start; text-align: left; }
+  .review-result-head,
+  .round-result-summary { align-items: flex-start; flex-direction: column; padding: 18px 16px; }
+  .review-result-head dl,
+  .round-result-summary dl { width: 100%; justify-content: space-between; gap: 10px; }
+  .source-warning.compact { grid-template-columns: 1fr; }
+  .review-technology-summary { padding: 18px 16px; }
+  .review-technology-summary button { width: 100%; }
+  .review-issues > header,
+  .response-issue-list > header,
+  .search-workspace-card > header,
+  .search-query-simple > header,
+  .candidate-simple-list > header { align-items: flex-start; flex-direction: column; padding: 16px; }
+  .review-issues > header button,
+  .candidate-simple-list > header button { width: 100%; }
+  .review-issues > div,
+  .response-issue-list { padding: 10px; }
+  .review-issue-card > header { align-items: flex-start; flex-direction: column; }
+  .review-issue-card > header > div { align-items: flex-start; flex-direction: column; }
+  .review-evidence-links button { min-height: 40px; }
+  .review-issue-card > footer button { width: 100%; min-height: 42px; }
+  .review-search-decision { grid-template-columns: 1fr; padding: 16px; }
+  .review-search-decision > small { grid-column: 1; }
+  .review-search-decision button { width: 100%; }
+  .technical-core-elements ol,
+  .technical-detail-grid { grid-template-columns: 1fr; }
+  .technical-ai-brief.concise > header,
+  .technical-core-elements,
+  .technical-ai-brief.concise > details { padding: 16px; }
+  .document-summary-strip { grid-template-columns: 1fr; }
+  .document-summary-strip > * { border-top: 1px solid var(--exam-line-light); border-left: 0; }
+  .document-summary-strip > *:first-child { border-top: 0; }
+  .compact-change-document > header { align-items: flex-start; flex-direction: column; }
+  .claim-text-compare { grid-template-columns: 1fr; }
+  .search-feature-roles { padding: 10px 16px; }
+  .search-feature-roles label { grid-template-columns: 1fr; }
+  .search-feature-roles label > span { white-space: normal; }
+  .search-feature-roles select { width: 100%; height: 44px; }
+  .search-query-simple > .concept-groups { padding: 14px 16px; }
+  .search-query-simple > .search-expression { margin-inline: 16px; }
+  .search-query-simple > p { padding-inline: 16px; }
+  .candidate-simple-list > article { padding: 16px; }
+  .candidate-simple-list dl { grid-template-columns: 1fr; }
+}

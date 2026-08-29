@@ -19,7 +19,7 @@ import { getOpenAiCredentials } from '@/app/lib/secrets';
 const SUMMARY_TYPE_PREFIX = 'amendment_resolution_v1';
 const PROMPT_VERSION = 'amendment-resolution-2026-08-29-v1';
 const RATE_WINDOW_MS = 60_000;
-const RATE_MAX = 3;
+const RATE_MAX = 8;
 const MAX_SOURCE_CHARS = 110_000;
 const requestLog = new Map<string, number[]>();
 const STATUS_VALUES: AmendmentResolutionStatus[] = [
@@ -244,9 +244,6 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    if (rateLimited(request)) {
-      throw new HttpError(429, '보정 결과 AI 검토 요청이 많습니다. 잠시 후 다시 시도해 주세요.');
-    }
     const { applicationNumber, sendNumber } = noticeIdentifiers(request);
     if (!await getPatentCase(WORKSPACE_USER_ID, applicationNumber)) {
       throw new HttpError(404, '먼저 출원번호를 조회해 사건자료를 불러와 주세요.');
@@ -269,6 +266,9 @@ export async function POST(request: Request) {
     if (!force) {
       const cached = await cachedSummary(applicationNumber, sendNumber, sourceHash);
       if (cached) return NextResponse.json(cached);
+    }
+    if (rateLimited(request)) {
+      throw new HttpError(429, '보정 결과 AI 검토 요청이 많습니다. 잠시 후 다시 시도해 주세요.');
     }
 
     const { apiKey, model } = getOpenAiCredentials();

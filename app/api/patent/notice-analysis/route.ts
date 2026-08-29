@@ -9,7 +9,7 @@ import type { NoticeAnalysis, NoticeSummary } from '@/app/lib/notice-analysis';
 
 const ANALYSIS_VERSION = 'notice-markdown-2026-08-29-v4';
 const ANALYSIS_RATE_WINDOW_MS = 60_000;
-const ANALYSIS_RATE_MAX = 2;
+const ANALYSIS_RATE_MAX = 8;
 const analysisRequestLog = new Map<string, number[]>();
 
 function analysisRateLimited(request: Request) {
