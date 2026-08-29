@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useModalBehavior } from '@/app/lib/use-modal-behavior';
 
 type Notice = {
   documentNumber: string;
@@ -206,6 +207,7 @@ export default function NoticeDialog({
   const [analysis, setAnalysis] = useState<NoticeAnalysis | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
+  const dialogRef = useModalBehavior<HTMLElement>(onClose);
 
   useEffect(() => {
     let cancelled = false;
@@ -230,16 +232,16 @@ export default function NoticeDialog({
   }
 
   return <div className="exam-dialog-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-    <section className="exam-dialog notice" role="dialog" aria-modal="true">
-      <header><div><small>OFFICE ACTION · TEXT & PDF</small><h2>의견제출통지서</h2><p>{formatDate(notice.date)} · {notice.documentNumber}</p></div><button type="button" onClick={onClose}>닫기 ×</button></header>
+    <section ref={dialogRef} className="exam-dialog notice" role="dialog" aria-modal="true" aria-label="의견제출통지서" tabIndex={-1}>
+      <header><div><small>통지서 텍스트·PDF</small><h2>의견제출통지서</h2><p>{formatDate(notice.date)} · {notice.documentNumber}</p></div><button type="button" onClick={onClose}>닫기 ×</button></header>
       <nav className="notice-dialog-tabs" aria-label="통지서 보기 방식">
         <button className={tab === 'summary' ? 'active' : ''} type="button" onClick={() => setTab('summary')}>AI 요약</button>
         <button className={tab === 'markdown' ? 'active' : ''} type="button" onClick={() => setTab('markdown')}>텍스트·마크다운</button>
         <button className={tab === 'pdf' ? 'active' : ''} type="button" onClick={() => setTab('pdf')}>PDF 원문</button>
       </nav>
       {tab === 'pdf' ? <iframe src={pdfUrl} title={`${formatDate(notice.date)} 의견제출통지서 PDF`}/> : <div className="notice-dialog-body">
-        {busy && <div className="notice-analysis-status"><span>ANALYZING OFFICE ACTION</span><h3>통지서의 본문과 표를 읽고 있습니다.</h3><p>최초 분석 후에는 저장된 결과를 사용합니다.</p></div>}
-        {!busy && error && <div className="notice-analysis-status error"><span>ANALYSIS ERROR</span><h3>통지서 분석을 완료하지 못했습니다.</h3><p>{error}</p><button type="button" onClick={regenerate}>다시 분석</button></div>}
+        {busy && <div className="notice-analysis-status"><span>통지서 분석 중</span><h3>통지서의 본문과 표를 읽고 있습니다.</h3><p>최초 분석 후에는 저장된 결과를 사용합니다.</p></div>}
+        {!busy && error && <div className="notice-analysis-status error"><span>분석 오류</span><h3>통지서 분석을 완료하지 못했습니다.</h3><p>{error}</p><button type="button" onClick={regenerate}>다시 분석</button></div>}
         {!busy && analysis && tab === 'summary' && <div className="notice-summary">
           <article className="notice-summary-lead"><span>통지 요지</span><h3>{analysis.summary.oneLine}</h3><small>{analysis.parser === 'kordoc' ? 'kordoc 표·문서 파싱' : 'OpenAI PDF 문서 분석'} · {analysis.cached ? '저장된 분석' : '새 분석'}</small></article>
           <div className="notice-summary-grid">
