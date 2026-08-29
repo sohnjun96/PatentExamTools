@@ -8,6 +8,7 @@ KIPRIS Plus의 특허·실용신안 데이터를 출원번호 기준으로 모�
 - 서지정보, 초록, 주 CPC·전체 CPC, 대표도면, 패밀리 상태
 - 전문 XML의 명세서 장·문단과 전체 청구항 읽기 화면
 - 서지상세정보에 포함된 행정처리 이력과 의견제출통지서 표시
+- 보정서 접수문서번호와 청구항 변동이력을 연결한 신규·수정·삭제 및 보정 전후 비교
 - 의견제출통지서 PDF_V2 원문, 표 보존 마크다운과 AI 요약 조회
 - OpenAI Responses API 기반 발명·청구범위·심사 포인트 구조화 요약
 - D1 사건 캐시·AI 요약 캐시·KIPRIS API 누적 호출량 저장
@@ -27,10 +28,13 @@ KIPRIS Plus의 특허·실용신안 데이터를 출원번호 기준으로 모�
 | 대표도면 | `getReprsntFloorPlanInfoSearch` |
 | 패밀리 | `patentFamilyInfo` |
 
+중간서류 화면을 처음 열 때 보정서가 있으면 `ClaimsChangeHistoryService/amendmentHistoryDetailInfo`를 사건별 1회 호출합니다. 응답은 D1에 캐시하며, 화면의 명시적인 갱신 버튼을 누를 때만 다시 호출합니다.
+
 행정처리는 서지상세 응답의 `legalStatusInfoArray`에서 구성하므로 별도의 통합이력 API를 호출하지 않습니다. 같은 출원번호는 D1 캐시를 우선 사용해 KIPRIS 호출량을 줄입니다.
 
 - `GET /api/patent/fulltext?applicationNumber=...`: 전문을 열 때만 전문파일정보와 XML 원문을 조회합니다.
 - `GET /api/patent/pdf?applicationNumber=...&sendNumber=...`: 통지서를 열 때만 PDF_V2를 조회합니다.
+- `GET /api/patent/claim-changes?applicationNumber=...`: 보정서가 있는 사건의 청구항 변동이력을 조회하고 D1 캐시를 우선 반환합니다. `refresh=true`는 API 1회를 사용해 갱신합니다.
 - `GET|POST /api/patent/notice-analysis?applicationNumber=...&sendNumber=...`: 저장된 통지서 마크다운·요약을 조회하거나 새로 생성합니다.
 - `GET|POST /api/patent/summary?applicationNumber=...`: 저장된 AI 요약을 조회하거나 OpenAI로 생성합니다.
 - `GET /api/patent/usage`: D1에 누적된 KIPRIS 호출량을 반환합니다.
@@ -84,7 +88,7 @@ Cloudflare의 `Workers & Pages`에서 이 저장소를 가져오고 다음 값�
 - Secret: `KORDOC_API_TOKEN` (파서 서비스 인증을 사용할 때만)
 - Variable: `NEXT_PUBLIC_SITE_URL`
 
-첫 배포에서는 `DB` D1 바인딩의 `patent-examiner-db`가 자동 프로비저닝됩니다. 이미 만든 D1을 사용하면 빌드 환경변수 `CLOUDFLARE_D1_DATABASE_ID`에 데이터베이스 ID를 지정합니다. `migrations/0001_initial.sql`과 런타임 초기화가 동일한 스키마를 보장합니다.
+첫 배포에서는 `DB` D1 바인딩의 `patent-examiner-db`가 자동 프로비저닝됩니다. 이미 만든 D1을 사용하면 빌드 환경변수 `CLOUDFLARE_D1_DATABASE_ID`에 데이터베이스 ID를 지정합니다. `migrations/0001_initial.sql`부터 `0004_claim_change_histories.sql`까지의 마이그레이션과 런타임 초기화가 동일한 스키마를 보장합니다.
 
 `.node-version`으로 Cloudflare 빌드 환경의 Node.js를 22로 고정합니다. 빌드 후 생성되는 `dist/server/wrangler.json`이 Worker 엔트리와 정적 에셋 경로를 정의하며 `dist`는 저장소에 커밋하지 않습니다.
 

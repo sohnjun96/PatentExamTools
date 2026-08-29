@@ -112,6 +112,47 @@ export async function getPatentCase<T>(userId: string, applicationNumber: string
   return { payload: JSON.parse(row.payload_json) as T, fetchedAt: row.fetched_at };
 }
 
+export async function saveClaimChangeHistory(
+  userId: string,
+  applicationNumber: string,
+  sourceHash: string,
+  payload: unknown,
+  fetchedAt: string,
+) {
+  const db = await appDatabase();
+  await db
+    .prepare(
+      `INSERT INTO claim_change_histories (
+         user_id, application_number, source_hash, payload_json, fetched_at
+       ) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_id, application_number) DO UPDATE SET
+         source_hash = excluded.source_hash,
+         payload_json = excluded.payload_json,
+         fetched_at = excluded.fetched_at,
+         updated_at = CURRENT_TIMESTAMP`,
+    )
+    .bind(userId, applicationNumber, sourceHash, JSON.stringify(payload), fetchedAt)
+    .run();
+}
+
+export async function getClaimChangeHistory<T>(userId: string, applicationNumber: string) {
+  const db = await appDatabase();
+  const row = await db
+    .prepare(
+      `SELECT source_hash, payload_json, fetched_at
+       FROM claim_change_histories
+       WHERE user_id = ? AND application_number = ?`,
+    )
+    .bind(userId, applicationNumber)
+    .first<{ source_hash: string; payload_json: string; fetched_at: string }>();
+  if (!row) return null;
+  return {
+    sourceHash: row.source_hash,
+    payload: JSON.parse(row.payload_json) as T,
+    fetchedAt: row.fetched_at,
+  };
+}
+
 export async function recordApiUsage(
   userId: string,
   provider: 'kipris' | 'openai',

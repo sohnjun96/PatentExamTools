@@ -95,6 +95,16 @@ export const REVIEW_SCHEMA_STATEMENTS = [
     UNIQUE (user_id, application_number, document_key),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   )`,
+  `CREATE TABLE IF NOT EXISTS claim_change_histories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL, application_number TEXT NOT NULL,
+    source_hash TEXT NOT NULL, payload_json TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, application_number),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )`,
   'CREATE INDEX IF NOT EXISTS idx_claim_versions_case_current ON claim_versions(user_id, application_number, is_current, updated_at DESC)',
   'CREATE INDEX IF NOT EXISTS idx_examination_rounds_case_number ON examination_rounds(user_id, application_number, round_number)',
   'CREATE INDEX IF NOT EXISTS idx_issues_case_status ON issues(user_id, application_number, review_status, updated_at DESC)',

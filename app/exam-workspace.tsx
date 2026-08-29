@@ -1,7 +1,7 @@
 'use client';
 /* eslint-disable @next/next/no-img-element */
 
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import demoFullText from '@/app/data/demo-fulltext.json';
 import {
   analyzeClaims,
@@ -17,6 +17,11 @@ import {
   type ReviewItem,
   type ReviewStatus,
 } from '@/app/lib/review-model';
+import type {
+  ClaimChangeDocument,
+  ClaimChangeHistory,
+  ClaimChangeSegment,
+} from '@/app/lib/claim-changes';
 import NoticeDialog from '@/app/notice-dialog';
 
 type WorkMode = 'initial' | 'response';
@@ -32,6 +37,7 @@ type SourceStatus = { name: string; ok: boolean; message: string };
 type ApiUsage = { total: number; startedAt: string; lastCalledAt: string | null; byOperation: Record<string, number> };
 type ExaminationSummary = { oneLine: string; technicalProblem: string; solution: string; keyElements: string[]; effects: string[]; claimOverview: string; examinationPoints: string[]; searchKeywords: string[]; cautions: string[] };
 type SummaryPayload = { summary: ExaminationSummary | null; reviewItems?: ReviewItem[]; model?: string; version?: string; cached: boolean; generatedAt?: string };
+type ClaimChangePayload = ClaimChangeHistory & { fetchedAt: string; cached: boolean; usage?: ApiUsage; error?: string };
 type PatentCase = {
   applicationNumber: string; applicationNumberRaw: string; title: string; titleEnglish: string; status: string; updatedAt: string;
   applicant: string; applicantCountry: string; applicationDate: string; publicationNumber: string; publicationDate: string;
@@ -131,6 +137,8 @@ export default function ExamWorkspace() {
   const [resourceOpen, setResourceOpen] = useState(false); const [resourceTab, setResourceTab] = useState<ResourceTab>('biblio'); const [loading, setLoading] = useState(false); const [loadStage, setLoadStage] = useState(0); const [toast, setToast] = useState(''); const [usage, setUsage] = useState<ApiUsage | null>(null);
   const [summary, setSummary] = useState<SummaryPayload | null>(null); const [summaryBusy, setSummaryBusy] = useState(false); const [summaryError, setSummaryError] = useState(''); const [selectedClaim, setSelectedClaim] = useState(1); const [features, setFeatures] = useState<ClaimFeature[]>(featureRows(demoCase.claims[0]));
   const [searchRan, setSearchRan] = useState(false); const [candidates, setCandidates] = useState<Candidate[]>([]); const [selectedCandidate, setSelectedCandidate] = useState<string | null>(null); const [selectedNotice, setSelectedNotice] = useState<NoticeItem | null>(null); const [drawingOpen, setDrawingOpen] = useState(false); const [packageBusy, setPackageBusy] = useState(false); const [restoring, setRestoring] = useState(true);
+  const [claimChanges, setClaimChanges] = useState<ClaimChangePayload | null>(null); const [claimChangesBusy, setClaimChangesBusy] = useState(false); const [claimChangesError, setClaimChangesError] = useState('');
+  const claimChangesAttemptedFor = useRef<string | null>(null);
   const loadSummary = useCallback(async (applicationNumber: string, force = false) => {
     setSummaryBusy(true); setSummaryError('');
     try {
@@ -157,6 +165,23 @@ export default function ExamWorkspace() {
     } catch (error) { setSummaryError(error instanceof Error ? error.message : 'AI 분석을 불러오지 못했습니다.'); }
     finally { setSummaryBusy(false); }
   }, []);
+  const loadClaimChanges = useCallback(async (applicationNumber: string, force = false) => {
+    claimChangesAttemptedFor.current = applicationNumber;
+    setClaimChangesBusy(true); setClaimChangesError('');
+    try {
+      const parameters = new URLSearchParams({ applicationNumber });
+      if (force) parameters.set('refresh', 'true');
+      const response = await fetch(`/api/patent/claim-changes?${parameters}`, { cache: 'no-store' });
+      const payload = await response.json() as ClaimChangePayload;
+      if (!response.ok) throw new Error(payload.error || '청구항 변동이력을 불러오지 못했습니다.');
+      setClaimChanges(payload);
+      if (payload.usage) setUsage(payload.usage);
+    } catch (error) {
+      setClaimChangesError(error instanceof Error ? error.message : '청구항 변동이력을 불러오지 못했습니다.');
+    } finally {
+      setClaimChangesBusy(false);
+    }
+  }, []);
   const claimAnalysis = analyzeClaims(data.claims);
   const examinationRounds = buildExaminationRounds<NoticeItem>(data.history, data.notices);
   const lifecycle = classifyCaseLifecycle(data);
@@ -167,6 +192,8 @@ export default function ExamWorkspace() {
   const approvedKeywords = approvedReviewItems.filter((item) => item.entityId.startsWith('searchKeywords.')).map((item) => item.text);
   const searchExpression = buildSearchExpression(data, features, approvedKeywords);
   const nextStep = steps[activeIndex + 1]; const nextStepUnavailable = Boolean(nextStep?.[2]);
+  const visibleClaimChanges = claimChanges?.applicationNumber === data.applicationNumberRaw ? claimChanges : null;
+  const hasAmendmentDocuments = examinationRounds.some((round) => round.amendments.length > 0);
   useEffect(() => {
     let cancelled = false;
     const requested = digits(new URLSearchParams(window.location.search).get('applicationNumber') || '');
@@ -189,6 +216,11 @@ export default function ExamWorkspace() {
     return () => { cancelled = true; };
   }, [loadSummary]);
   useEffect(() => { void fetchUsage().then(setUsage).catch(() => undefined); }, []);
+  useEffect(() => {
+    if (view !== 'response-analysis' || data.isDemo || !hasAmendmentDocuments) return;
+    if (claimChanges?.applicationNumber === data.applicationNumberRaw || claimChangesAttemptedFor.current === data.applicationNumberRaw || claimChangesBusy) return;
+    void loadClaimChanges(data.applicationNumberRaw);
+  }, [claimChanges?.applicationNumber, claimChangesBusy, data.applicationNumberRaw, data.isDemo, hasAmendmentDocuments, loadClaimChanges, view]);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 3200); return () => window.clearTimeout(timer); }, [toast]);
   function go(next: WorkView) { setView(next); window.scrollTo({ top: 0, behavior: 'smooth' }); }
   function selectMode(next: WorkMode) { setMode(next); setView('overview'); writeStoredWorkspace(data, summary, next); }
@@ -239,11 +271,11 @@ export default function ExamWorkspace() {
     event.preventDefault(); const normalized = digits(query); if (!/^(10|20)\d{11}$/.test(normalized)) { setToast('특허·실용신안 출원번호 13자리를 확인해 주세요.'); return; }
     setLoading(true); setLoadStage(0); const timer = window.setInterval(() => setLoadStage((current) => Math.min(current + 1, 4)), 420);
     try { const { data: nextData, usage: nextUsage } = await requestPatentCase(normalized); if (nextUsage) setUsage(nextUsage);
-      setData(nextData); setQuery(nextData.applicationNumber); setMode('initial'); setView('overview'); setSelectedClaim(nextData.claims[0]?.number || 1); setFeatures(featureRows(nextData.claims[0])); setSummary(null); setSearchRan(false); setCandidates([]); writeStoredWorkspace(nextData, null, 'initial'); syncCaseUrl(nextData.applicationNumberRaw); if (!nextData.isDemo) void loadSummary(nextData.applicationNumberRaw); setToast('사건을 불러왔습니다. 작업 관점을 선택해 검토를 시작하세요.');
+      setData(nextData); setQuery(nextData.applicationNumber); setMode('initial'); setView('overview'); setSelectedClaim(nextData.claims[0]?.number || 1); setFeatures(featureRows(nextData.claims[0])); setSummary(null); setClaimChanges(null); setClaimChangesError(''); claimChangesAttemptedFor.current = null; setSearchRan(false); setCandidates([]); writeStoredWorkspace(nextData, null, 'initial'); syncCaseUrl(nextData.applicationNumberRaw); if (!nextData.isDemo) void loadSummary(nextData.applicationNumberRaw); setToast('사건을 불러왔습니다. 작업 관점을 선택해 검토를 시작하세요.');
     } catch (error) { setToast(error instanceof Error ? error.message : '사건 조회에 실패했습니다.'); } finally { window.clearInterval(timer); setLoadStage(4); setLoading(false); }
   }
   async function downloadPackage() {
-    setPackageBusy(true); try { const { default: JSZip } = await import('jszip'); const zip = new JSZip(); zip.file('01_사건개요.json', JSON.stringify({ workMode: mode, lifecycle, targetLabel, data }, null, 2)); zip.file('02_청구항구조.json', JSON.stringify(claimAnalysis, null, 2)); zip.file('03_심사회차.json', JSON.stringify(examinationRounds, null, 2)); zip.file('04_확정된_AI검토항목.json', JSON.stringify(approvedReviewItems, null, 2)); zip.file('05_검색대상구성.json', JSON.stringify(features, null, 2)); zip.file('06_검색전략.txt', searchExpression); zip.file('07_후보문헌.json', JSON.stringify(candidates, null, 2)); const blob = await zip.generateAsync({ type: 'blob' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `심사자료_${data.applicationNumberRaw}.zip`; anchor.click(); URL.revokeObjectURL(url); setToast(`확정·수정된 AI 항목 ${approvedReviewItems.length}건을 포함한 ZIP을 만들었습니다.`); } finally { setPackageBusy(false); }
+    setPackageBusy(true); try { const { default: JSZip } = await import('jszip'); const zip = new JSZip(); zip.file('01_사건개요.json', JSON.stringify({ workMode: mode, lifecycle, targetLabel, data }, null, 2)); zip.file('02_청구항구조.json', JSON.stringify(claimAnalysis, null, 2)); zip.file('03_심사회차.json', JSON.stringify(examinationRounds, null, 2)); zip.file('04_청구항변동이력.json', JSON.stringify(visibleClaimChanges, null, 2)); zip.file('05_확정된_AI검토항목.json', JSON.stringify(approvedReviewItems, null, 2)); zip.file('06_검색대상구성.json', JSON.stringify(features, null, 2)); zip.file('07_검색전략.txt', searchExpression); zip.file('08_후보문헌.json', JSON.stringify(candidates, null, 2)); const blob = await zip.generateAsync({ type: 'blob' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `심사자료_${data.applicationNumberRaw}.zip`; anchor.click(); URL.revokeObjectURL(url); setToast(`청구항 변동이력과 확정·수정된 AI 항목 ${approvedReviewItems.length}건을 포함한 ZIP을 만들었습니다.`); } finally { setPackageBusy(false); }
   }
   function runSearch() { setSearchRan(true); if (data.isDemo) { setCandidates(demoCandidates); setToast('데모 검색결과 3건을 불러왔습니다.'); } else { setCandidates([]); setToast('실데이터 검색 API는 다음 연동 단계에서 연결합니다.'); } }
   function pdfUrl(notice: NoticeItem) { return `/api/patent/pdf?${new URLSearchParams({ applicationNumber: data.applicationNumberRaw, sendNumber: notice.documentNumber })}`; }
@@ -257,7 +289,7 @@ export default function ExamWorkspace() {
     <div className={`exam-frame ${resourceOpen ? 'resource-visible' : ''}`}><aside className="exam-sidebar"><p>심사 업무 단계</p><nav aria-label="심사 업무 단계">{steps.map((step, index) => { const unavailable = Boolean(step[2]); const state = step[0] === view ? 'active' : index < activeIndex ? 'done' : 'idle'; return <button key={step[0]} className={`${state}${unavailable ? ' is-coming' : ''}`} type="button" aria-current={state === 'active' ? 'step' : undefined} disabled={unavailable} title={unavailable ? '공통 근거 구조 완성 후 제공할 기능입니다.' : undefined} onClick={() => go(step[0])}><span>{state === 'done' ? '✓' : String(index + 1)}</span><strong>{step[1]}</strong>{unavailable && <small>준비 중</small>}</button>; })}</nav><div className="exam-source-state"><span className={data.isDemo ? 'demo' : ''}/><strong>{data.isDemo ? '데모 사건' : 'KIPRIS Plus 연결'}</strong><small>{sourceOk}/{data.sources.length}개 데이터 소스 정상</small></div></aside>
       <main className="exam-main" id="exam-main" tabIndex={-1}>
         {view === 'overview' && <OverviewView data={data} mode={mode} lifecycle={lifecycle} rounds={examinationRounds} targetLabel={targetLabel} familyCountries={familyCountries} independentCount={independentClaims.length} onNext={() => go(mode === 'response' ? 'response-analysis' : 'technology')} onResource={openResource}/>}
-        {view === 'response-analysis' && <ResponseAnalysisView rounds={examinationRounds} onNotice={setSelectedNotice} onNext={() => go('technology')}/>}
+        {view === 'response-analysis' && <ResponseAnalysisView rounds={examinationRounds} claimChanges={visibleClaimChanges} claimChangesBusy={claimChangesBusy} claimChangesError={claimChangesError} isDemo={data.isDemo} onRefreshClaimChanges={() => void loadClaimChanges(data.applicationNumberRaw, true)} onNotice={setSelectedNotice} onNext={() => go('technology')}/>}
         {view === 'technology' && <TechnologyView data={data} mode={mode} claimAnalysis={claimAnalysis} selectedClaim={selectedClaim} features={features} summary={summary} summaryBusy={summaryBusy} summaryError={summaryError} onSelectClaim={(number) => { setSelectedClaim(number); setFeatures(featureRows(data.claims.find((claim) => claim.number === number))); openResource('claims'); }} onChangeRole={(id, role) => setFeatures((current) => current.map((feature) => feature.id === id ? { ...feature, role } : feature))} onOpenEvidence={openEvidence} onReview={reviewSummaryItem} onAnalyze={() => data.isDemo ? setToast('데모 사건은 기존 분석 시안을 사용합니다.') : void loadSummary(data.applicationNumberRaw, true)} onNext={() => go('strategy')}/>}
         {view === 'strategy' && <StrategyView data={data} mode={mode} features={features} approvedKeywords={approvedKeywords} onCopy={() => void copyText(searchExpression, '검색식')} onNext={() => go('search')}/>}
         {view === 'search' && <PriorArtSearchView data={data} expression={searchExpression} candidates={candidates} searchRan={searchRan} onRun={runSearch} onCopy={() => void copyText(searchExpression, '검색식')} onCandidate={(candidate) => { setSelectedCandidate(candidate.id); setCandidates((current) => current.map((item) => item.id === candidate.id && item.role === '보류' ? { ...item, role: 'D2 후보' } : item)); }} onOpenResource={() => openResource('documents')} onNext={() => go('candidates')}/>}
@@ -283,14 +315,66 @@ function OverviewView({ data, mode, lifecycle, rounds, targetLabel, familyCountr
     <section className="next-work"><div><small>다음 작업</small><h2>{mode === 'response' ? '통지 내용과 대응서류의 연결 상태를 확인하세요.' : '청구항 인용관계를 확인하고 검색 대상 구성을 선정하세요.'}</h2><p>{latestNotice ? `최근 통지 ${formatDate(latestNotice.date)} · ${latestNotice.documentNumber}` : '확인된 의견제출통지서가 없습니다.'}</p></div><button className="exam-primary" type="button" onClick={onNext}>{mode === 'response' ? '통지·대응 분석' : '기술내용 파악'} →</button></section>
   </>;
 }
-function ResponseAnalysisView({ rounds, onNotice, onNext }: { rounds: ExaminationRound<NoticeItem>[]; onNotice: (notice: NoticeItem) => void; onNext: () => void }) {
+function claimChangeDocument(history: ClaimChangePayload | null, documentNumber: string) {
+  const normalized = digits(documentNumber);
+  return history?.documents.find((document) => digits(document.documentNumber) === normalized) ?? null;
+}
+
+function claimChangeStats(document: ClaimChangeDocument) {
+  const parts = [
+    document.statistics.amended ? `수정 ${document.statistics.amended}` : '',
+    document.statistics.inserted ? `신규 ${document.statistics.inserted}` : '',
+    document.statistics.deleted ? `삭제 ${document.statistics.deleted}` : '',
+  ].filter(Boolean);
+  return `청구항 변동 ${document.statistics.total}건${parts.length ? ` · ${parts.join(' · ')}` : ''}`;
+}
+
+function ResponseAnalysisView({ rounds, claimChanges, claimChangesBusy, claimChangesError, isDemo, onRefreshClaimChanges, onNotice, onNext }: { rounds: ExaminationRound<NoticeItem>[]; claimChanges: ClaimChangePayload | null; claimChangesBusy: boolean; claimChangesError: string; isDemo: boolean; onRefreshClaimChanges: () => void; onNotice: (notice: NoticeItem) => void; onNext: () => void }) {
+  const [selectedRoundNumber, setSelectedRoundNumber] = useState<number | null>(null);
+  const selectedRound = rounds.find((round) => round.number === selectedRoundNumber) ?? rounds.at(-1) ?? null;
   const needsConfirmation = rounds.filter((round) => round.connectionStatus === 'needs_confirmation').length;
+  const amendmentDocuments = rounds.flatMap((round) => round.amendments);
+  const linkedChangeDocuments = amendmentDocuments.filter((item) => claimChangeDocument(claimChanges, item.documentNumber));
   return <>
-    <PageHeading step="02" title="통지·대응 분석" description="문서일자와 종류를 기준으로 회차를 구성하며, 모호한 연결은 자동 확정하지 않습니다."/>
-    <div className="round-tabs">{rounds.map((round, index) => <button className={index === rounds.length - 1 ? 'active' : ''} type="button" key={round.notice.documentNumber}>{round.number}차 통지 {formatDate(round.notice.date)}</button>)}<button className="is-coming" type="button" disabled>전체 이력 분석 · 준비 중</button></div>
-    <section className="issue-table"><div className="issue-head"><span>통지 내용</span><span>출원인 대응</span><span>보정 내용</span><span>연결 상태</span></div>{rounds.length ? rounds.map((round) => <article key={round.notice.documentNumber}><div className="notice-col"><b>{round.number}차 심사 회차</b><strong>{round.notice.title}</strong><span>발송 {formatDate(round.notice.date)}</span><button type="button" onClick={() => onNotice(round.notice)}>통지서 원문 확인</button></div><div className="argument-col"><b>{round.opinions.length ? `의견서 ${round.opinions.length}건` : '의견서 확인 필요'}</b>{round.opinions.length ? round.opinions.map((item) => <p key={item.documentNumber}>{formatDate(item.date)} · {item.title}</p>) : <p>이 회차 범위에서 연결할 의견서를 확인하지 못했습니다.</p>}</div><div className="amend-col"><b>{round.amendments.length ? `보정서 ${round.amendments.length}건` : '보정 없음'}</b>{round.amendments.length ? round.amendments.map((item) => <p key={item.documentNumber}>{formatDate(item.date)} · {item.status}</p>) : <p>이 회차 범위에서 연결된 보정서가 없습니다.</p>}</div><div className="state-col"><span className={round.connectionStatus === 'linked' ? 'status-linked' : 'status-warning'}>{round.connectionStatus === 'linked' ? '✓ 문서 연결됨' : '△ 연결 확인 필요'}</span><small>{round.connectionReason}</small>{round.decisions.map((item) => <small key={item.documentNumber}>후속 처리 · {item.title}</small>)}</div></article>) : <EmptyState title="확인된 통지서가 없습니다." text="행정처리 이력에 의견제출통지서가 확인되면 회차별 분석을 시작할 수 있습니다." action="사건자료 확인"/>}</section>
-    <section className="analysis-result"><div><h2>현재 청구항 검토 결과</h2><p>의견서 주장 분석과 보정 전후 청구항 비교는 원문 근거 구조를 연결한 뒤 확정합니다.</p></div><dl><Data label="구성된 회차" value={`${rounds.length}개`}/><Data label="자동 연결" value={`${rounds.length - needsConfirmation}개`}/><Data label="연결 확인 필요" value={`${needsConfirmation}개`}/></dl><button className="exam-primary" type="button" onClick={onNext}>현재 청구항 확인 →</button></section>
+    <PageHeading step="02" title="통지·대응 분석" description="통지서·의견서·보정서를 회차로 묶고, 보정서 문서번호로 청구항 변동이력을 정확히 연결합니다."/>
+    <div className="round-tabs">{rounds.map((round) => <button className={selectedRound?.number === round.number ? 'active' : ''} type="button" key={round.notice.documentNumber} onClick={() => setSelectedRoundNumber(round.number)}>{round.number}차 통지 {formatDate(round.notice.date)}</button>)}<button className="is-coming" type="button" disabled>전체 이력 분석 · 준비 중</button></div>
+    <section className="issue-table"><div className="issue-head"><span>통지 내용</span><span>출원인 대응</span><span>보정 내용</span><span>연결 상태</span></div>{selectedRound ? <article key={selectedRound.notice.documentNumber}><div className="notice-col"><b>{selectedRound.number}차 심사 회차</b><strong>{selectedRound.notice.title}</strong><span>발송 {formatDate(selectedRound.notice.date)}</span><button type="button" onClick={() => onNotice(selectedRound.notice)}>통지서 원문 확인</button></div><div className="argument-col"><b>{selectedRound.opinions.length ? `의견서 ${selectedRound.opinions.length}건` : '의견서 확인 필요'}</b>{selectedRound.opinions.length ? selectedRound.opinions.map((item) => <p key={item.documentNumber}>{formatDate(item.date)} · {item.title}</p>) : <p>이 회차 범위에서 연결할 의견서를 확인하지 못했습니다.</p>}</div><div className="amend-col"><b>{selectedRound.amendments.length ? `보정서 ${selectedRound.amendments.length}건` : '보정 없음'}</b>{selectedRound.amendments.length ? selectedRound.amendments.map((item) => { const linked = claimChangeDocument(claimChanges, item.documentNumber); return <p key={item.documentNumber}><span>{formatDate(item.date)} · {item.status}</span><code>{item.documentNumber}</code>{linked ? <small className="claim-change-linked">✓ {claimChangeStats(linked)}</small> : <small className="claim-change-pending">{claimChangesBusy ? '변동이력 확인 중…' : '변동이력 연결 확인 필요'}</small>}</p>; }) : <p>이 회차 범위에서 연결된 보정서가 없습니다.</p>}</div><div className="state-col"><span className={selectedRound.connectionStatus === 'linked' ? 'status-linked' : 'status-warning'}>{selectedRound.connectionStatus === 'linked' ? '✓ 문서 연결됨' : '△ 연결 확인 필요'}</span><small>{selectedRound.connectionReason}</small>{selectedRound.decisions.map((item) => <small key={item.documentNumber}>후속 처리 · {item.title}</small>)}</div></article> : <EmptyState title="확인된 통지서가 없습니다." text="행정처리 이력에 의견제출통지서가 확인되면 회차별 분석을 시작할 수 있습니다." action="사건자료 확인"/>}</section>
+    {selectedRound && <ClaimChangeReview round={selectedRound} history={claimChanges} loading={claimChangesBusy} error={claimChangesError} isDemo={isDemo} onRefresh={onRefreshClaimChanges}/>}
+    <section className="analysis-result"><div><h2>중간서류 연결 결과</h2><p>청구항 변동은 보정서 접수문서번호와 일치할 때만 자동 연결합니다. 의견서 주장 단위 분석은 다음 단계에서 이어집니다.</p></div><dl><Data label="구성된 회차" value={`${rounds.length}개`}/><Data label="보정 변동 연결" value={`${linkedChangeDocuments.length}/${amendmentDocuments.length}건`}/><Data label="회차 확인 필요" value={`${needsConfirmation}개`}/></dl><button className="exam-primary" type="button" onClick={onNext}>현재 청구항 확인 →</button></section>
   </>;
+}
+
+function ClaimChangeReview({ round, history, loading, error, isDemo, onRefresh }: { round: ExaminationRound<NoticeItem>; history: ClaimChangePayload | null; loading: boolean; error: string; isDemo: boolean; onRefresh: () => void }) {
+  const [selectedDocumentNumber, setSelectedDocumentNumber] = useState<string | null>(null);
+  const linked = round.amendments.flatMap((amendment) => {
+    const document = claimChangeDocument(history, amendment.documentNumber);
+    return document ? [{ amendment, document }] : [];
+  });
+  const selected = linked.find((item) => item.document.documentNumber === selectedDocumentNumber) ?? linked.at(-1) ?? null;
+
+  return <section className="claim-change-review">
+    <header><div><small>CLAIM CHANGE HISTORY</small><h2>보정 전후 청구항 비교</h2><p>보정서 문서번호와 KIPRIS Plus 청구항 변동이력을 직접 대조합니다.</p></div>{!isDemo && <button type="button" onClick={onRefresh} disabled={loading}>{loading ? '조회 중…' : '변동이력 갱신 · API 1회'}</button>}</header>
+    {loading && !history && <div className="claim-change-state" role="status"><strong>청구항 변동이력을 불러오는 중입니다.</strong><span>사건별 최초 1회만 KIPRIS Plus를 호출하고 이후에는 D1 캐시를 사용합니다.</span></div>}
+    {error && <div className="inline-warning">△ {error}</div>}
+    {isDemo && <div className="claim-change-state"><strong>샘플 사건에는 청구항 변동이력이 연결되지 않습니다.</strong><span>실제 출원번호의 중간서류 화면에서 KIPRIS Plus 응답을 확인할 수 있습니다.</span></div>}
+    {!loading && !error && !isDemo && history && !history.documents.length && <div className="claim-change-state"><strong>조회된 청구항 변동이력이 없습니다.</strong><span>해당 출원에 청구항 보정 이력이 없거나 KIPRIS Plus 응답이 비어 있습니다.</span></div>}
+    {!loading && !error && !isDemo && history && history.documents.length > 0 && !linked.length && <div className="inline-warning">△ 변동이력 {history.documents.length}개 문서를 받았지만, 이 회차의 보정서 문서번호와 일치하는 항목이 없습니다. 자동 연결하지 않았습니다.</div>}
+    {linked.length > 0 && <>
+      <div className="claim-change-meta"><div><span>{history?.cached ? 'D1 캐시 사용' : 'KIPRIS Plus 최신 조회'}</span><small>{history?.fetchedAt ? new Date(history.fetchedAt).toLocaleString('ko-KR') : ''}</small></div><nav aria-label="회차 내 보정서 선택">{linked.map(({ amendment, document }) => <button className={selected?.document.documentNumber === document.documentNumber ? 'active' : ''} type="button" key={document.documentNumber} onClick={() => setSelectedDocumentNumber(document.documentNumber)}><strong>{formatDate(amendment.date)} 보정서</strong><small>{claimChangeStats(document)}</small></button>)}</nav></div>
+      {selected && <div className="claim-change-document"><header><div><span>접수문서번호 {selected.document.documentNumber}</span><h3>{formatDate(selected.amendment.date)} 청구항 보정</h3></div><dl><Data label="수정" value={`${selected.document.statistics.amended}항`}/><Data label="신규" value={`${selected.document.statistics.inserted}항`}/><Data label="삭제" value={`${selected.document.statistics.deleted}항`}/></dl></header><div className="claim-change-list">{selected.document.changes.map((change) => <article key={`${change.documentNumber}-${change.claimNumber}`} className={`change-${change.changeTypeCode.toLowerCase()}`}><header><div><span className="claim-number">청구항 {change.claimNumber}</span><span className="change-kind">{change.changeTypeName || change.changeTypeCode}</span></div><small>{change.sourceDocumentNumber ? `기준 문서 ${change.sourceDocumentNumber}` : '기준 문서 자동 추적'}</small></header><div className="claim-change-markup" aria-label={`청구항 ${change.claimNumber} 변경 표시`}><ClaimChangeMarkup segments={change.changeSegments}/></div><details><summary>보정 전·후 전체 문언</summary><div className="claim-text-compare"><section><small>보정 전</small><p>{change.previousClaimText || (change.changeTypeCode === 'I' ? '신규 청구항' : '이전 문언 미수신')}</p></section><section><small>보정 후</small><p>{change.claimText || (change.changeTypeCode === 'D' ? '삭제됨' : '변경 후 문언 미수신')}</p></section></div></details></article>)}</div></div>}
+    </>}
+  </section>;
+}
+
+function ClaimChangeMarkup({ segments }: { segments: ClaimChangeSegment[] }) {
+  if (!segments.length) return <p>변동문이 제공되지 않았습니다.</p>;
+  return <p>{segments.map((segment, index) => segment.type === 'lineBreak'
+    ? <br key={`br-${index}`}/>
+    : segment.type === 'inserted'
+      ? <ins key={`ins-${index}`}>{segment.text}</ins>
+      : segment.type === 'deleted'
+        ? <del key={`del-${index}`}>{segment.text}</del>
+        : <span key={`text-${index}`}>{segment.text}</span>)}</p>;
 }
 function TechnologyView({ data, mode, claimAnalysis, selectedClaim, features, summary, summaryBusy, summaryError, onSelectClaim, onChangeRole, onOpenEvidence, onReview, onAnalyze, onNext }: { data: PatentCase; mode: WorkMode; claimAnalysis: ClaimAnalysis[]; selectedClaim: number; features: ClaimFeature[]; summary: SummaryPayload | null; summaryBusy: boolean; summaryError: string; onSelectClaim: (number: number) => void; onChangeRole: (id: string, role: SearchRole) => void; onOpenEvidence: (reference: EvidenceRef) => void; onReview: (entityId: string, status: ReviewStatus, modifiedText?: string, reason?: string) => Promise<void>; onAnalyze: () => void; onNext: () => void }) {
   const ai = summary?.summary;
