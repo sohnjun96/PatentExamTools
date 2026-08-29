@@ -13,9 +13,7 @@ import {
 } from '@/app/lib/examination-model';
 import {
   isApprovedReviewStatus,
-  type EvidenceRef,
   type ReviewItem,
-  type ReviewStatus,
 } from '@/app/lib/review-model';
 import type {
   ClaimChangeDocument,
@@ -110,7 +108,7 @@ function mapLiveCase(payload: LivePayload): PatentCase {
   return { applicationNumber: formatApplicationNumber(b?.applicationNumber || payload.applicationNumber), applicationNumberRaw: payload.applicationNumber, title: b?.title || '발명의 명칭 미수신', titleEnglish: b?.titleEnglish || '', status: b?.finalDisposal || b?.registrationStatus || '심사 진행', updatedAt: new Date(payload.fetchedAt).toLocaleString('ko-KR'), applicant: applicant?.name || '출원인 미수신', applicantCountry: applicant?.country || '', applicationDate: formatDate(b?.applicationDate || ''), publicationNumber: b?.publicationNumber || '', publicationDate: formatDate(b?.publicationDate || ''), registrationNumber: b?.registrationNumber || '', registrationDate: formatDate(b?.registrationDate || ''), registrationStatus: b?.registrationStatus || '', examinationRequestDate: formatDate(b?.examinationRequestDate || ''), examinerName: b?.examinerName || '—', claimCount: b?.claimCount || b?.claims.length || 0, inventorCount: b?.inventors.length || 0, abstract: b?.abstract || '초록 데이터가 없습니다.', ipc: b?.ipc || [], cpc: payload.cpc || [], claims: b?.claims || [], family: payload.family || [], history: payload.history || [], notices: payload.notices || [], drawing: payload.drawing, fullText: payload.fullText, sources: payload.sources || [], isDemo: false, cached: Boolean(payload.cached) };
 }
 const WORKSPACE_STORAGE_KEY = 'patent-exam-workspace:last-case-v1';
-const AI_SUMMARY_VERSION = 'evidence-backed-summary-2026-08-29-v1';
+const AI_SUMMARY_VERSION = 'concise-technical-summary-2026-08-29-v2';
 function readStoredWorkspace() {
   try {
     const raw = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
@@ -329,47 +327,6 @@ export default function ExamWorkspace() {
     else setDrawingOpen(false);
   }
   async function copyText(value: string, label: string) { try { await navigator.clipboard.writeText(value); setToast(`${label}을 복사했습니다.`); } catch { setToast(`${label}을 복사하지 못했습니다.`); } }
-  function openEvidence(reference: EvidenceRef) {
-    if (reference.sourceType === 'claim') {
-      const number = Number(reference.sourceId.match(/\d+/)?.[0] ?? 0);
-      if (number > 0) setSelectedClaim(number);
-      openResource('claims');
-      return;
-    }
-    if (reference.sourceType === 'drawing') { openDrawing(); return; }
-    if (reference.sourceType === 'specification' || reference.sourceType === 'abstract') {
-      const hash = reference.sourceType === 'abstract' ? 'abstract' : reference.sourceId;
-      window.open(`/fulltext?applicationNumber=${encodeURIComponent(data.applicationNumberRaw)}#${encodeURIComponent(hash)}`, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    openResource('documents');
-  }
-  async function reviewSummaryItem(entityId: string, status: ReviewStatus, modifiedText?: string, reason?: string) {
-    const response = await fetch('/api/patent/review', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        applicationNumber: data.applicationNumberRaw,
-        entityType: 'summary',
-        entityId,
-        status,
-        modifiedText,
-        reason,
-      }),
-    });
-    const payload = await response.json() as { reviewItem?: ReviewItem | null; error?: string };
-    if (!response.ok || !payload.reviewItem) throw new Error(payload.error || '검토 상태를 저장하지 못했습니다.');
-    setSummary((current) => {
-      if (!current) return current;
-      const next = {
-        ...current,
-        reviewItems: (current.reviewItems ?? []).map((item) => item.entityId === entityId ? payload.reviewItem! : item),
-      };
-      writeStoredSummary(data.applicationNumberRaw, next);
-      return next;
-    });
-    setToast(status === 'confirmed' ? '원문과 일치하는 항목으로 확정했습니다.' : status === 'modified' ? '심사관 수정안으로 저장했습니다.' : status === 'rejected' ? '다음 단계에서 제외했습니다.' : '검토 중으로 저장했습니다.');
-  }
   async function generateClaimChangeAnalysis(force = false) {
     if (!linkedClaimChangeDocuments.length) {
       setToast('보정서와 연결된 청구항 변동이 없어 AI 분석을 실행할 수 없습니다.');
@@ -460,7 +417,7 @@ export default function ExamWorkspace() {
         {failedSources.length > 0 && <section className="source-warning" role="alert"><div><strong>일부 사건자료를 불러오지 못했습니다.</strong><span>{failedSources.map((source) => sourceLabel(source.name)).join(' · ')}</span></div><div><button type="button" onClick={() => setSourceDetailsOpen((current) => !current)}>{sourceDetailsOpen ? '상세 닫기' : '상세 보기'}</button><button type="button" disabled={data.isDemo} onClick={() => void refreshPatentCase()}>다시 조회</button></div>{sourceDetailsOpen && <ul>{failedSources.map((source) => <li key={source.name}><b>{sourceLabel(source.name)}</b>{source.message}</li>)}</ul>}</section>}
         {view === 'overview' && <OverviewView data={data} mode={mode} lifecycle={lifecycle} rounds={examinationRounds} targetLabel={targetLabel} familyCountries={familyCountries} independentCount={independentClaims.length} onNext={() => go(mode === 'response' ? 'response-analysis' : 'technology')} onResource={openResource} onRefresh={() => void refreshPatentCase()}/>}
         {view === 'response-analysis' && <ResponseAnalysisView rounds={examinationRounds} claimChanges={visibleClaimChanges} claimChangesBusy={claimChangesBusy} claimChangesError={claimChangesError} claimChangeSummary={claimChangeSummary} claimChangeSummaryBusy={claimChangeSummaryBusy} claimChangeSummaryError={claimChangeSummaryError} isDemo={data.isDemo} onRefreshClaimChanges={() => { setClaimChangeSummary(null); setClaimChangeSummaryError(''); claimChangeSummaryAttemptedFor.current = null; void loadClaimChanges(data.applicationNumberRaw, true); }} onAnalyzeClaimChanges={() => void generateClaimChangeAnalysis(Boolean(claimChangeSummary?.summary))} onNotice={openNotice} onNext={() => go('technology')}/>}
-        {view === 'technology' && <TechnologyView data={data} mode={mode} claimAnalysis={claimAnalysis} selectedClaim={selectedClaim} features={features} summary={summary} summaryBusy={summaryBusy} summaryError={summaryError} onSelectClaim={(number) => { setSelectedClaim(number); setFeatures(featureRows(data.claims.find((claim) => claim.number === number))); }} onOpenClaim={(number) => { setSelectedClaim(number); openResource('claims'); }} onChangeRole={(id, role) => setFeatures((current) => current.map((feature) => feature.id === id ? { ...feature, role } : feature))} onOpenEvidence={openEvidence} onReview={reviewSummaryItem} onAnalyze={() => data.isDemo ? setToast('데모 사건은 기존 분석 시안을 사용합니다.') : void generateSummary(data.applicationNumberRaw, Boolean(summary?.summary))} onNext={() => go(mode === 'response' ? 'response-review' : 'strategy')}/>}
+        {view === 'technology' && <TechnologyView data={data} mode={mode} claimAnalysis={claimAnalysis} selectedClaim={selectedClaim} features={features} summary={summary} summaryBusy={summaryBusy} summaryError={summaryError} onSelectClaim={(number) => { setSelectedClaim(number); setFeatures(featureRows(data.claims.find((claim) => claim.number === number))); }} onOpenClaim={(number) => { setSelectedClaim(number); openResource('claims'); }} onChangeRole={(id, role) => setFeatures((current) => current.map((feature) => feature.id === id ? { ...feature, role } : feature))} onAnalyze={() => data.isDemo ? setToast('데모 사건은 기존 분석 시안을 사용합니다.') : void generateSummary(data.applicationNumberRaw, Boolean(summary?.summary))} onNext={() => go(mode === 'response' ? 'response-review' : 'strategy')}/>}
         {view === 'response-review' && <ResponseReviewView summary={summary?.summary ?? null} claimChangeSummary={claimChangeSummary?.summary ?? null} rounds={examinationRounds} linkedChangeCount={linkedClaimChangeDocuments.length} onResponse={() => go('response-analysis')} onTechnology={() => go('technology')} onAdditionalSearch={() => go('strategy')}/>}
         {view === 'strategy' && <StrategyView data={data} mode={mode} features={features} approvedKeywords={approvedKeywords} suggestedKeywords={aiStrategySuggestions} selectedDraftKeywords={strategyDraftKeywords} claimChangeSummary={claimChangeSummary?.summary ?? null} onToggleKeyword={toggleStrategyKeyword} onCopy={() => void copyText(searchExpression, '검색식')} onNext={() => go('search')}/>}
         {view === 'search' && <PriorArtSearchView data={data} mode={mode} expression={searchExpression} candidates={candidates} searchRan={searchRan} onRun={runSearch} onCopy={() => void copyText(searchExpression, '검색식')} onCandidate={(candidate) => { setSelectedCandidate(candidate.id); setCandidates((current) => current.map((item) => item.id === candidate.id && item.role === '보류' ? { ...item, role: 'D2 후보' } : item)); }} onOpenResource={() => openResource('documents')} onNext={() => go('candidates')}/>}
@@ -577,56 +534,25 @@ function ClaimChangeMarkup({ segments }: { segments: ClaimChangeSegment[] }) {
         ? <del key={`del-${index}`}>{segment.text}</del>
         : <span key={`text-${index}`}>{segment.text}</span>)}</p>;
 }
-function TechnologyView({ data, mode, claimAnalysis, selectedClaim, features, summary, summaryBusy, summaryError, onSelectClaim, onOpenClaim, onChangeRole, onOpenEvidence, onReview, onAnalyze, onNext }: { data: PatentCase; mode: WorkMode; claimAnalysis: ClaimAnalysis[]; selectedClaim: number; features: ClaimFeature[]; summary: SummaryPayload | null; summaryBusy: boolean; summaryError: string; onSelectClaim: (number: number) => void; onOpenClaim: (number: number) => void; onChangeRole: (id: string, role: SearchRole) => void; onOpenEvidence: (reference: EvidenceRef) => void; onReview: (entityId: string, status: ReviewStatus, modifiedText?: string, reason?: string) => Promise<void>; onAnalyze: () => void; onNext: () => void }) {
+function TechnologyView({ data, mode, claimAnalysis, selectedClaim, features, summary, summaryBusy, summaryError, onSelectClaim, onOpenClaim, onChangeRole, onAnalyze, onNext }: { data: PatentCase; mode: WorkMode; claimAnalysis: ClaimAnalysis[]; selectedClaim: number; features: ClaimFeature[]; summary: SummaryPayload | null; summaryBusy: boolean; summaryError: string; onSelectClaim: (number: number) => void; onOpenClaim: (number: number) => void; onChangeRole: (id: string, role: SearchRole) => void; onAnalyze: () => void; onNext: () => void }) {
   const ai = summary?.summary;
-  const reviewItems = summary?.reviewItems ?? [];
-  const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
-  const selectedReview = reviewItems.find((item) => item.entityId === selectedReviewId)
-    ?? reviewItems.find((item) => item.entityId === 'technicalProblem')
-    ?? reviewItems[0]
-    ?? null;
-  const reviewCounts = reviewItems.reduce((counts, item) => {
-    counts[item.reviewStatus] = (counts[item.reviewStatus] ?? 0) + 1;
-    return counts;
-  }, {} as Partial<Record<ReviewStatus, number>>);
-  const approvedCount = (reviewCounts.confirmed ?? 0) + (reviewCounts.modified ?? 0);
-  const reviewItem = (entityId: string) => reviewItems.find((item) => item.entityId === entityId) ?? null;
   const selectedClaimRecord = data.claims.find((claim) => claim.number === selectedClaim);
   const allFeatureParts = featureParts(selectedClaimRecord);
   return <>
-    <PageHeading step={mode === 'response' ? '03' : '02'} title="기술내용 파악" description={mode === 'response' ? '발명의 핵심 기술과 보정 후 청구항의 분석 기준을 함께 정리합니다.' : '발명의 과제·해결수단·청구항 구조와 검색 단서를 한 화면에서 정리합니다.'} action={<button className="exam-secondary" type="button" onClick={onAnalyze} disabled={summaryBusy}>{summaryBusy ? '전문 분석 중…' : ai ? 'AI 분석 다시 실행' : 'AI 전문 요약 실행'}</button>}/>
+    <PageHeading step={mode === 'response' ? '03' : '02'} title="기술내용 파악" description="짧은 AI 요약과 청구항 구조로 발명의 핵심을 빠르게 파악합니다." action={<button className="exam-secondary" type="button" onClick={onAnalyze} disabled={summaryBusy}>{summaryBusy ? '전문 분석 중…' : ai ? 'AI 요약 다시 실행' : 'AI 기술요약 실행'}</button>}/>
     {summaryError && <div className="inline-warning">△ {summaryError}</div>}
     <div className="technology-layout">
       <aside className="claim-tree"><div><h2>청구항 구조</h2><span>{data.claimCount}개</span></div>{claimAnalysis.map((claim) => <article className={`claim-tree-item${selectedClaim === claim.number ? ' active' : ''}${claim.errors.length ? ' invalid' : ''}`} style={{ paddingLeft: `${10 + Math.min(claim.depth, 6) * 13}px` }} key={claim.number}><button className="claim-tree-main" type="button" aria-pressed={selectedClaim === claim.number} onClick={() => onSelectClaim(claim.number)}><span>{claim.isIndependent ? '독립' : claim.multipleDependent ? '다중' : '종속'}</span><div><strong>청구항 {claim.number}</strong><small>{claim.isIndependent ? `독립항 · 종속항 ${claim.children.length}개` : `제${claim.directReferences.join('·')}항 인용 · ${claim.depth}단계`}</small>{claim.errors.length > 0 && <em>{claim.errors.join(' ')}</em>}</div></button><div className="claim-tree-actions"><button type="button" onClick={() => onOpenClaim(claim.number)}>원문</button></div></article>)}</aside>
       <section className="technology-center">
-        {ai && <TechnicalAiBrief summary={ai}/>}
-        <div className="invention-flow">{ai ? <><FlowCard title="기술적 과제" fallbackText={ai.technicalProblem} item={reviewItem('technicalProblem')} onSelect={setSelectedReviewId}/><i>→</i><FlowCard title="핵심 해결수단" fallbackText={ai.solution} item={reviewItem('solution')} onSelect={setSelectedReviewId}/><i>→</i><FlowCard title="주요 효과" fallbackText={ai.effects.join(' · ') || '명세서에 명시된 효과 없음'} item={reviewItem('effects.0')} onSelect={setSelectedReviewId}/></> : <section className="ai-analysis-state"><span>{summaryBusy ? '전문 분석 중' : 'AI 전문 요약'}</span><h2>{summaryBusy ? '전문 명세서를 분석하고 있습니다.' : '아직 생성된 AI 전문 요약이 없습니다.'}</h2><p>{summaryBusy ? '초록, 전체 청구항과 명세서 본문을 함께 읽어 기술적 과제·해결수단·효과와 원문 위치를 정리합니다.' : 'AI 전문 요약 실행을 누른 경우에만 실제 명세서 내용을 OpenAI로 보내 분석합니다.'}</p></section>}</div>
-        {reviewItems.length > 0 && <section className="review-workspace"><header><div><small>원문 근거 검토</small><h2>AI 생성 결과 검토</h2><p>전체 {reviewItems.length}건 · 확정/수정 {approvedCount}건 · 근거 부족 {reviewCounts.unsupported ?? 0}건</p></div><span>{approvedCount}/{reviewItems.length} 전달 가능</span></header><div className="review-workspace-grid"><nav className="review-ledger" aria-label="AI 검토 항목">{reviewItems.map((item) => <button className={selectedReview?.entityId === item.entityId ? 'active' : ''} type="button" key={item.entityId} onClick={() => setSelectedReviewId(item.entityId)}><span className={`review-status ${item.reviewStatus}`}>{reviewStatusLabel(item.reviewStatus)}</span><strong>{item.label}</strong><small>근거 {item.sourceRefs.length}개 · {evidenceLevelLabel(item.evidenceLevel)}</small></button>)}</nav>{selectedReview && <EvidenceReviewPanel key={selectedReview.entityId} item={selectedReview} onOpenEvidence={onOpenEvidence} onReview={onReview}/>}</div></section>}
-        <section className="feature-selector"><div className="section-title"><div><small>AI 검색대상 구성 초안</small><h2>검색대상 구성</h2></div><span>청구항 {selectedClaim}</span></div><p className="feature-draft-note">청구항 {selectedClaim}에서 자동 분리한 {features.length}개 구성{allFeatureParts.length > features.length ? ` · 전체 ${allFeatureParts.length}개 중 최대 7개만 표시` : ''} · 원문 확인 필요</p>{features.length ? features.map((feature) => <article key={feature.id} className="feature-row"><div><span>{feature.id}</span><div><strong>{feature.label}</strong><p>{feature.text}</p></div></div><label><span>검색 역할</span><select aria-label={`${feature.id} 검색 역할`} value={feature.role} onChange={(event) => onChangeRole(feature.id, event.target.value as SearchRole)}>{(['핵심 검색', '조합 검색', '일반 구성', '검색 제외', '확인 필요'] as SearchRole[]).map((role) => <option key={role}>{role}</option>)}</select></label></article>) : <EmptyState title="분석할 청구항이 없습니다." text="청구항 데이터가 수신되면 구성 분석을 시작할 수 있습니다." action="원문 확인"/>}</section>
+        {ai ? <TechnicalAiBrief summary={ai}/> : <section className="ai-analysis-state"><span>{summaryBusy ? '전문 분석 중' : 'AI 기술요약'}</span><h2>{summaryBusy ? '명세서의 핵심만 추리고 있습니다.' : '아직 생성된 AI 기술요약이 없습니다.'}</h2><p>{summaryBusy ? '과제·해결수단·청구항 핵심과 검색 단서를 짧게 정리합니다.' : '실행 버튼을 누른 경우에만 실제 명세서 내용을 OpenAI로 보내 요약합니다.'}</p></section>}
+        <section className="feature-selector"><div className="section-title"><div><small>AI 검색대상 구성 초안</small><h2>검색대상 구성</h2></div><span>청구항 {selectedClaim}</span></div><p className="feature-draft-note">청구항 {selectedClaim}에서 자동 분리한 {features.length}개 구성{allFeatureParts.length > features.length ? ` · 전체 ${allFeatureParts.length}개 중 최대 7개만 표시` : ''}</p>{features.length ? features.map((feature) => <article key={feature.id} className="feature-row"><div><span>{feature.id}</span><div><strong>{feature.label}</strong><p>{feature.text}</p></div></div><label><span>검색 역할</span><select aria-label={`${feature.id} 검색 역할`} value={feature.role} onChange={(event) => onChangeRole(feature.id, event.target.value as SearchRole)}>{(['핵심 검색', '조합 검색', '일반 구성', '검색 제외', '확인 필요'] as SearchRole[]).map((role) => <option key={role}>{role}</option>)}</select></label></article>) : <EmptyState title="분석할 청구항이 없습니다." text="청구항 데이터가 수신되면 구성 분석을 시작할 수 있습니다." action="원문 확인"/>}</section>
       </section>
     </div>
-    <div className="work-actions"><span>확정·수정된 AI 항목 {approvedCount}건</span><button className="exam-primary" type="button" onClick={onNext}>{mode === 'response' ? '중간서류 검토 정리' : '검색전략 작성'} →</button></div>
+    <div className="work-actions"><span>{ai ? 'AI 기술요약 생성됨' : 'AI 기술요약 미생성'}</span><button className="exam-primary" type="button" onClick={onNext}>{mode === 'response' ? '중간서류 검토 정리' : '검색전략 작성'} →</button></div>
   </>;
 }
 function TechnicalAiBrief({ summary }: { summary: ExaminationSummary }) {
-  return <section className="technical-ai-brief"><header><span>AI 생성 · 미확인</span><p>{summary.oneLine}</p></header><div><section><h3>핵심 구성</h3><ul className="technical-tags">{summary.keyElements.slice(0, 8).map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></section><section><h3>청구항 구조 요약</h3><p>{summary.claimOverview}</p></section><section><h3>선행기술 대조 포인트</h3><ol>{summary.examinationPoints.slice(0, 6).map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ol></section></div>{summary.cautions.length > 0 && <details><summary>분석 주의사항 {summary.cautions.length}건</summary><ul>{summary.cautions.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></details>}</section>;
-}
-function reviewStatusLabel(status: ReviewStatus) { return ({ ai_proposed: 'AI 생성 · 미확인', reviewing: '검토 중', confirmed: '사용자 확인', modified: '사용자 수정·확인', rejected: '제외', unsupported: '근거 부족' } satisfies Record<ReviewStatus, string>)[status]; }
-function evidenceLevelLabel(level: ReviewItem['evidenceLevel']) { return level === 'explicit' ? '명시적 근거' : level === 'inferred' ? '추론 근거' : '근거 부족'; }
-function FlowCard({ title, fallbackText, item, onSelect }: { title: string; fallbackText: string; item: ReviewItem | null; onSelect: (entityId: string) => void }) { return <article className={`ai-proposal ${item?.reviewStatus ?? 'unsupported'}`}><span>{item ? reviewStatusLabel(item.reviewStatus) : '근거 정보 없음'}</span><h3>{title}</h3><p>{item?.text || fallbackText}</p><button type="button" disabled={!item} onClick={() => item && onSelect(item.entityId)}>{item ? `근거 ${item.sourceRefs.length}개 확인` : '새 AI 분석 필요'}</button></article>; }
-function EvidenceReviewPanel({ item, onOpenEvidence, onReview }: { item: ReviewItem; onOpenEvidence: (reference: EvidenceRef) => void; onReview: (entityId: string, status: ReviewStatus, modifiedText?: string, reason?: string) => Promise<void> }) {
-  const [draft, setDraft] = useState(item.text);
-  const [reason, setReason] = useState(item.reason ?? '');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const unsupported = item.evidenceLevel === 'unsupported' || item.sourceRefs.length === 0;
-  async function save(status: 'reviewing' | 'confirmed' | 'modified' | 'rejected') {
-    setBusy(true); setError('');
-    try { await onReview(item.entityId, status, status === 'modified' ? draft : undefined, reason); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : '검토 상태를 저장하지 못했습니다.'); }
-    finally { setBusy(false); }
-  }
-  return <article className="evidence-review-panel"><header><div><span className={`review-status ${item.reviewStatus}`}>{reviewStatusLabel(item.reviewStatus)}</span><h3>{item.label}</h3></div><small>{evidenceLevelLabel(item.evidenceLevel)}</small></header><label>검토 문안<textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={6}/></label><section className="evidence-list"><h4>원문 근거</h4>{item.sourceRefs.length ? item.sourceRefs.map((reference, index) => <button type="button" key={`${reference.sourceId}-${index}`} onClick={() => onOpenEvidence(reference)}><span>{reference.locator}<b>{evidenceLevelLabel(reference.evidenceLevel)}</b></span><p>{reference.excerpt}</p><small>원문으로 이동 ↗</small></button>) : <div className="evidence-empty"><strong>근거 부족</strong><p>연결된 청구항 또는 명세서 문단이 없어 이 항목은 확정할 수 없습니다.</p></div>}</section><label>검토 메모<input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="수정·제외 사유 또는 검토 메모"/></label>{error && <p className="review-error">{error}</p>}<footer><button type="button" disabled={busy} onClick={() => void save('reviewing')}>검토 중</button><button type="button" disabled={busy || unsupported} onClick={() => void save('confirmed')}>원문과 일치</button><button type="button" disabled={busy || unsupported || !draft.trim()} onClick={() => void save('modified')}>수정안 확정</button><button className="reject" type="button" disabled={busy} onClick={() => void save('rejected')}>제외</button></footer></article>;
+  return <section className="technical-ai-brief"><header><span>AI 기술요약</span><p>{summary.oneLine}</p></header><div className="technical-summary-grid"><section><h3>과제</h3><p>{summary.technicalProblem}</p></section><section><h3>해결수단</h3><p>{summary.solution}</p></section><section><h3>청구항 핵심</h3><p>{summary.claimOverview}</p></section></div><footer className="technical-ai-points"><section><h3>핵심 구성</h3><ul className="technical-tags">{summary.keyElements.slice(0, 5).map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></section><section><h3>기술적 효과</h3><ul>{summary.effects.slice(0, 3).map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></section><section><h3>검색·대조 포인트</h3><ul>{summary.examinationPoints.slice(0, 3).map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></section></footer>{summary.cautions.length > 0 && <details><summary>주의사항 {summary.cautions.length}건</summary><ul>{summary.cautions.slice(0, 3).map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></details>}</section>;
 }
 function ResponseReviewView({ summary, claimChangeSummary, rounds, linkedChangeCount, onResponse, onTechnology, onAdditionalSearch }: { summary: ExaminationSummary | null; claimChangeSummary: ClaimChangeSummary | null; rounds: ExaminationRound<NoticeItem>[]; linkedChangeCount: number; onResponse: () => void; onTechnology: () => void; onAdditionalSearch: () => void }) {
   const recommendation = claimChangeSummary?.searchRecommendation;

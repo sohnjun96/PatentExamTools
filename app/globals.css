@@ -2555,6 +2555,12 @@ mark { padding: 1px 2px; color: inherit; background: #ffe0a3; }
 .technical-ai-brief ol { margin: 0; padding-left: 20px; }
 .technical-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .technical-tags li { padding: 5px 8px; border: 1px solid #adc8f5; border-radius: 5px; color: #083891; background: #fff; }
+.technical-ai-points { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid #cbdcff; background: #fff; }
+.technical-ai-points > section { min-width: 0; padding: 15px 20px; border-left: 1px solid #d8e5fd; }
+.technical-ai-points > section:first-child { border-left: 0; }
+.technical-ai-points h3 { margin-bottom: 8px; }
+.technical-ai-points ul:not(.technical-tags) { margin: 0; padding-left: 18px; }
+.technical-ai-points li { margin-top: 4px; }
 .technical-ai-brief > details { padding: 12px 20px; border-top: 1px solid #cbdcff; background: #fff; }
 .technical-ai-brief > details summary { color: #a30028; cursor: pointer; font-size: 12px; font-weight: 750; }
 
@@ -2662,6 +2668,9 @@ mark { padding: 1px 2px; color: inherit; background: #ffe0a3; }
   .technical-ai-brief > div { grid-template-columns: 1fr; }
   .technical-ai-brief > div > section { border-top: 1px solid #d8e5fd; border-left: 0; }
   .technical-ai-brief > div > section:first-child { border-top: 0; }
+  .technical-ai-points { grid-template-columns: 1fr; }
+  .technical-ai-points > section { border-top: 1px solid #d8e5fd; border-left: 0; }
+  .technical-ai-points > section:first-child { border-top: 0; }
   .claim-change-ai-grid { grid-template-columns: 1fr; }
   .claim-change-ai-grid > section { border-top: 1px solid var(--exam-line-light); border-left: 0; }
   .claim-change-ai-grid > section:first-child { border-top: 0; }
