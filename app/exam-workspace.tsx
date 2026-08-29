@@ -33,7 +33,12 @@ type WorkMode = 'initial' | 'response';
 type WorkView = 'overview' | 'response-analysis' | 'technology' | 'response-review' | 'strategy' | 'search' | 'candidates' | 'evidence' | 'notice-draft';
 type ResourceTab = 'biblio' | 'claims' | 'drawing' | 'history' | 'family' | 'documents';
 type SearchRole = '핵심 검색' | '조합 검색' | '일반 구성' | '검색 제외' | '확인 필요';
-type Claim = { number: number; text: string };
+type Claim = {
+  number: number;
+  text: string;
+  referenceNumbers?: number[];
+  multipleDependent?: boolean;
+};
 type CodeItem = { number: string; date?: string };
 type FamilyItem = { applicationNumber: string; countryCode: string; countryName: string; familyKind: string; familyNumber: string; literatureKind: string; literatureNumber: string; publicationNumber: string };
 type HistoryItem = { documentNumber: string; date: string; title: string; titleEnglish?: string; status: string; step?: string };
@@ -72,6 +77,7 @@ type PatentCase = {
   claimCount: number; inventorCount: number; abstract: string; ipc: CodeItem[]; cpc: CodeItem[]; claims: Claim[]; family: FamilyItem[];
   history: HistoryItem[]; notices: NoticeItem[]; drawing: { fileName: string; thumbnailUrl: string; largeUrl: string } | null;
   fullText: { fileName: string; fileUrl: string } | null; sources: SourceStatus[]; isDemo: boolean; cached: boolean;
+  claimStructureSource?: 'bibliography' | 'fulltext';
 };
 type StoredWorkspace = { version: 1 | 2; data: PatentCase; summary: SummaryPayload | null; mode?: WorkMode; savedAt: string };
 type LivePayload = {
@@ -100,7 +106,7 @@ const demoCase: PatentCase = {
   applicant: '삼성전자주식회사', applicantCountry: '대한민국', applicationDate: '2020.07.28.', publicationNumber: '10-2022-0014141', publicationDate: '2022.02.04.', registrationNumber: '', registrationDate: '', registrationStatus: '심사 진행', examinationRequestDate: '2023.06.09.', examinerName: 'API 연동 후 표시', claimCount: 20, inventorCount: 10,
   abstract: demoFullText.abstract.map((paragraph) => paragraph.text).join('\n'), ipc: [{ number: 'D06F 34/26' }], cpc: [{ number: 'D06F 34/26' }, { number: 'D06F 37/06' }], claims: demoFullText.claims, family: [], history: demoHistory,
   notices: demoHistory.filter((item) => item.title === '의견제출통지서').map((item) => ({ ...item, pdf: null })), drawing: { fileName: '1020200093844.jpg', thumbnailUrl: '/demo-drawing.jpg', largeUrl: '/demo-drawing.jpg' }, fullText: { fileName: demoFullText.sourceFileName, fileUrl: '' },
-  sources: [{ name: 'bibliography', ok: true, message: '서지·행정처리 반영' }, { name: 'cpc', ok: true, message: 'CPC정보 반영' }, { name: 'drawing', ok: true, message: '대표도면 확인' }, { name: 'family', ok: true, message: '패밀리 없음' }], isDemo: true, cached: false,
+  sources: [{ name: 'bibliography', ok: true, message: '서지·행정처리 반영' }, { name: 'cpc', ok: true, message: 'CPC정보 반영' }, { name: 'drawing', ok: true, message: '대표도면 확인' }, { name: 'family', ok: true, message: '패밀리 없음' }], isDemo: true, cached: false, claimStructureSource: 'fulltext',
 };
 const demoCandidates: Candidate[] = [
   { id: 'd1', country: 'KR', number: '10-2018-0012345', title: '드럼 내부 상태를 측정하는 이동식 센서 장치', applicationDate: '2016.03.12.', publicationDate: '2018.02.01.', applicant: 'ABC Electronics', relevance: '높음', wording: '직접', eligible: true, matches: ['1D', '1E'], role: 'D1 후보' },
@@ -150,7 +156,7 @@ function workModeLabel(mode: WorkMode, lifecycle: CaseLifecycle) {
 }
 function mapLiveCase(payload: LivePayload): PatentCase {
   const b = payload.bibliography; const applicant = b?.applicants?.[0];
-  return { applicationNumber: formatApplicationNumber(b?.applicationNumber || payload.applicationNumber), applicationNumberRaw: payload.applicationNumber, title: b?.title || '발명의 명칭 미수신', titleEnglish: b?.titleEnglish || '', status: b?.finalDisposal || b?.registrationStatus || '심사 진행', updatedAt: new Date(payload.fetchedAt).toLocaleString('ko-KR'), applicant: applicant?.name || '출원인 미수신', applicantCountry: applicant?.country || '', applicationDate: formatDate(b?.applicationDate || ''), publicationNumber: b?.publicationNumber || '', publicationDate: formatDate(b?.publicationDate || ''), registrationNumber: b?.registrationNumber || '', registrationDate: formatDate(b?.registrationDate || ''), registrationStatus: b?.registrationStatus || '', examinationRequestDate: formatDate(b?.examinationRequestDate || ''), examinerName: b?.examinerName || '—', claimCount: b?.claimCount || b?.claims.length || 0, inventorCount: b?.inventors.length || 0, abstract: b?.abstract || '초록 데이터가 없습니다.', ipc: b?.ipc || [], cpc: payload.cpc || [], claims: b?.claims || [], family: payload.family || [], history: payload.history || [], notices: payload.notices || [], drawing: payload.drawing, fullText: payload.fullText, sources: payload.sources || [], isDemo: false, cached: Boolean(payload.cached) };
+  return { applicationNumber: formatApplicationNumber(b?.applicationNumber || payload.applicationNumber), applicationNumberRaw: payload.applicationNumber, title: b?.title || '발명의 명칭 미수신', titleEnglish: b?.titleEnglish || '', status: b?.finalDisposal || b?.registrationStatus || '심사 진행', updatedAt: new Date(payload.fetchedAt).toLocaleString('ko-KR'), applicant: applicant?.name || '출원인 미수신', applicantCountry: applicant?.country || '', applicationDate: formatDate(b?.applicationDate || ''), publicationNumber: b?.publicationNumber || '', publicationDate: formatDate(b?.publicationDate || ''), registrationNumber: b?.registrationNumber || '', registrationDate: formatDate(b?.registrationDate || ''), registrationStatus: b?.registrationStatus || '', examinationRequestDate: formatDate(b?.examinationRequestDate || ''), examinerName: b?.examinerName || '—', claimCount: b?.claimCount || b?.claims.length || 0, inventorCount: b?.inventors.length || 0, abstract: b?.abstract || '초록 데이터가 없습니다.', ipc: b?.ipc || [], cpc: payload.cpc || [], claims: b?.claims || [], family: payload.family || [], history: payload.history || [], notices: payload.notices || [], drawing: payload.drawing, fullText: payload.fullText, sources: payload.sources || [], isDemo: false, cached: Boolean(payload.cached), claimStructureSource: 'bibliography' };
 }
 const WORKSPACE_STORAGE_KEY = 'patent-exam-workspace:last-case-v1';
 const AI_SUMMARY_VERSION = 'concise-technical-summary-2026-08-29-v2';
@@ -242,6 +248,32 @@ export default function ExamWorkspace() {
       const fullText = (await fullTextResponse.json()) as FullTextPayload;
       if (!fullTextResponse.ok) throw new Error(fullText.error || 'AI 분석에 필요한 전문 명세서를 불러오지 못했습니다.');
       if (fullText.usage) setUsage(fullText.usage);
+      if (fullText.claims.length > 0 && data.applicationNumberRaw === applicationNumber) {
+        const xmlClaims = fullText.claims
+          .filter((claim) => Number.isInteger(claim.number) && claim.number > 0 && claim.text.trim())
+          .sort((left, right) => left.number - right.number);
+        if (xmlClaims.length > 0) {
+          const nextData: PatentCase = {
+            ...data,
+            claims: xmlClaims,
+            claimCount: xmlClaims.length,
+            claimStructureSource: 'fulltext',
+          };
+          const nextSelectedClaim =
+            xmlClaims.find((claim) => claim.number === selectedClaim) ?? xmlClaims[0];
+          setData(nextData);
+          setSelectedClaim(nextSelectedClaim.number);
+          setFeatures(featureRows(nextSelectedClaim));
+          const stored = readStoredWorkspace();
+          writeStoredWorkspace(
+            nextData,
+            stored?.data.applicationNumberRaw === applicationNumber ? stored.summary : null,
+            stored?.data.applicationNumberRaw === applicationNumber
+              ? stored.mode ?? mode
+              : mode,
+          );
+        }
+      }
 
       const parameters = new URLSearchParams({ applicationNumber });
       if (force) parameters.set('force', 'true');
@@ -254,7 +286,7 @@ export default function ExamWorkspace() {
       return payload;
     } catch (error) { setSummaryError(error instanceof Error ? error.message : 'AI 분석을 불러오지 못했습니다.'); return null; }
     finally { setSummaryBusy(false); }
-  }, []);
+  }, [data, mode, selectedClaim]);
   const loadClaimChanges = useCallback(async (applicationNumber: string, force = false): Promise<ClaimChangePayload | null> => {
     claimChangesAttemptedFor.current = applicationNumber;
     setClaimChangesBusy(true); setClaimChangesError('');
@@ -461,9 +493,9 @@ export default function ExamWorkspace() {
     setPreReview({ phase: 'running', currentStep: 'case', completedSteps: [], noticeDone: 0, noticeTotal: examinationRounds.length, error: '' });
     try {
       setPreReview((current) => ({ ...current, currentStep: 'technology', completedSteps: ['case'] }));
-      if (!summary?.summary || force) {
+      if (!summary?.summary || force || data.claimStructureSource !== 'fulltext') {
         const generated = await generateSummary(data.applicationNumberRaw, force);
-        if (!generated?.summary) errors.push('기술·청구항 분석 미완료');
+        if (!generated?.summary && !summary?.summary) errors.push('기술·청구항 분석 미완료');
       }
 
       let activeClaimChanges = visibleClaimChanges;
@@ -848,7 +880,7 @@ function TechnologyView({ data, claimAnalysis, selectedClaim, features, summary,
     <PageHeading step="02" title="기술·청구항" description="발명의 핵심 구성을 짧게 파악하고 청구항 구조와 원문 근거를 확인합니다."/>
     {summaryError && <div className="inline-warning">△ {summaryError}</div>}
     <div className="technology-layout">
-      <aside className="claim-tree"><div><h2>청구항 구조</h2><span>{data.claimCount}개</span></div>{claimAnalysis.map((claim) => <article className={`claim-tree-item${selectedClaim === claim.number ? ' active' : ''}${claim.errors.length ? ' invalid' : ''}`} style={{ paddingLeft: `${10 + Math.min(claim.depth, 6) * 13}px` }} key={claim.number}><button className="claim-tree-main" type="button" aria-pressed={selectedClaim === claim.number} onClick={() => onSelectClaim(claim.number)}><span>{claim.isIndependent ? '독립' : claim.multipleDependent ? '다중' : '종속'}</span><div><strong>청구항 {claim.number}</strong><small>{claim.isIndependent ? `독립항 · 종속항 ${claim.children.length}개` : `제${claim.directReferences.join('·')}항 인용 · ${claim.depth}단계`}</small>{claim.errors.length > 0 && <em>{claim.errors.join(' ')}</em>}</div></button><div className="claim-tree-actions"><button type="button" onClick={() => onOpenClaim(claim.number)}>원문 보기</button></div></article>)}</aside>
+      <aside className="claim-tree"><div><h2>청구항 구조</h2><span>{claimAnalysis.length}개 · {data.claimStructureSource === 'fulltext' ? '전문 XML' : '서지 문언'}</span></div>{claimAnalysis.map((claim) => <article className={`claim-tree-item${selectedClaim === claim.number ? ' active' : ''}${claim.errors.length ? ' invalid' : ''}`} style={{ paddingLeft: `${10 + Math.min(claim.depth, 6) * 13}px` }} key={claim.number}><button className="claim-tree-main" type="button" aria-pressed={selectedClaim === claim.number} onClick={() => onSelectClaim(claim.number)}><span>{claim.isIndependent ? '독립' : claim.multipleDependent ? '다중' : '종속'}</span><div><strong>청구항 {claim.number}</strong><small>{claim.isIndependent ? `독립항 · 종속항 ${claim.children.length}개` : `제${claim.directReferences.join('·')}항 인용 · ${claim.depth}단계`}</small>{claim.errors.length > 0 && <em>{claim.errors.join(' ')}</em>}</div></button><div className="claim-tree-actions"><button type="button" onClick={() => onOpenClaim(claim.number)}>원문 보기</button></div></article>)}</aside>
       <section className="technology-center">
         {ai ? <TechnicalAiBrief summary={ai} reviewItems={summary?.reviewItems ?? []} onEvidence={onEvidence}/> : <section className="ai-analysis-state"><span>{summaryBusy ? 'AI 사전검토 중' : '분석 전'}</span><h2>{summaryBusy ? '명세서의 핵심 구성을 정리하고 있습니다.' : '아직 생성된 기술 분석이 없습니다.'}</h2><p>검토 결과 화면에서 AI 사전검토를 시작하면 전문 내용을 바탕으로 짧게 요약합니다.</p>{!summaryBusy && <button className="exam-secondary" type="button" onClick={onOpenReview}>검토 결과로 이동</button>}</section>}
         <section className="feature-selector"><div className="section-title"><div><small>청구항 자동 분리</small><h2>청구항 {selectedClaim} 구성</h2></div><button type="button" onClick={() => onOpenClaim(selectedClaim)}>원문 보기</button></div><p className="feature-draft-note">자동 분리한 {features.length}개 구성{allFeatureParts.length > features.length ? ` · 전체 ${allFeatureParts.length}개 중 일부 표시` : ''} · 원문 기준 확인 필요</p>{features.length ? features.map((feature, index) => <article key={feature.id} className="feature-row compact"><div><span>{feature.id}</span><div><strong>{feature.label}</strong><p>{feature.text}</p><small className={`feature-type feature-type-${featureType(feature, index).replace(/\s/g, '-')}`}>{featureType(feature, index)}</small></div></div></article>) : <EmptyState title="분석할 청구항이 없습니다." text="청구항 데이터가 수신되면 구성 분석을 시작할 수 있습니다." action="원문 확인" onAction={() => onOpenClaim(selectedClaim)}/>}</section>

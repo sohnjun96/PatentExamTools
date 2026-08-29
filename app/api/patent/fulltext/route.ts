@@ -4,6 +4,7 @@ import demoFullText from '@/app/data/demo-fulltext.json';
 import { recordKiprisApiCall } from '@/app/lib/kipris-usage';
 import { getApiUsage, recordApiUsage, WORKSPACE_USER_ID } from '@/app/lib/db';
 import { errorResponse } from '@/app/lib/http';
+import { extractClaimReferenceNumbers } from '@/app/lib/patent-claim-xml';
 import { getKiprisKey } from '@/app/lib/secrets';
 
 const BASE_URL = 'https://plus.kipris.or.kr';
@@ -187,9 +188,16 @@ function normalizeFullTextXml(
   const claims = claimNodes
     .map((claim, index) => {
       const record = asRecord(claim);
+      const referenceNumbers = extractClaimReferenceNumbers(claim);
       return {
         number: Number(record['@_num']) || index + 1,
         text: cleanText(record['claim-text'] ?? claim),
+        ...(referenceNumbers.length > 0
+          ? {
+              referenceNumbers,
+              multipleDependent: referenceNumbers.length > 1,
+            }
+          : {}),
       };
     })
     .filter((claim) => claim.text);

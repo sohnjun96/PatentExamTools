@@ -1,6 +1,8 @@
 export type ClaimLike = {
   number: number;
   text: string;
+  referenceNumbers?: number[];
+  multipleDependent?: boolean;
 };
 
 export type ClaimAnalysis = ClaimLike & {
@@ -53,40 +55,98 @@ function uniqueNumbers(values: number[]) {
   return [...new Set(values)].sort((left, right) => left - right);
 }
 
-function referencePreamble(text: string) {
-  const normalized = text.replace(/\s+/g, ' ').trim();
-  if (!/^(?:제\s*\d+\s*항|청구항\s*(?:제\s*)?\d+)/.test(normalized)) return '';
-  const cue = normalized.search(
-    /(?:에\s*있어서|에\s*따른|에\s*기재된|을\s*인용하는|중\s*(?:어느|임의의|선택되는)\s*한\s*항)/,
-  );
-  return normalized.slice(0, cue >= 0 ? Math.min(cue + 40, 320) : 180);
+function normalizedClaimText(text: string) {
+  return text
+    .normalize('NFKC')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-function referencedClaims(text: string) {
-  const preamble = referencePreamble(text);
+function stripCurrentClaimLabel(text: string, claimNumber: number) {
+  const patterns = [
+    /^(?:\[\s*)?청구항\s*(?:제\s*)?(\d+)\s*(?:항)?\s*(?:\])?\s*(?:[:.)-]\s*)?/u,
+    /^\[\s*(\d+)\s*\]\s*/u,
+    /^(\d+)\s*[.)]\s*/u,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && Number(match[1]) === claimNumber) return text.slice(match[0].length).trim();
+  }
+  return text;
+}
+
+function referencePreamble(text: string, claimNumber: number) {
+  const normalized = stripCurrentClaimLabel(normalizedClaimText(text), claimNumber);
+  const koreanCue = normalized.match(
+    /(?:에\s*(?:있어서|따라|따른|의한|기재된|종속(?:되는|하여|하는)|각각\s*종속되는)|을\s*(?:인용|참조)하는|중\s*(?:어느|임의의|선택된|선택되는)\s*(?:하나|한)\s*항)/u,
+  );
+  const englishCue = normalized.match(
+    /(?:according\s+to|of)\s+(?:any\s+one\s+of\s+)?claims?\b/iu,
+  );
+  const cue = koreanCue ?? englishCue;
+  if (!cue || cue.index == null || cue.index > 320) return '';
+  const end = cue.index + cue[0].length + (englishCue ? 160 : 0);
+  const preamble = normalized.slice(0, end);
+  const hasKoreanReference = /(?:제\s*\d+\s*항|청구항\s*(?:제\s*)?\d+)/u.test(preamble);
+  const hasEnglishReference = /\bclaims?\s+\d+/iu.test(preamble);
+  return hasKoreanReference || hasEnglishReference ? preamble : '';
+}
+
+function expandRange(start: number, end: number) {
+  if (!(start > 0 && end >= start && end - start <= 100)) return [];
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
+
+function referencedClaims(text: string, claimNumber: number) {
+  const preamble = referencePreamble(text, claimNumber);
   if (!preamble) return { references: [] as number[], multiple: false };
 
   const references: number[] = [];
-  const rangePattern = /제\s*(\d+)\s*항\s*(?:내지|부터|~|〜|-)\s*(?:제\s*)?(\d+)\s*항/g;
-  for (const match of preamble.matchAll(rangePattern)) {
-    const start = Number(match[1]);
-    const end = Number(match[2]);
-    if (start > 0 && end >= start && end - start <= 100) {
-      for (let number = start; number <= end; number += 1) references.push(number);
-    }
+  const koreanRangePattern = /(?:청구항\s*)?(?:제\s*)?(\d+)\s*항?\s*(?:내지|부터|~|〜|–|—|-)\s*(?:제\s*)?(\d+)\s*항?/gu;
+  for (const match of preamble.matchAll(koreanRangePattern)) {
+    references.push(...expandRange(Number(match[1]), Number(match[2])));
   }
 
-  for (const match of preamble.matchAll(/(?:제\s*|청구항\s*(?:제\s*)?)(\d+)\s*항?/g)) {
+  for (const match of preamble.matchAll(/(?:제\s*)?(\d+)\s*항/gu)) {
     references.push(Number(match[1]));
   }
+  const claimGroup = preamble.match(
+    /청구항\s*(.+?)(?=에\s*(?:있어서|따라|따른|의한|기재된|종속(?:되는|하여|하는)|각각\s*종속되는)|중\s*(?:어느|임의의|선택된|선택되는))/u,
+  )?.[1];
+  if (claimGroup) {
+    for (const match of claimGroup.matchAll(/\d+/g)) references.push(Number(match[0]));
+  }
+
+  const englishGroup = preamble.match(
+    /\bclaims?\s+((?:\d+\s*(?:(?:to|through|~|–|—|-)\s*\d+)?)(?:\s*(?:,|;|and|or)\s*(?:claims?\s*)?\d+\s*(?:(?:to|through|~|–|—|-)\s*\d+)?)*)/iu,
+  )?.[1] ?? '';
+  for (const match of englishGroup.matchAll(/(\d+)\s*(?:to|through|~|–|—|-)\s*(\d+)/giu)) {
+    references.push(...expandRange(Number(match[1]), Number(match[2])));
+  }
+  for (const match of englishGroup.matchAll(/\d+/g)) references.push(Number(match[0]));
 
   const result = uniqueNumbers(references.filter((number) => Number.isFinite(number)));
   return {
     references: result,
     multiple:
       result.length > 1 ||
-      /(?:내지|부터|중\s*(?:어느|임의의|선택되는)\s*한\s*항|각\s*항)/.test(preamble),
+      /(?:내지|부터|중\s*(?:어느|임의의|선택되는)\s*(?:하나|한)\s*항|각\s*항|any\s+one\s+of|one\s+of\s+claims)/iu.test(preamble),
   };
+}
+
+function claimReferences(claim: ClaimLike) {
+  if (Array.isArray(claim.referenceNumbers) && claim.referenceNumbers.length > 0) {
+    const references = uniqueNumbers(
+      claim.referenceNumbers.filter((number) => Number.isInteger(number) && number > 0),
+    );
+    return {
+      references,
+      multiple: claim.multipleDependent ?? references.length > 1,
+    };
+  }
+  return referencedClaims(claim.text, claim.number);
 }
 
 export function analyzeClaims(claims: ClaimLike[]): ClaimAnalysis[] {
@@ -96,7 +156,7 @@ export function analyzeClaims(claims: ClaimLike[]): ClaimAnalysis[] {
   const errors = new Map<number, string[]>();
 
   for (const claim of ordered) {
-    const parsed = referencedClaims(claim.text);
+    const parsed = claimReferences(claim);
     references.set(claim.number, parsed);
     const claimErrors: string[] = [];
     for (const reference of parsed.references) {

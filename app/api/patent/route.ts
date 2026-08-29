@@ -150,7 +150,18 @@ function normalizeBibliography(payload: unknown) {
     asRecord(item.claimInfoArray).claimInfo ?? item.claimInfo,
   ).map((entry, index) => {
     const record = asRecord(entry);
-    return { number: index + 1, text: text(record.claim ?? entry) };
+    return {
+      number:
+        Number(
+          text(
+            record.claimNumber ??
+              record.claimNo ??
+              record.claimSequence ??
+              record['@_num'],
+          ),
+        ) || index + 1,
+      text: text(record.claim ?? record.claimText ?? entry),
+    };
   });
   const applicants = asArray(
     asRecord(item.applicantInfoArray).applicantInfo ?? item.applicantInfo,
