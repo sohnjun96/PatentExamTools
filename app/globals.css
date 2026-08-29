@@ -2618,7 +2618,7 @@ mark { padding: 1px 2px; color: inherit; background: #ffe0a3; }
 .response-document-card > header > div > span { color: #4f5d70; font-size: 10px; font-weight: 850; letter-spacing: .04em; }
 .response-document-card.notice-result > header > div > span { color: #b4233f; }
 .response-document-card.amendment-result > header > div > span { color: #0b50d0; }
-.response-document-card > header h2 { margin: 4px 0; font-size: 18px; }
+.response-document-card > header h2 { margin: 4px 0; font-size: 22px; line-height: 1.35; }
 .response-document-card > header p { margin: 0; color: var(--exam-muted); font-size: 11px; }
 .response-document-card > header button,
 .response-analysis-empty button { min-height: 38px; padding: 0 12px; border: 1px solid var(--exam-blue); border-radius: 5px; color: #0b50d0; background: #fff; cursor: pointer; font-size: 12px; font-weight: 750; }
