@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { parseClaimChangeHistoryXml, type ClaimChangeHistory } from '@/app/lib/claim-changes';
+import {
+  normalizeClaimChangeHistory,
+  parseClaimChangeHistoryXml,
+  type ClaimChangeHistory,
+} from '@/app/lib/claim-changes';
 import {
   getApiUsage,
   getClaimChangeHistory,
@@ -60,9 +64,19 @@ export async function GET(request: NextRequest) {
         applicationNumber,
       );
       if (stored) {
+        const normalized = normalizeClaimChangeHistory(stored.payload);
+        if (JSON.stringify(normalized) !== JSON.stringify(stored.payload)) {
+          await saveClaimChangeHistory(
+            WORKSPACE_USER_ID,
+            applicationNumber,
+            stored.sourceHash,
+            normalized,
+            stored.fetchedAt,
+          );
+        }
         return NextResponse.json(
           {
-            ...stored.payload,
+            ...normalized,
             applicationNumber,
             fetchedAt: stored.fetchedAt,
             cached: true,
@@ -126,4 +140,3 @@ export async function GET(request: NextRequest) {
     return errorResponse(error);
   }
 }
-

@@ -99,6 +99,37 @@ function appendSegment(
   segments.push({ type, text });
 }
 
+function appendLiteralMarkup(
+  segments: ClaimChangeSegment[],
+  inheritedType: ClaimChangeSegment['type'],
+  rawText: string,
+) {
+  const value = rawText
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\r/g, '');
+  const tokenPattern = /<\s*br\s*\/?\s*>|<\s*\/?\s*(?:ins|del)\s*>/gi;
+  const stack: ClaimChangeSegment['type'][] = [];
+  let currentType = inheritedType;
+  let cursor = 0;
+
+  for (const match of value.matchAll(tokenPattern)) {
+    const index = match.index ?? 0;
+    appendSegment(segments, currentType, value.slice(cursor, index));
+    const token = match[0].toLowerCase();
+    if (/^<\s*br/.test(token)) {
+      appendSegment(segments, 'lineBreak', '\n');
+    } else if (/^<\s*\//.test(token)) {
+      currentType = stack.pop() ?? inheritedType;
+    } else {
+      stack.push(currentType);
+      currentType = /ins/.test(token) ? 'inserted' : 'deleted';
+    }
+    cursor = index + match[0].length;
+  }
+  appendSegment(segments, currentType, value.slice(cursor));
+}
+
 function segmentsFromNodes(
   nodes: OrderedNode[],
   inheritedType: ClaimChangeSegment['type'] = 'unchanged',
@@ -107,7 +138,7 @@ function segmentsFromNodes(
   for (const node of nodes) {
     for (const [key, value] of Object.entries(node)) {
       if (key === '#text') {
-        appendSegment(result, inheritedType, scalar(value).replace(/\r/g, ''));
+        appendLiteralMarkup(result, inheritedType, scalar(value));
       } else if (key.toLowerCase() === 'br') {
         appendSegment(result, 'lineBreak', '\n');
       } else if (Array.isArray(value)) {
@@ -134,9 +165,91 @@ function plainText(nodes: OrderedNode[]) {
 }
 
 function normalizeSegments(segments: ClaimChangeSegment[]) {
-  return segments
+  const normalized = segments
     .map((segment) => ({ ...segment, text: segment.text.replace(/\r/g, '') }))
     .filter((segment) => segment.type === 'lineBreak' || segment.text.length > 0);
+  return normalized.some((segment) => segment.type === 'lineBreak' || segment.text.trim())
+    ? normalized
+    : [];
+}
+
+function normalizedStoredText(value: string) {
+  return segmentsFromNodes([{ '#text': value }])
+    .map((segment) => segment.type === 'lineBreak' ? '\n' : segment.text)
+    .join('')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
+function coarseDiff(previous: string, next: string) {
+  let prefixLength = 0;
+  const limit = Math.min(previous.length, next.length);
+  while (prefixLength < limit && previous[prefixLength] === next[prefixLength]) prefixLength += 1;
+
+  let previousEnd = previous.length;
+  let nextEnd = next.length;
+  while (
+    previousEnd > prefixLength &&
+    nextEnd > prefixLength &&
+    previous[previousEnd - 1] === next[nextEnd - 1]
+  ) {
+    previousEnd -= 1;
+    nextEnd -= 1;
+  }
+
+  const result: ClaimChangeSegment[] = [];
+  appendSegment(result, 'unchanged', next.slice(0, prefixLength));
+  appendSegment(result, 'deleted', previous.slice(prefixLength, previousEnd));
+  appendSegment(result, 'inserted', next.slice(prefixLength, nextEnd));
+  appendSegment(result, 'unchanged', next.slice(nextEnd));
+  return normalizeSegments(result);
+}
+
+export function normalizeClaimChangeHistory(history: ClaimChangeHistory): ClaimChangeHistory {
+  return {
+    ...history,
+    documents: history.documents.map((document) => ({
+      ...document,
+      changes: document.changes.map((change) => {
+        const claimText = normalizedStoredText(change.claimText ?? '');
+        const previousClaimText = change.previousClaimText
+          ? normalizedStoredText(change.previousClaimText)
+          : null;
+        let changeSegments = normalizeSegments(
+          (change.changeSegments ?? []).flatMap((segment) => {
+            if (segment.type === 'lineBreak') return [segment];
+            const result: ClaimChangeSegment[] = [];
+            appendLiteralMarkup(result, segment.type, segment.text);
+            return result;
+          }),
+        );
+        const hasExplicitDiff = changeSegments.some(
+          (segment) => segment.type === 'inserted' || segment.type === 'deleted',
+        );
+        if (change.changeTypeCode === 'D' && previousClaimText && !hasExplicitDiff) {
+          changeSegments = [{ type: 'deleted', text: previousClaimText }];
+        } else if (change.changeTypeCode === 'I' && claimText && !hasExplicitDiff) {
+          changeSegments = [{ type: 'inserted', text: claimText }];
+        } else if (
+          change.changeTypeCode === 'A' &&
+          previousClaimText &&
+          claimText &&
+          !hasExplicitDiff &&
+          previousClaimText !== claimText
+        ) {
+          changeSegments = coarseDiff(previousClaimText, claimText);
+        }
+        return {
+          ...change,
+          claimText,
+          previousClaimText,
+          changeSegments,
+        };
+      }),
+    })),
+  };
 }
 
 function resultStatus(xml: string) {
@@ -255,9 +368,9 @@ export function parseClaimChangeHistoryXml(xml: string): ClaimChangeHistory {
       };
     });
 
-  return {
+  return normalizeClaimChangeHistory({
     applicationNumber: normalizedItems[0]?.applicationNumber ?? '',
     documents,
     totalChanges: normalizedItems.length,
-  };
+  });
 }
