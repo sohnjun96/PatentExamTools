@@ -100,6 +100,14 @@ export default function FullTextViewer({
     return () => controller.abort();
   }, [applicationNumber]);
 
+  useEffect(() => {
+    if (!payload || !window.location.hash) return;
+    const id = decodeURIComponent(window.location.hash.slice(1));
+    window.requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [payload]);
+
   const visibleClaims = useMemo(() => {
     if (!payload) return [];
     return claimMode === 'independent'
@@ -212,7 +220,7 @@ export default function FullTextViewer({
                 <section id="abstract" className="fulltext-section abstract-section">
                   <header><span>01</span><div><p>ABSTRACT</p><h2>초록</h2></div></header>
                   <div className="fulltext-prose">
-                    {payload.abstract.map((paragraph, index) => <p key={paragraph.number ?? index}><Highlight text={paragraph.text} query={query} /></p>)}
+                    {payload.abstract.map((paragraph, index) => <p id={paragraph.number ? `abstract-${paragraph.number}` : undefined} key={paragraph.number ?? index}><Highlight text={paragraph.text} query={query} /></p>)}
                   </div>
                 </section>
 
@@ -221,7 +229,7 @@ export default function FullTextViewer({
                     <header><span>{String(sectionIndex + 2).padStart(2, '0')}</span><div><p>DESCRIPTION</p><h2>{section.title}</h2></div></header>
                     <div className="fulltext-prose numbered">
                       {section.paragraphs.map((paragraph, index) => (
-                        <p key={paragraph.number ?? index}><span>{paragraph.number ? `[${paragraph.number}]` : ''}</span><span><Highlight text={paragraph.text} query={query} /></span></p>
+                        <p id={paragraph.number ? `paragraph-${paragraph.number}` : undefined} key={paragraph.number ?? index}><span>{paragraph.number ? `[${paragraph.number}]` : ''}</span><span><Highlight text={paragraph.text} query={query} /></span></p>
                       ))}
                     </div>
                   </section>
@@ -238,7 +246,7 @@ export default function FullTextViewer({
                   </header>
                   <div className="fulltext-claims">
                     {visibleClaims.map((claim) => (
-                      <article className={isIndependentClaim(claim) ? 'independent' : ''} key={claim.number}>
+                      <article id={`claim-${claim.number}`} className={isIndependentClaim(claim) ? 'independent' : ''} key={claim.number}>
                         <div><strong>청구항 {claim.number}</strong>{isIndependentClaim(claim) && <span>독립항</span>}</div>
                         <p><Highlight text={claim.text} query={query} /></p>
                       </article>

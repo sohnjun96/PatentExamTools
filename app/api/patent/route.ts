@@ -10,6 +10,7 @@ import {
 } from '@/app/lib/db';
 import { errorResponse } from '@/app/lib/http';
 import { envValue } from '@/app/lib/runtime-env';
+import { syncCaseReviewFoundation, type CaseFoundation } from '@/app/lib/review-store';
 import { getKiprisKey } from '@/app/lib/secrets';
 
 const parser = new XMLParser({
@@ -278,6 +279,11 @@ export async function GET(request: NextRequest) {
         applicationNumber,
       );
       if (stored) {
+        await syncCaseReviewFoundation(
+          WORKSPACE_USER_ID,
+          applicationNumber,
+          stored.payload as CaseFoundation,
+        );
         return NextResponse.json(
           {
             ...stored.payload,
@@ -364,6 +370,11 @@ export async function GET(request: NextRequest) {
       applicationNumber,
       response,
       fetchedAt,
+    );
+    await syncCaseReviewFoundation(
+      WORKSPACE_USER_ID,
+      applicationNumber,
+      response,
     );
 
     return NextResponse.json(
