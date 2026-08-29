@@ -11,6 +11,8 @@ import {
   getReviewItems,
   getReviewWorkspace,
   saveIssueProposal,
+  syncCaseReviewFoundation,
+  type CaseFoundation,
   updateReviewDecision,
 } from '@/app/lib/review-store';
 
@@ -64,8 +66,10 @@ function evidenceRefs(value: unknown) {
 }
 
 async function ensureCaseExists(application: string) {
-  const stored = await getPatentCase(WORKSPACE_USER_ID, application);
+  const stored = await getPatentCase<CaseFoundation>(WORKSPACE_USER_ID, application);
   if (!stored) throw new HttpError(404, '먼저 출원번호를 조회해 사건 데이터를 불러와 주세요.');
+  await syncCaseReviewFoundation(WORKSPACE_USER_ID, application, stored.payload);
+  return stored;
 }
 
 export async function GET(request: Request) {
