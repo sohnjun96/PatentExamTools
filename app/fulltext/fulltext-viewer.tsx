@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { analyzeClaims } from '@/app/lib/examination-model';
 
 type FullTextParagraph = {
   number: string | null;
@@ -17,6 +18,8 @@ type FullTextSection = {
 type FullTextClaim = {
   number: number;
   text: string;
+  referenceNumbers?: number[];
+  multipleDependent?: boolean;
 };
 
 type FullTextPayload = {
@@ -39,7 +42,7 @@ function formatApplicationNumber(value: string) {
 }
 
 function isIndependentClaim(claim: FullTextClaim) {
-  return !claim.text.trim().startsWith('제');
+  return analyzeClaims([claim])[0]?.isIndependent ?? true;
 }
 
 function splitTitle(value: string) {
@@ -110,9 +113,10 @@ export default function FullTextViewer({
 
   const visibleClaims = useMemo(() => {
     if (!payload) return [];
+    const analyzedClaims = analyzeClaims(payload.claims);
     return claimMode === 'independent'
-      ? payload.claims.filter(isIndependentClaim)
-      : payload.claims;
+      ? analyzedClaims.filter((claim) => claim.isIndependent)
+      : analyzedClaims;
   }, [claimMode, payload]);
 
   const matchCount = useMemo(() => {
