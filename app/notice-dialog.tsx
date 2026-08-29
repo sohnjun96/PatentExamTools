@@ -2,30 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { useModalBehavior } from '@/app/lib/use-modal-behavior';
+import type { NoticeAnalysis } from '@/app/lib/notice-analysis';
 
 type Notice = {
   documentNumber: string;
   date: string;
-};
-
-type NoticeSummary = {
-  oneLine: string;
-  keyIssues: string[];
-  affectedClaims: string[];
-  citedReferences: string[];
-  deadlines: string[];
-  requiredActions: string[];
-  cautions: string[];
-};
-
-type NoticeAnalysis = {
-  markdown: string;
-  summary: NoticeSummary;
-  parser: 'kordoc' | 'openai-pdf';
-  model: string;
-  cached: boolean;
-  generatedAt: string;
-  error?: string;
 };
 
 type Tab = 'summary' | 'markdown' | 'pdf';
@@ -192,6 +173,10 @@ function SummaryGroup({ title, items }: { title: string; items: string[] }) {
   return <section><h3>{title}</h3><ul>{items.map((item, index) => <li key={index}>{item}</li>)}</ul></section>;
 }
 
+function formatClaimNumbers(numbers: number[]) {
+  return numbers.length ? `청구항 ${numbers.join(', ')}` : '해당 청구항 없음';
+}
+
 export default function NoticeDialog({
   applicationNumber,
   notice,
@@ -245,6 +230,8 @@ export default function NoticeDialog({
         {!busy && analysis && tab === 'summary' && <div className="notice-summary">
           <article className="notice-summary-lead"><span>통지 요지</span><h3>{analysis.summary.oneLine}</h3><small>{analysis.parser === 'kordoc' ? 'kordoc 표·문서 파싱' : 'OpenAI PDF 문서 분석'} · {analysis.cached ? '저장된 분석' : '새 분석'}</small></article>
           <div className="notice-summary-grid">
+            <SummaryGroup title="법조항별 거절 청구항" items={analysis.summary.rejectionGrounds.map((ground) => `${ground.provision} : ${formatClaimNumbers(ground.claimNumbers)}`)}/>
+            {analysis.summary.allowableClaims.length > 0 && <SummaryGroup title="등록가능항" items={[formatClaimNumbers(analysis.summary.allowableClaims)]}/>}
             <SummaryGroup title="주요 쟁점" items={analysis.summary.keyIssues}/>
             <SummaryGroup title="대상 청구항" items={analysis.summary.affectedClaims}/>
             <SummaryGroup title="인용문헌" items={analysis.summary.citedReferences}/>

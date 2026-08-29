@@ -5,28 +5,9 @@ import { loadNoticePdf, noticeIdentifiers } from '@/app/lib/kipris-notice';
 import { requestStructuredOpenAi } from '@/app/lib/openai-response';
 import { envValue } from '@/app/lib/runtime-env';
 import { getOpenAiCredentials } from '@/app/lib/secrets';
+import type { NoticeAnalysis, NoticeSummary } from '@/app/lib/notice-analysis';
 
-type NoticeSummary = {
-  oneLine: string;
-  keyIssues: string[];
-  affectedClaims: string[];
-  citedReferences: string[];
-  deadlines: string[];
-  requiredActions: string[];
-  cautions: string[];
-};
-
-type NoticeAnalysis = {
-  markdown: string;
-  summary: NoticeSummary;
-  parser: 'kordoc' | 'openai-pdf';
-  model: string;
-  cached: boolean;
-  generatedAt: string;
-  usage: { inputTokens: number; outputTokens: number };
-};
-
-const ANALYSIS_VERSION = 'notice-markdown-2026-08-28-v3';
+const ANALYSIS_VERSION = 'notice-markdown-2026-08-29-v4';
 const ANALYSIS_RATE_WINDOW_MS = 60_000;
 const ANALYSIS_RATE_MAX = 2;
 const analysisRequestLog = new Map<string, number[]>();
@@ -48,6 +29,21 @@ function analysisRateLimited(request: Request) {
 
 const SUMMARY_PROPERTIES = {
   oneLine: { type: 'string' },
+  rejectionGrounds: {
+    type: 'array',
+    maxItems: 16,
+    items: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['provision', 'claimNumbers', 'reason'],
+      properties: {
+        provision: { type: 'string' },
+        claimNumbers: { type: 'array', items: { type: 'integer' }, maxItems: 80 },
+        reason: { type: 'string' },
+      },
+    },
+  },
+  allowableClaims: { type: 'array', items: { type: 'integer' }, maxItems: 80 },
   keyIssues: { type: 'array', items: { type: 'string' }, maxItems: 12 },
   affectedClaims: { type: 'array', items: { type: 'string' }, maxItems: 20 },
   citedReferences: { type: 'array', items: { type: 'string' }, maxItems: 20 },
@@ -58,6 +54,8 @@ const SUMMARY_PROPERTIES = {
 
 const SUMMARY_REQUIRED = [
   'oneLine',
+  'rejectionGrounds',
+  'allowableClaims',
   'keyIssues',
   'affectedClaims',
   'citedReferences',
@@ -136,6 +134,12 @@ function stripGuidanceFromSummary(summary: NoticeSummary) {
     items.filter((item) => !COMMON_GUIDANCE_PATTERN.test(item));
   return {
     ...summary,
+    rejectionGrounds: Array.isArray(summary.rejectionGrounds)
+      ? summary.rejectionGrounds
+      : [],
+    allowableClaims: Array.isArray(summary.allowableClaims)
+      ? summary.allowableClaims
+      : [],
     keyIssues: withoutGuidance(summary.keyIssues),
     affectedClaims: withoutGuidance(summary.affectedClaims),
     citedReferences: withoutGuidance(summary.citedReferences),
@@ -151,17 +155,17 @@ async function cachedAnalysis(
   sourceHash?: string,
 ) {
   const db = await appDatabase();
+  const sourceKey = sourceHash ?? `${ANALYSIS_VERSION}:%`;
   const statement = db.prepare(
     `SELECT markdown_text, summary_json, parser, model,
             input_tokens, output_tokens, updated_at
      FROM notice_analyses
      WHERE user_id = ? AND application_number = ? AND send_number = ?
-       ${sourceHash ? 'AND source_hash = ?' : ''}
+       AND source_hash ${sourceHash ? '= ?' : 'LIKE ?'}
      ORDER BY updated_at DESC LIMIT 1`,
   );
-  const row = await (sourceHash
-    ? statement.bind(WORKSPACE_USER_ID, applicationNumber, sendNumber, sourceHash)
-    : statement.bind(WORKSPACE_USER_ID, applicationNumber, sendNumber))
+  const row = await statement
+    .bind(WORKSPACE_USER_ID, applicationNumber, sendNumber, sourceKey)
     .first<{
       markdown_text: string;
       summary_json: string;
@@ -234,7 +238,7 @@ async function analyzePdfWithOpenAi(
       model,
       store: false,
       instructions:
-        '당신은 대한민국 특허청 의견제출통지서를 원문에 충실하게 디지털화하는 문서 분석가입니다. PDF의 모든 페이지에서 제목, 본문, 번호 목록, 인용문헌, 청구항 번호, 기간과 표를 빠짐없이 읽으세요. markdown은 반드시 [심사결과] 제목부터 시작하고, 그 위에 있는 출원번호·출원인 등의 서지사항과 정형 안내 문구는 모두 제외하세요. [심사결과] 이후의 원문 구조는 보존하세요. 표는 반드시 GitHub Flavored Markdown 파이프 표로 복원하고, 병합 셀은 의미가 사라지지 않도록 필요한 값을 반복 기재하세요. 페이지 머리글·꼬리글의 단순 반복은 제거하되 심사결과에 포함된 법적·절차적 문구는 생략하지 마세요. 문서 말미에 << 안내 >>, 〈〈 안내 〉〉 또는 같은 의미의 안내 제목이 나오면 그 제목부터 이후의 지정기간연장 안내 등 정형 공통 안내문은 markdown과 요약에서 모두 완전히 제외하세요. 판독 불가능한 부분은 [판독 불가]로 표시하고 추측하지 마세요. 요약 필드는 통지서에 실제로 기재된 내용만 사실형 문장으로 정리하세요. 거절이유 또는 의견제출 사유, 대상 청구항, 인용문헌과 대응 요구사항을 구체적으로 적고, 사용자에게 일반적인 조언을 하지 마세요.',
+        '당신은 대한민국 특허청 의견제출통지서를 원문에 충실하게 디지털화하는 문서 분석가입니다. PDF의 모든 페이지에서 제목, 본문, 번호 목록, 인용문헌, 청구항 번호, 기간과 표를 빠짐없이 읽으세요. markdown은 반드시 [심사결과] 제목부터 시작하고, 그 위의 서지사항과 정형 안내 문구는 제외하세요. [심사결과] 이후의 원문 구조는 보존하세요. 표는 GitHub Flavored Markdown 파이프 표로 복원하고, 병합 셀은 필요한 값을 반복 기재하세요. 페이지 머리글·꼬리글의 단순 반복은 제거하되 심사결과의 법적·절차적 문구는 생략하지 마세요. 문서 말미의 << 안내 >> 등 정형 공통 안내문은 markdown과 요약에서 제외하세요. 판독 불가능한 부분은 [판독 불가]로 표시하고 추측하지 마세요. rejectionGrounds에는 심사결과에 적용된 법조항별로 거절 대상 청구항 번호를 그룹화하세요. provision은 ‘제29조제2항’처럼 간결하게, claimNumbers는 정수 배열로, reason은 통지서에 기재된 해당 거절이유만 짧게 적으세요. allowableClaims에는 통지서가 거절이유가 없거나 등록가능하다고 명시한 청구항만 넣고, 단순히 거절 대상에서 빠졌다는 이유로 추론하지 마세요. 나머지 요약 필드도 실제 기재된 내용만 사실형으로 적고 일반적인 조언은 하지 마세요.',
       input: [{
         role: 'user',
         content: [
@@ -264,6 +268,8 @@ async function analyzePdfWithOpenAi(
     markdown: trimNoticeMarkdown(value.markdown),
     summary: {
       oneLine: value.oneLine,
+      rejectionGrounds: value.rejectionGrounds,
+      allowableClaims: value.allowableClaims,
       keyIssues: value.keyIssues,
       affectedClaims: value.affectedClaims,
       citedReferences: value.citedReferences,
@@ -291,7 +297,7 @@ async function summarizeKordocMarkdown(
       model,
       store: false,
       instructions:
-        '당신은 대한민국 특허청 의견제출통지서를 검토하는 특허심사 보조 분석가입니다. 제공된 kordoc 마크다운만 근거로 통지서의 핵심 내용을 한국어로 요약하세요. 거절이유 또는 의견제출 사유, 대상 청구항, 인용문헌, 제출기한과 요구된 대응을 구체적으로 적으세요. 문서 말미의 << 안내 >> 이후 지정기간연장 안내 등 정형 공통 안내문은 요약 근거에서 제외하세요. 문서에 없는 사항은 추정하지 말고 cautions에만 표시하세요. 일반적인 조언이나 “확인해야 합니다” 같은 빈 안내문을 출력하지 마세요.',
+        '당신은 대한민국 특허청 의견제출통지서를 검토하는 특허심사 보조 분석가입니다. 제공된 kordoc 마크다운만 근거로 통지서의 핵심 내용을 한국어로 요약하세요. rejectionGrounds에는 적용 법조항별로 거절 대상 청구항을 그룹화하고, provision은 ‘제29조제2항’처럼 간결하게, claimNumbers는 정수 배열로, reason은 해당 거절이유만 짧게 적으세요. allowableClaims에는 문서가 거절이유가 없거나 등록가능하다고 명시한 청구항만 넣으세요. 거절이유, 대상 청구항, 인용문헌, 제출기한과 요구된 대응을 구체적으로 적으세요. 문서 말미의 << 안내 >> 이후 정형 공통 안내문은 요약 근거에서 제외하세요. 문서에 없는 사항은 추정하지 말고 cautions에만 표시하세요. 일반적인 조언이나 “확인해야 합니다” 같은 빈 안내문을 출력하지 마세요.',
       input: `<office_action_markdown>\n${markdown.slice(0, 180_000)}\n</office_action_markdown>`,
       text: {
         format: {
