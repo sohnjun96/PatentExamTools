@@ -611,8 +611,8 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   --krds-danger-10: #fcdfd9;
   --krds-danger-50: #de3412;
   --krds-danger-60: #bd2c0f;
-  --krds-success-5: #eaf6ec;
-  --krds-success-50: #228738;
+  --krds-success-5: #ecf2fe;
+  --krds-success-50: #256ef4;
   --krds-information-5: #e7f4fe;
   --ink: var(--krds-gray-90);
   --muted: var(--krds-gray-60);
@@ -1291,8 +1291,8 @@ mark { padding: 1px 2px; color: inherit; background: #ffe0a3; }
   --exam-blue: #256ef4;
   --exam-purple: #346fb2;
   --exam-ai: #0b50d0;
-  --exam-green: #267337;
-  --exam-amber: #8a5c00;
+  --exam-green: #0b50d0;
+  --exam-amber: #a30028;
   --exam-red: #d50136;
   --exam-bg: #f4f5f6;
   --exam-line: #cdd1d5;
@@ -2409,4 +2409,115 @@ mark { padding: 1px 2px; color: inherit; background: #ffe0a3; }
   .exam-toast { right: 14px; bottom: calc(76px + env(safe-area-inset-bottom)); left: 14px; max-width: none; }
   .evidence-list > button,
   .ai-proposal > button { min-height: 44px; }
+}
+
+/* Blue/red semantic palette and mobile stability ----------------------- */
+.mobile-case-details { display: none !important; }
+.ok,
+.connection-status.linked,
+.status-linked,
+.claim-change-linked,
+.claim-change-meta > div span,
+.candidate-status .eligible,
+.readiness-ok,
+.exam-loading .done { color: #0b50d0 !important; }
+.warn,
+.status-warning,
+.connection-status.needs_confirmation,
+.claim-change-pending { color: #a30028 !important; }
+.case-lifecycle.success,
+.case-lifecycle.information { border-left-color: var(--exam-blue); }
+.case-lifecycle.warning,
+.case-lifecycle.danger { border-left-color: var(--exam-red); }
+.review-status.reviewing,
+.review-status.confirmed,
+.review-status.modified { color: #083891; background: #d8e5fd; }
+.candidate-status .eligible { padding: 1px 5px; background: #ecf2fe; }
+.change-i .change-kind { color: #083891; background: #e1ecff; }
+.claim-change-markup ins { color: #083891; background: #d8e5fd; }
+.data-freshness span,
+.data-freshness span.cached { color: #083891; background: #d8e5fd; }
+.data-freshness span.demo { color: #464c53; background: #e6e8ea; }
+.feature-draft-note { color: #083891; background: #ecf2fe; }
+.inline-warning {
+  border-left-color: var(--exam-red);
+  color: #8a1730;
+  background: #fff0f3;
+}
+.source-warning {
+  border-color: #f3a6b8;
+  border-left-color: var(--exam-red);
+  background: #fff5f7;
+}
+.source-warning strong,
+.source-warning span,
+.source-warning li { color: #8a1730; }
+.source-warning button { border-color: #d50136; color: #a30028; }
+.source-warning ul { border-top-color: #f3a6b8; }
+.ai-proposal.ai_proposed,
+.ai-proposal.reviewing { border-color: #6a9ef7; background: #f5f8ff; }
+.ai-proposal.unsupported { border-color: var(--exam-red); background: #fff5f7; }
+.review-status.ai_proposed { color: #083891; background: #d8e5fd; }
+.review-status.unsupported { color: #a30028; background: #ffe3ea; }
+.mode-card.response,
+.version-badge { color: #083891; background: #d8e5fd; }
+.notice-col { border-top-color: var(--exam-red) !important; }
+.document-state.ready,
+.status-label { color: #083891; background: #ecf2fe; }
+
+@media (max-width: 600px) {
+  .krds-masthead { display: none; }
+  html,
+  body,
+  .exam-app { max-width: 100%; overflow-x: clip; }
+
+  .exam-modebar { min-height: 0; }
+  .exam-modebar > .case-lifecycle,
+  .exam-modebar > .analysis-target,
+  .exam-modebar > .data-basis { display: none !important; }
+  .case-primary { display: grid !important; gap: 3px !important; }
+  .case-primary > .mode-badge,
+  .work-heading .mode-card { display: none; }
+  .case-title-line { min-width: 0; }
+  .case-title-line > strong { flex: 0 1 auto; min-width: 0; }
+  .mobile-lifecycle-badge {
+    flex: 0 0 auto;
+    max-width: none;
+    overflow: visible !important;
+    color: #083891;
+    background: #d8e5fd;
+    text-overflow: clip !important;
+    white-space: nowrap !important;
+  }
+  .mobile-lifecycle-badge.success,
+  .mobile-lifecycle-badge.information { color: #083891; background: #d8e5fd; }
+  .mobile-lifecycle-badge.warning,
+  .mobile-lifecycle-badge.danger { color: #a30028; background: #ffe3ea; }
+  .mobile-case-details.open { display: grid !important; min-width: 0; }
+  .mobile-case-details > div { min-width: 0; }
+  .mobile-case-details dd { min-width: 0; overflow-wrap: anywhere; }
+
+  .exam-main { max-width: 100%; }
+  .work-heading { gap: 10px; margin-bottom: 17px; padding-bottom: 14px; }
+  .work-heading h1 { font-size: 26px; }
+  .work-heading p { font-size: 13px; line-height: 1.55; }
+  .overview-summary,
+  .next-work { gap: 14px; padding: 16px; }
+  .overview-summary strong { font-size: 17px; line-height: 1.45; }
+  .overview-summary button,
+  .next-work .exam-primary { width: 100%; min-height: 44px; border: 1px solid var(--exam-blue); border-radius: 6px; color: #fff; background: var(--exam-blue); text-decoration: none; }
+
+  .claim-tree-main { min-height: 44px; }
+  .claim-tree-actions button { min-width: 72px; flex: 0 0 auto; }
+  .mobile-more-menu > div { width: min(235px, calc(100vw - 28px)); }
+
+  .resource-panel > nav { min-height: 48px; height: 48px; grid-template-columns: repeat(6, minmax(58px, 1fr)); overflow-x: auto; }
+  .resource-panel > nav button { min-height: 48px; }
+  .resource-panel header small { display: none; }
+  .resource-panel header h2,
+  .exam-dialog header h2 { font-size: 19px; }
+
+  .exam-dialog.notice > footer { flex-wrap: wrap; justify-content: flex-end; }
+  .exam-dialog.notice > footer > span { display: none; }
+  .exam-dialog.notice > footer > div { width: 100%; justify-content: space-between; }
 }
