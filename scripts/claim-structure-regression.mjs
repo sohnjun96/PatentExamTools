@@ -26,6 +26,13 @@ assert.deepEqual(byNumber.get(5)?.directReferences, [1, 2]);
 assert.deepEqual(byNumber.get(6)?.directReferences, [1, 2, 3]);
 assert.deepEqual(byNumber.get(7)?.directReferences, [2]);
 assert.deepEqual(byNumber.get(8)?.directReferences, [1, 2]);
+assert.deepEqual(byNumber.get(1)?.children, [2, 4, 5, 6, 8]);
+
+const cyclic = analyzeClaims([
+  { number: 1, text: '청구항 2를 인용하는 장치.', referenceNumbers: [2] },
+  { number: 2, text: '청구항 1을 인용하는 장치.', referenceNumbers: [1] },
+]);
+assert.equal(cyclic.every((claim) => claim.errors.includes('청구항 인용관계가 순환합니다.')), true);
 
 assert.deepEqual(
   extractClaimReferenceNumbers({

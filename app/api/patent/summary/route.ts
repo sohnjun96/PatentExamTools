@@ -10,6 +10,7 @@ import { analyzeClaims } from '@/app/lib/examination-model';
 import { requestStructuredOpenAi } from '@/app/lib/openai-response';
 import { getReviewItems, saveReviewProposals } from '@/app/lib/review-store';
 import { getOpenAiCredentials } from '@/app/lib/secrets';
+import { postProcessSummary } from '@/app/lib/summary-postprocess';
 
 type PatentPayload = {
   bibliography?: null | {
@@ -84,8 +85,8 @@ type ExaminationSummary = {
 
 const SUMMARY_RATE_WINDOW_MS = 60_000;
 const SUMMARY_RATE_MAX = 3;
-const SUMMARY_TYPE = 'examination_overview_v6';
-const PROMPT_VERSION = 'invention-claim-summary-2026-08-29-v3';
+const SUMMARY_TYPE = 'examination_overview_v7';
+const PROMPT_VERSION = 'invention-claim-summary-2026-08-30-v4';
 const MAX_SPECIFICATION_CHARS = 140_000;
 const summaryRequestLog = new Map<string, number[]>();
 
@@ -487,6 +488,7 @@ export async function POST(request: Request) {
           'claimOverview는 전체 청구항 관계를 2문장 이내로 보조 설명하세요. keyElements는 차별적 구성을 우선한 최대 6개의 짧은 명사구로 작성하세요.',
           'effects는 명세서에 명시된 효과만 최대 3개, examinationPoints는 선행기술과 대조할 구체적 구성 또는 관계만 최대 5개, searchKeywords는 명세서 용어와 직접적인 동의어만 최대 10개 작성하세요.',
           'oneLine, technicalProblem, solution, operationFlow, keyElements, independentClaimSummary, dependentClaimGroups 사이에 같은 문장을 반복하지 마세요.',
+          '모든 문장은 자연스러운 한국어 문법으로 작성하고 조사 오류, 명사형 나열, 불완전한 문장과 중복 문장을 제거하세요.',
           '근거가 없거나 문언이 모호한 경우에만 cautions에 최대 3개 적고, 명세서에 없는 기술·효과·작동 단계·문단번호를 추정하지 마세요.',
           'evidenceItems에는 oneLine, technicalProblem, solution, operationFlow.0, keyElements.0, effects.0, independentClaimSummary, dependentClaimGroups.0, examinationPoints.0 형식의 key를 사용해 화면에 표시되는 각 핵심 항목을 연결하세요.',
           '각 evidenceItems 항목에는 실제 원문의 짧은 연속 인용구를 excerpt로 넣고 sourceRefs를 최대 4개 연결하세요. 청구항은 sourceType=claim, sourceId=claim-번호, locator=청구항 번호로, 명세서 문단은 sourceType=specification, sourceId=paragraph-문단번호, locator=[문단번호]로 적으세요.',
@@ -504,7 +506,7 @@ export async function POST(request: Request) {
         },
       },
     });
-    const summary = validateEvidence(result.value, fullText);
+    const summary = validateEvidence(postProcessSummary(result.value), fullText);
     const inputTokens = result.inputTokens;
     const outputTokens = result.outputTokens;
     const db = await appDatabase();

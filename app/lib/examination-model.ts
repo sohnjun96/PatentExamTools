@@ -176,6 +176,25 @@ export function analyzeClaims(claims: ClaimLike[]): ClaimAnalysis[] {
     }
   }
 
+  const traversalState = new Map<number, 'visiting' | 'done'>();
+  const detectCycle = (number: number, path: number[] = []) => {
+    if (traversalState.get(number) === 'done') return;
+    if (traversalState.get(number) === 'visiting') {
+      const cycleStart = path.indexOf(number);
+      const cycleClaims = cycleStart >= 0 ? path.slice(cycleStart) : [number];
+      for (const claimNumber of cycleClaims) {
+        errors.get(claimNumber)?.push('청구항 인용관계가 순환합니다.');
+      }
+      return;
+    }
+    traversalState.set(number, 'visiting');
+    for (const reference of references.get(number)?.references ?? []) {
+      if (claimNumbers.has(reference)) detectCycle(reference, [...path, number]);
+    }
+    traversalState.set(number, 'done');
+  };
+  for (const claim of ordered) detectCycle(claim.number);
+
   const depths = new Map<number, number>();
   const roots = new Map<number, number[]>();
   const visit = (number: number, path: number[] = []): { depth: number; roots: number[] } => {
