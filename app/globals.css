@@ -3112,6 +3112,11 @@ mark { padding: 1px 2px; color: inherit; background: #ffe0a3; }
 .overview-summary-card p strong { display: block; margin-bottom: 4px; color: var(--exam-navy); font-size: 11px; }
 .overview-summary-card ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .overview-summary-card li { padding: 4px 7px; border-radius: 4px; color: #083891; background: #eaf1ff; font-size: 10px; }
+.overview-summary-bullets { display: grid; gap: 7px; }
+.overview-summary-bullets > strong { color: var(--exam-navy); font-size: 11px; }
+.overview-summary-card .ai-summary-bullets { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.overview-summary-card .ai-summary-bullets li { position: relative; padding: 0 0 0 15px; border-radius: 0; color: #464c53; background: transparent; font-size: 12px; line-height: 1.65; }
+.overview-summary-card .ai-summary-bullets li::before { position: absolute; top: .7em; left: 1px; width: 5px; height: 5px; border-radius: 1px; content: ''; background: #256ef4; }
 .overview-summary-card > button {
   width: 100%;
   min-height: 42px;
@@ -3152,9 +3157,15 @@ mark { padding: 1px 2px; color: inherit; background: #ffe0a3; }
 .technical-summary-card h3 { font-size: 14px; }
 .technical-summary-card > p,
 .technical-summary-card li p { overflow-wrap: anywhere; color: #303740; font-size: 13px; line-height: 1.75; }
+.ai-summary-bullets { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.ai-summary-bullets li { position: relative; overflow-wrap: anywhere; padding-left: 17px; color: #303740; font-size: 13px; line-height: 1.7; }
+.ai-summary-bullets li::before { position: absolute; top: .72em; left: 1px; width: 6px; height: 6px; border-radius: 1px; content: ''; background: #256ef4; }
+.ai-summary-empty { margin: 0; color: var(--exam-muted); font-size: 12px; }
 .technical-summary-card.effects ul { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
-.technical-summary-card.effects li { padding-top: 10px; border-top: 1px solid var(--exam-line-light); }
+.technical-summary-card.effects li { position: relative; padding: 10px 0 0 17px; border-top: 1px solid var(--exam-line-light); }
 .technical-summary-card.effects li:first-child { padding-top: 0; border-top: 0; }
+.technical-summary-card.effects li::before { position: absolute; top: 1.35em; left: 1px; width: 6px; height: 6px; border-radius: 1px; content: ''; background: #256ef4; }
+.technical-summary-card.effects li:first-child::before { top: .72em; }
 .operation-flow-panel { padding: 20px; border-bottom: 1px solid var(--exam-line-light); background: #f8f9fa; }
 .operation-flow-panel > header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .operation-flow-panel > header h3 { margin: 0; font-size: 15px; }

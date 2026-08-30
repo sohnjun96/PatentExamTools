@@ -86,7 +86,7 @@ type ExaminationSummary = {
 const SUMMARY_RATE_WINDOW_MS = 60_000;
 const SUMMARY_RATE_MAX = 3;
 const SUMMARY_TYPE = 'examination_overview_v7';
-const PROMPT_VERSION = 'invention-claim-summary-2026-08-30-v4';
+const PROMPT_VERSION = 'invention-claim-summary-2026-08-30-v5';
 const MAX_SPECIFICATION_CHARS = 140_000;
 const summaryRequestLog = new Map<string, number[]>();
 
@@ -481,11 +481,13 @@ export async function POST(request: Request) {
           '당신은 대한민국 특허 명세서의 핵심 기술을 짧고 정확하게 설명하는 특허심사 보조 분석가입니다.',
           '반드시 patent_data의 초록, 청구항, claimStructure와 명세서 본문만 근거로 한국어 사실 서술형 요약을 작성하세요.',
           '사용자에게 행동을 지시하거나 “확인해야 합니다”, “검토가 필요합니다”, “원문을 확인하세요” 같은 안내문을 쓰지 마세요.',
-          'oneLine은 발명의 대상·차별 수단·효과가 드러나는 한 문장, technicalProblem은 종래기술의 문제와 발명의 목적을 1~2문장, solution은 핵심 구성과 구성 사이의 작용관계를 2~3문장으로 작성하세요.',
+          'oneLine은 발명의 대상·차별 수단·효과가 드러나는 한 문장으로 작성하세요.',
+          'technicalProblem은 종래기술의 문제, 해결 필요성, 발명의 목적을 서로 중복되지 않는 2~4개의 짧고 독립적인 문장으로 작성하세요.',
+          'solution은 핵심 구성, 구성 사이의 작용관계, 차별적 처리방식을 서로 중복되지 않는 2~4개의 짧고 독립적인 문장으로 작성하세요.',
           'operationFlow는 발명의 실제 작동 과정을 입력·판단·제어·출력 순서에 따라 3~5개의 짧은 단계로 작성하고, 단순 구성요소 목록으로 작성하지 마세요. 실제 순서를 뒷받침할 문언이 부족하면 빈 배열을 반환하세요.',
-          'independentClaimSummary에는 독립항의 핵심 구성 조합과 구성요소 사이의 관계를 1~2문장으로 작성하세요.',
+          'independentClaimSummary에는 독립항의 핵심 구성 조합과 구성요소 사이의 관계를 2~4개의 짧고 독립적인 문장으로 작성하세요.',
           'dependentClaimGroups에는 주요 종속항이 독립항에 추가하는 한정사항을 기술적 의미가 유사한 청구항끼리 최대 5개 그룹으로 묶고, 실제 청구항 번호를 숫자 배열로 적으세요.',
-          'claimOverview는 전체 청구항 관계를 2문장 이내로 보조 설명하세요. keyElements는 차별적 구성을 우선한 최대 6개의 짧은 명사구로 작성하세요.',
+          'claimOverview는 전체 청구항 관계를 최대 3개의 짧고 독립적인 문장으로 보조 설명하세요. keyElements는 차별적 구성을 우선한 최대 6개의 짧은 명사구로 작성하세요.',
           'effects는 명세서에 명시된 효과만 최대 3개, examinationPoints는 선행기술과 대조할 구체적 구성 또는 관계만 최대 5개, searchKeywords는 명세서 용어와 직접적인 동의어만 최대 10개 작성하세요.',
           'oneLine, technicalProblem, solution, operationFlow, keyElements, independentClaimSummary, dependentClaimGroups 사이에 같은 문장을 반복하지 마세요.',
           '모든 문장은 자연스러운 한국어 문법으로 작성하고 조사 오류, 명사형 나열, 불완전한 문장과 중복 문장을 제거하세요.',
