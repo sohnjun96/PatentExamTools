@@ -3352,3 +3352,243 @@ mark { padding: 1px 2px; color: inherit; background: #ffe0a3; }
   .claim-version-comparison > div { padding: 0 10px 10px; }
   .claim-version-tree { padding: 10px; }
 }
+
+/* Readability scale ----------------------------------------------------- */
+.exam-app {
+  font-size: 17px;
+  line-height: 1.65;
+}
+.exam-app small {
+  font-size: 12px !important;
+  line-height: 1.55;
+}
+.exam-app button,
+.exam-app select,
+.exam-app input,
+.exam-app textarea {
+  line-height: 1.45;
+}
+.exam-primary,
+.exam-secondary,
+.exam-header-actions button,
+.exam-step-footer button,
+.review-search-decision button,
+.candidate-simple-list > header button,
+.search-workspace-card button {
+  min-height: 44px;
+  font-size: 14px;
+}
+
+.exam-brand strong { font-size: 22px; }
+.exam-brand small,
+.exam-modebar small,
+.case-primary > small,
+.case-lifecycle > span { font-size: 13px !important; }
+.exam-modebar span,
+.case-primary > span:last-child { font-size: 14px; }
+.case-title-line > strong { font-size: 17px; }
+.mode-switch button { min-height: 42px; font-size: 14px; }
+.exam-sidebar nav button { min-height: 64px; padding: 11px 13px; }
+.exam-sidebar nav button strong { font-size: 15px; }
+.exam-sidebar nav button small { font-size: 12px !important; }
+.exam-source-state strong { font-size: 14px; }
+
+.work-heading { margin-bottom: 26px; }
+.work-heading h1 { font-size: 34px; line-height: 1.3; }
+.work-heading p { max-width: 880px; font-size: 16px; line-height: 1.7; }
+.section-title h2,
+.claim-change-review > header h2 { font-size: 23px; }
+.section-title small,
+.claim-change-review > header small,
+.overview-summary-card > header span,
+.response-issue-list > header span,
+.search-workspace-card > header span,
+.candidate-simple-list > header span { font-size: 12px; }
+
+.overview-summary-card { gap: 16px; padding: 24px; }
+.overview-summary-card h2 { font-size: 21px; line-height: 1.55; }
+.overview-summary-card p,
+.overview-summary-card .ai-summary-bullets li { font-size: 14px; line-height: 1.75; }
+.overview-summary-bullets > strong { font-size: 13px; }
+.overview-case-facts > div,
+.overview-counts > div { padding: 13px; }
+.overview-case-facts dt,
+.overview-counts dt,
+.round-result-summary dt { font-size: 12px; }
+.overview-case-facts dd,
+.overview-counts dd { font-size: 16px; }
+.overview-analysis-status p,
+.overview-analysis-status span,
+.compact-opinion-alert { font-size: 13px; line-height: 1.7; }
+
+.pre-review-global-status { padding: 15px 17px; }
+.pre-review-global-status > span,
+.pre-review-global-status > small { font-size: 12px; }
+.pre-review-global-status > strong { font-size: 15px; }
+.pre-review-global-status > button { min-height: 40px; font-size: 13px; }
+.pre-review-task-board { padding: 22px; }
+.pre-review-task-board > header h2 { font-size: 20px; }
+.pre-review-task-board li { min-height: 64px; gap: 15px; padding: 12px 6px; }
+.pre-review-task-board li > span { font-size: 11px; }
+.pre-review-task-board li strong { font-size: 14px; }
+.pre-review-task-board li small { font-size: 12px; line-height: 1.6; }
+.pre-review-task-board li > button { min-height: 40px; font-size: 13px; }
+
+.claim-tree { padding: 18px; }
+.claim-tree h2 { font-size: 20px; }
+.claim-tree > div span,
+.claim-tree-guide { font-size: 12px; line-height: 1.6; }
+.claim-tree-item { padding-block: 11px; }
+.claim-tree-main strong { font-size: 15px; }
+.claim-tree-main small { font-size: 12px; line-height: 1.55; }
+.claim-tree-main em { font-size: 12px; line-height: 1.55; }
+.claim-tree-main .claim-kind { min-width: 38px; min-height: 28px; font-size: 11px; }
+.claim-relation-label { font-size: 11px; }
+.claim-tree-actions button { min-height: 40px; font-size: 13px; }
+
+.technical-ai-brief.expanded > .technical-summary-hero { padding: 28px; }
+.technical-ai-brief.expanded > .technical-summary-hero p { font-size: 23px; line-height: 1.7; }
+.technical-summary-hero > small { font-size: 13px !important; }
+.technical-summary-card { padding: 24px; }
+.technical-summary-card h3,
+.operation-flow-panel > header h3,
+.claim-scope-summary > h3 { font-size: 17px; }
+.technical-summary-card > p,
+.technical-summary-card li p,
+.ai-summary-bullets li,
+.technical-core-elements li p,
+.claim-scope-summary .ai-summary-bullets li,
+.dependent-claim-groups .ai-summary-bullets li { font-size: 14px; line-height: 1.75; }
+.operation-flow-panel { padding: 24px; }
+.operation-flow-step { padding: 17px; }
+.operation-flow-step > span { width: 27px; height: 27px; font-size: 12px; }
+.operation-flow-step p { font-size: 14px; line-height: 1.7; }
+.technical-ai-brief.expanded > .technical-bottom-grid > section { padding: 24px; }
+.dependent-claim-groups article { padding: 15px 16px; }
+.dependent-claim-groups article strong { font-size: 14px; }
+.technical-evidence { margin-top: 10px; font-size: 12px; }
+.technical-evidence button { min-height: 34px; padding-inline: 9px; font-size: 12px; }
+.technical-supporting-details > summary { min-height: 40px; font-size: 14px; }
+.technical-detail-grid li { font-size: 14px; line-height: 1.7; }
+.feature-draft-note { padding: 11px 13px; font-size: 13px; }
+.feature-row { padding: 16px; }
+.feature-row strong { font-size: 15px; }
+.feature-row p { font-size: 14px; line-height: 1.75; }
+.feature-type { font-size: 11px !important; }
+
+.round-result-summary { padding: 24px 26px; }
+.round-result-summary h2 { font-size: 24px; }
+.round-result-summary > div > span { font-size: 12px; }
+.round-result-summary dd { font-size: 15px; }
+.document-summary-strip > * { padding: 22px; }
+.document-summary-strip strong { font-size: 20px; }
+.response-issue-list { gap: 15px; padding: 20px; }
+.response-issue-list > header,
+.search-workspace-card > header,
+.candidate-simple-list > header { padding: 21px 24px; }
+.response-issue-list > header h2,
+.search-workspace-card > header h2,
+.candidate-simple-list > header h2 { font-size: 21px; }
+.review-issue-card > header { padding: 16px 19px; }
+.review-issue-card > header span { font-size: 12px; }
+.review-issue-card > header strong { font-size: 16px; }
+.review-issue-card > section { gap: 8px; padding: 19px; }
+.review-issue-card > section small { font-size: 12px; }
+.review-issue-card > section p,
+.review-issue-card > section .ai-summary-bullets li { font-size: 15px; line-height: 1.75; }
+.review-issue-card > details { padding: 14px 19px; }
+.review-issue-card > details summary { min-height: 34px; font-size: 13px; }
+.review-issue-card > details p { font-size: 14px; line-height: 1.75; }
+.review-evidence-links span,
+.review-evidence-links button { font-size: 12px; }
+.allowable-claims-result span { font-size: 12px; }
+.allowable-claims-result strong { font-size: 19px; }
+.compact-change-document > header { padding: 18px 20px; }
+.compact-change-document > header strong { font-size: 20px; }
+.compact-change-document > header > span,
+.compact-change-document summary span { font-size: 13px; }
+.compact-change-result { gap: 9px; padding: 18px 20px; }
+.compact-change-result > span { font-size: 12px; }
+.compact-change-result .ai-summary-bullets li { font-size: 14px; }
+.compact-change-document > div > details { padding: 17px 20px; }
+.claim-text-compare p,
+.claim-change-markup p { font-size: 14px; line-height: 1.85; }
+.claim-version-comparison > summary { min-height: 42px; font-size: 14px; }
+.claim-version-comparison > p { font-size: 12px; }
+.claim-version-tree > header strong { font-size: 14px; }
+.claim-version-tree li strong { font-size: 13px; }
+.claim-version-tree li > span,
+.claim-version-tree li small,
+.claim-version-tree li em { font-size: 11px; }
+
+.review-search-decision { padding: 24px 26px; }
+.review-search-decision h2 { font-size: 21px; }
+.review-search-decision .ai-summary-bullets li,
+.review-search-decision p { font-size: 14px; }
+.review-search-decision li { font-size: 12px; }
+.search-feature-roles label { min-height: 58px; padding-block: 10px; }
+.search-feature-roles label > span { font-size: 14px; }
+.search-feature-roles select { min-height: 42px; font-size: 14px; }
+.concept-groups header strong { font-size: 16px; }
+.concept-groups > div > div span,
+.strategy-keyword-picks button,
+.search-query-simple > p { font-size: 13px; }
+.search-expression { padding: 18px; font-size: 14px; line-height: 1.8; }
+.candidate-simple-list > article { padding: 22px 24px; }
+.candidate-result h3,
+.candidate-biblio h3 { font-size: 17px; line-height: 1.65; }
+.candidate-result p,
+.candidate-biblio > strong { font-size: 13px; }
+.candidate-simple-list dt { font-size: 12px; }
+.candidate-simple-list dd { font-size: 13px; }
+
+.resource-panel > header { min-height: 74px; }
+.resource-panel header h2 { font-size: 21px; }
+.resource-panel > nav { min-height: 50px; }
+.resource-panel > nav button { min-width: 64px; font-size: 12px; }
+.resource-body { padding: 21px; }
+.resource-claims strong,
+.resource-history strong,
+.resource-family strong,
+.resource-documents strong { font-size: 14px; }
+.resource-claims p { font-size: 15px; line-height: 1.85; }
+.resource-history time,
+.resource-history small,
+.resource-family small,
+.resource-documents small { font-size: 12px !important; }
+.exam-dialog header h2 { font-size: 23px; }
+.notice-dialog-tabs button { min-height: 50px; font-size: 14px; }
+.notice-summary-grid h3 { font-size: 17px; }
+.notice-summary-grid li,
+.notice-markdown-document p,
+.notice-markdown-document li { font-size: 15px; line-height: 1.8; }
+.notice-table-wrap th,
+.notice-table-wrap td { padding: 11px 12px; font-size: 13px; line-height: 1.65; }
+
+@media (max-width: 600px) {
+  .exam-app { font-size: 16px; }
+  .exam-govbar { font-size: 12px; }
+  .exam-brand strong { font-size: 18px; }
+  .work-heading { margin-bottom: 20px; }
+  .work-heading h1 { font-size: 28px; }
+  .work-heading p { font-size: 15px; }
+  .overview-summary-card,
+  .overview-summary-card.invention,
+  .technical-summary-card,
+  .technical-summary-card.effects { padding: 20px 18px; }
+  .technical-ai-brief.expanded > .technical-summary-hero { padding: 22px 18px; }
+  .technical-ai-brief.expanded > .technical-summary-hero p { font-size: 20px; }
+  .operation-flow-panel,
+  .technical-ai-brief.expanded > .technical-bottom-grid > section { padding: 20px 18px; }
+  .pre-review-task-board { padding: 18px 15px; }
+  .pre-review-task-board li { grid-template-columns: 70px minmax(0, 1fr); }
+  .round-result-summary,
+  .review-search-decision { padding: 20px 18px; }
+  .response-issue-list { padding: 12px; }
+  .response-issue-list > header { margin: -12px -12px 0; }
+  .review-issue-card > header,
+  .review-issue-card > section,
+  .review-issue-card > details { padding-right: 16px; padding-left: 16px; }
+  .candidate-simple-list > article { padding: 19px 18px; }
+  .resource-body { padding: 18px; }
+}
