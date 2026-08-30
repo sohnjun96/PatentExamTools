@@ -34,6 +34,30 @@ type FullTextPayload = {
   fetchedAt?: string | null;
 };
 
+function numberKey(value: string | null | undefined) {
+  const numeric = (value ?? '').replace(/\D/g, '');
+  return numeric ? String(Number(numeric)) : '';
+}
+
+function canonicalEvidenceTarget(id: string, payload: FullTextPayload) {
+  const paragraphMatch = id.match(/^paragraph-(.+)$/u);
+  if (paragraphMatch) {
+    const key = numberKey(paragraphMatch[1]);
+    const paragraph = payload.sections
+      .flatMap((section) => section.paragraphs)
+      .find((item) => numberKey(item.number) === key);
+    return paragraph?.number ? `paragraph-${paragraph.number}` : id;
+  }
+
+  const abstractMatch = id.match(/^abstract-(.+)$/u);
+  if (abstractMatch) {
+    const key = numberKey(abstractMatch[1]);
+    const paragraph = payload.abstract.find((item) => numberKey(item.number) === key);
+    return paragraph?.number ? `abstract-${paragraph.number}` : id;
+  }
+  return id;
+}
+
 function formatApplicationNumber(value: string) {
   const digits = value.replace(/\D/g, '');
   return digits.length === 13
@@ -53,15 +77,44 @@ function splitTitle(value: string) {
   };
 }
 
-function Highlight({ text, query }: { text: string; query: string }) {
-  const normalized = query.trim();
-  if (!normalized) return text;
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
-  const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const expression = new RegExp(`(${escaped})`, 'gi');
+function matchingExpression(text: string, value: string, flexibleWhitespace = false) {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+
+  const tokens = normalized.split(' ').filter(Boolean);
+  const candidateTokens = [tokens];
+  for (const length of [16, 12, 8, 5]) {
+    if (tokens.length > length) candidateTokens.push(tokens.slice(0, length));
+  }
+
+  for (const candidate of candidateTokens) {
+    const source = candidate.map(escapeRegExp).join(flexibleWhitespace ? '\\s+' : ' ');
+    const expression = new RegExp(`(${source})`, 'giu');
+    if (expression.test(text)) return new RegExp(`(${source})`, 'giu');
+  }
+  return null;
+}
+
+function Highlight({
+  text,
+  query,
+  evidence,
+}: {
+  text: string;
+  query: string;
+  evidence?: string;
+}) {
+  const evidenceExpression = matchingExpression(text, evidence ?? '', true);
+  const expression = evidenceExpression ?? matchingExpression(text, query);
+  if (!expression) return text;
+
   return text.split(expression).map((part, index) =>
-    part.toLocaleLowerCase('ko-KR') === normalized.toLocaleLowerCase('ko-KR') ? (
-      <mark key={`${part}-${index}`}>{part}</mark>
+    index % 2 === 1 ? (
+      <mark className={evidenceExpression ? 'evidence-highlight' : 'search-highlight'} key={`${part}-${index}`}>{part}</mark>
     ) : (
       <Fragment key={`${part}-${index}`}>{part}</Fragment>
     ),
@@ -80,6 +133,8 @@ export default function FullTextViewer({
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [claimMode, setClaimMode] = useState<'all' | 'independent'>('all');
+  const [evidenceExcerpt, setEvidenceExcerpt] = useState('');
+  const [evidenceTargetId, setEvidenceTargetId] = useState('');
 
   useEffect(() => {
     const controller = new AbortController();
@@ -104,12 +159,27 @@ export default function FullTextViewer({
   }, [applicationNumber]);
 
   useEffect(() => {
-    if (!payload || !window.location.hash) return;
-    const id = decodeURIComponent(window.location.hash.slice(1));
-    window.requestAnimationFrame(() => {
-      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
+    if (!payload) return;
+    const syncEvidenceLocation = () => {
+      const id = window.location.hash
+        ? decodeURIComponent(window.location.hash.slice(1))
+        : '';
+      setEvidenceTargetId(canonicalEvidenceTarget(id, payload));
+      setEvidenceExcerpt(new URLSearchParams(window.location.search).get('evidence') ?? '');
+    };
+    syncEvidenceLocation();
+    window.addEventListener('hashchange', syncEvidenceLocation);
+    return () => window.removeEventListener('hashchange', syncEvidenceLocation);
   }, [payload]);
+
+  useEffect(() => {
+    if (!payload || !evidenceTargetId) return;
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById(evidenceTargetId);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target?.focus({ preventScroll: true });
+    });
+  }, [evidenceTargetId, payload]);
 
   const visibleClaims = useMemo(() => {
     if (!payload) return [];
@@ -139,6 +209,16 @@ export default function FullTextViewer({
     : 0;
   const title = splitTitle(payload?.title || '전문 명세서');
   const formattedNumber = formatApplicationNumber(applicationNumber);
+  const evidenceClassName = (id: string) => evidenceTargetId === id ? 'evidence-target' : undefined;
+
+  function clearEvidenceHighlight() {
+    setEvidenceExcerpt('');
+    setEvidenceTargetId('');
+    const url = new URL(window.location.href);
+    url.searchParams.delete('evidence');
+    url.hash = '';
+    window.history.replaceState(null, '', url);
+  }
 
   return (
     <>
@@ -209,6 +289,13 @@ export default function FullTextViewer({
               </div>
             </section>
 
+            {evidenceTargetId && (
+              <aside className="fulltext-evidence-guide" role="status">
+                <div><strong>AI 요약 근거</strong><span>원문에서 연결된 근거 구절을 파란색으로 강조했습니다.</span></div>
+                <button type="button" onClick={clearEvidenceHighlight}>강조 지우기</button>
+              </aside>
+            )}
+
             <div className="fulltext-layout">
               <aside className="fulltext-toc" aria-label="페이지 내부 목차">
                 <strong>페이지 목차</strong>
@@ -221,10 +308,14 @@ export default function FullTextViewer({
               </aside>
 
               <article className="fulltext-document">
-                <section id="abstract" className="fulltext-section abstract-section">
+                <section id="abstract" className="fulltext-section abstract-section" tabIndex={evidenceTargetId === 'abstract' ? -1 : undefined}>
                   <header><span>01</span><div><p>ABSTRACT</p><h2>초록</h2></div></header>
                   <div className="fulltext-prose">
-                    {payload.abstract.map((paragraph, index) => <p id={paragraph.number ? `abstract-${paragraph.number}` : undefined} key={paragraph.number ?? index}><Highlight text={paragraph.text} query={query} /></p>)}
+                    {payload.abstract.map((paragraph, index) => {
+                      const paragraphId = paragraph.number ? `abstract-${paragraph.number}` : '';
+                      const isEvidenceTarget = evidenceTargetId === 'abstract' || evidenceTargetId === paragraphId;
+                      return <p className={isEvidenceTarget ? 'evidence-target' : undefined} id={paragraphId || undefined} key={paragraph.number ?? index} tabIndex={evidenceTargetId === paragraphId ? -1 : undefined}><Highlight text={paragraph.text} query={query} evidence={isEvidenceTarget ? evidenceExcerpt : ''} /></p>;
+                    })}
                   </div>
                 </section>
 
@@ -232,9 +323,10 @@ export default function FullTextViewer({
                   <section id={section.id} className="fulltext-section" key={section.id}>
                     <header><span>{String(sectionIndex + 2).padStart(2, '0')}</span><div><p>DESCRIPTION</p><h2>{section.title}</h2></div></header>
                     <div className="fulltext-prose numbered">
-                      {section.paragraphs.map((paragraph, index) => (
-                        <p id={paragraph.number ? `paragraph-${paragraph.number}` : undefined} key={paragraph.number ?? index}><span>{paragraph.number ? `[${paragraph.number}]` : ''}</span><span><Highlight text={paragraph.text} query={query} /></span></p>
-                      ))}
+                      {section.paragraphs.map((paragraph, index) => {
+                        const paragraphId = paragraph.number ? `paragraph-${paragraph.number}` : `${section.id}-paragraph-${index}`;
+                        return <p className={evidenceClassName(paragraphId)} id={paragraphId} key={paragraph.number ?? index} tabIndex={evidenceTargetId === paragraphId ? -1 : undefined}><span>{paragraph.number ? `[${paragraph.number}]` : ''}</span><span><Highlight text={paragraph.text} query={query} evidence={evidenceTargetId === paragraphId ? evidenceExcerpt : ''} /></span></p>;
+                      })}
                     </div>
                   </section>
                 ))}
@@ -250,9 +342,9 @@ export default function FullTextViewer({
                   </header>
                   <div className="fulltext-claims">
                     {visibleClaims.map((claim) => (
-                      <article id={`claim-${claim.number}`} className={isIndependentClaim(claim) ? 'independent' : ''} key={claim.number}>
+                      <article id={`claim-${claim.number}`} className={[isIndependentClaim(claim) ? 'independent' : '', evidenceClassName(`claim-${claim.number}`) ?? ''].filter(Boolean).join(' ')} key={claim.number} tabIndex={evidenceTargetId === `claim-${claim.number}` ? -1 : undefined}>
                         <div><strong>청구항 {claim.number}</strong>{isIndependentClaim(claim) && <span>독립항</span>}</div>
-                        <p><Highlight text={claim.text} query={query} /></p>
+                        <p><Highlight text={claim.text} query={query} evidence={evidenceTargetId === `claim-${claim.number}` ? evidenceExcerpt : ''} /></p>
                       </article>
                     ))}
                   </div>

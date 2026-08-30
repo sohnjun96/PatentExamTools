@@ -68,6 +68,17 @@ type ExaminationSummary = {
   examinationPoints: string[];
   searchKeywords: string[];
   cautions: string[];
+  claimFeatureAnalyses: Array<{
+    claimNumber: number;
+    features: Array<{
+      label: string;
+      wording: string;
+      category: 'component' | 'relationship' | 'condition' | 'operation' | 'result';
+      importance: 'core' | 'supporting' | 'conventional';
+      recommendedRole: 'core' | 'combination' | 'general' | 'exclude' | 'review';
+      rationale: string;
+    }>;
+  }>;
   evidenceItems: Array<{
     key: string;
     label: string;
@@ -85,8 +96,8 @@ type ExaminationSummary = {
 
 const SUMMARY_RATE_WINDOW_MS = 60_000;
 const SUMMARY_RATE_MAX = 3;
-const SUMMARY_TYPE = 'examination_overview_v7';
-const PROMPT_VERSION = 'invention-claim-summary-2026-08-30-v5';
+const SUMMARY_TYPE = 'examination_overview_v8';
+const PROMPT_VERSION = 'invention-claim-summary-2026-08-30-v6';
 const MAX_SPECIFICATION_CHARS = 140_000;
 const summaryRequestLog = new Map<string, number[]>();
 
@@ -121,6 +132,7 @@ const SUMMARY_SCHEMA = {
     'examinationPoints',
     'searchKeywords',
     'cautions',
+    'claimFeatureAnalyses',
     'evidenceItems',
   ],
   properties: {
@@ -156,6 +168,35 @@ const SUMMARY_SCHEMA = {
     examinationPoints: { type: 'array', items: { type: 'string', maxLength: 200 }, maxItems: 5 },
     searchKeywords: { type: 'array', items: { type: 'string', maxLength: 100 }, maxItems: 10 },
     cautions: { type: 'array', items: { type: 'string', maxLength: 180 }, maxItems: 3 },
+    claimFeatureAnalyses: {
+      type: 'array',
+      maxItems: 80,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['claimNumber', 'features'],
+        properties: {
+          claimNumber: { type: 'integer', minimum: 1 },
+          features: {
+            type: 'array',
+            maxItems: 6,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['label', 'wording', 'category', 'importance', 'recommendedRole', 'rationale'],
+              properties: {
+                label: { type: 'string', maxLength: 100 },
+                wording: { type: 'string', maxLength: 800 },
+                category: { type: 'string', enum: ['component', 'relationship', 'condition', 'operation', 'result'] },
+                importance: { type: 'string', enum: ['core', 'supporting', 'conventional'] },
+                recommendedRole: { type: 'string', enum: ['core', 'combination', 'general', 'exclude', 'review'] },
+                rationale: { type: 'string', maxLength: 220 },
+              },
+            },
+          },
+        },
+      },
+    },
     evidenceItems: {
       type: 'array',
       maxItems: 32,
@@ -321,6 +362,47 @@ function validateEvidence(summary: ExaminationSummary, fullText: FullTextPayload
   } satisfies ExaminationSummary;
 }
 
+function validateClaimFeatureAnalyses(
+  summary: ExaminationSummary,
+  fullText: FullTextPayload,
+) {
+  const claims = new Map(
+    (fullText.claims ?? [])
+      .filter((claim) => Number.isInteger(claim.number) && Number(claim.number) > 0 && claim.text?.trim())
+      .map((claim) => [Number(claim.number), claim.text?.trim() ?? '']),
+  );
+  const analyses = new Map<number, ExaminationSummary['claimFeatureAnalyses'][number]>();
+
+  for (const analysis of summary.claimFeatureAnalyses) {
+    const claimText = claims.get(analysis.claimNumber);
+    if (!claimText || analyses.has(analysis.claimNumber)) continue;
+    const normalizedClaim = normalizedEvidenceText(claimText);
+    const seen = new Set<string>();
+    const features = analysis.features.slice(0, 6).flatMap((feature) => {
+      const label = feature.label.trim().slice(0, 100);
+      const wording = feature.wording.trim();
+      const normalizedWording = normalizedEvidenceText(wording);
+      const key = normalizedWording.toLocaleLowerCase('ko-KR').replace(/\s+/g, '');
+      if (!label || normalizedWording.length < 4 || !normalizedClaim.includes(normalizedWording) || seen.has(key)) return [];
+      seen.add(key);
+      return [{
+        ...feature,
+        label,
+        wording: wording.slice(0, 800),
+        rationale: feature.rationale.trim().slice(0, 220),
+      }];
+    });
+    analyses.set(analysis.claimNumber, { claimNumber: analysis.claimNumber, features });
+  }
+
+  return {
+    ...summary,
+    claimFeatureAnalyses: [...analyses.values()].sort(
+      (left, right) => left.claimNumber - right.claimNumber,
+    ),
+  } satisfies ExaminationSummary;
+}
+
 function summarySource(
   applicationNumber: string,
   payload: PatentPayload,
@@ -472,8 +554,8 @@ export async function POST(request: Request) {
       apiKey,
       label: 'OpenAI 요약',
       timeoutMs: 120_000,
-      maxOutputTokens: 7_000,
-      retryMaxOutputTokens: 10_000,
+      maxOutputTokens: 10_000,
+      retryMaxOutputTokens: 16_000,
       body: {
         model,
         store: false,
@@ -488,6 +570,11 @@ export async function POST(request: Request) {
           'independentClaimSummary에는 독립항의 핵심 구성 조합과 구성요소 사이의 관계를 2~4개의 짧고 독립적인 문장으로 작성하세요.',
           'dependentClaimGroups에는 주요 종속항이 독립항에 추가하는 한정사항을 기술적 의미가 유사한 청구항끼리 최대 5개 그룹으로 묶고, 실제 청구항 번호를 숫자 배열로 적으세요.',
           'claimOverview는 전체 청구항 관계를 최대 3개의 짧고 독립적인 문장으로 보조 설명하세요. keyElements는 차별적 구성을 우선한 최대 6개의 짧은 명사구로 작성하세요.',
+          'claimFeatureAnalyses는 모든 청구항을 대상으로 하고, 각 청구항에서 처음 도입되는 기술적 한정만 1~6개로 분석하세요. 종속항에서는 상위항으로부터 승계되는 구성을 반복하지 마세요.',
+          '청구항 구성분석은 세미콜론·쉼표·“및”을 기계적으로 잘라내는 작업이 아닙니다. 독립적으로 검색·대조할 의미가 있는 구성요소, 구성 사이의 연결관계, 작동조건, 처리동작, 결과상태로 구분하고 하나의 기술적 의미를 가지는 문언은 함께 묶으세요.',
+          'claimFeatureAnalyses의 label은 10~40자의 짧은 기술 명칭, wording은 해당 청구항에 실제로 존재하는 연속된 원문 인용구, rationale은 검색·대조상의 의미를 설명하는 한 문장으로 작성하세요.',
+          'importance는 발명의 차별적 핵심이면 core, 다른 구성과 함께 검색해야 의미가 있으면 supporting, 일반적 배경구성이면 conventional로 분류하세요. recommendedRole은 각각 core, combination, general, exclude, review 중 하나를 선택하되, 차별성이 불명확하면 review를 사용하세요.',
+          '발명의 명칭, “포함하는”과 같은 전환구, 인용항 표시만을 독립 기술구성으로 만들지 마세요. 단순한 문자 형식과 문장 위치만으로 중요도를 정하지 마세요.',
           'effects는 명세서에 명시된 효과만 최대 3개, examinationPoints는 선행기술과 대조할 구체적 구성 또는 관계만 최대 5개, searchKeywords는 명세서 용어와 직접적인 동의어만 최대 10개 작성하세요.',
           'oneLine, technicalProblem, solution, operationFlow, keyElements, independentClaimSummary, dependentClaimGroups 사이에 같은 문장을 반복하지 마세요.',
           '모든 문장은 자연스러운 한국어 문법으로 작성하고 조사 오류, 명사형 나열, 불완전한 문장과 중복 문장을 제거하세요.',
@@ -508,7 +595,10 @@ export async function POST(request: Request) {
         },
       },
     });
-    const summary = validateEvidence(postProcessSummary(result.value), fullText);
+    const summary = validateClaimFeatureAnalyses(
+      validateEvidence(postProcessSummary(result.value), fullText),
+      fullText,
+    );
     const inputTokens = result.inputTokens;
     const outputTokens = result.outputTokens;
     const db = await appDatabase();
