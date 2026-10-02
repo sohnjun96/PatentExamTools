@@ -1,5 +1,6 @@
 import { database } from '@/app/lib/runtime-env';
 import { REVIEW_SCHEMA_STATEMENTS } from '@/app/lib/review-schema';
+import { DOCUMENT_SCHEMA_STATEMENTS } from '@/app/lib/document-schema';
 
 export const WORKSPACE_USER_ID = 'single-workspace';
 
@@ -51,6 +52,7 @@ const SCHEMA_STATEMENTS = [
   'CREATE INDEX IF NOT EXISTS notice_analyses_lookup_idx ON notice_analyses(user_id, application_number, send_number, updated_at DESC)',
   'CREATE INDEX IF NOT EXISTS api_usage_user_provider_idx ON api_usage_events(user_id, provider, created_at DESC)',
   ...REVIEW_SCHEMA_STATEMENTS,
+  ...DOCUMENT_SCHEMA_STATEMENTS,
 ];
 
 let schemaReady: Promise<void> | null = null;

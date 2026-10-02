@@ -11,6 +11,8 @@ import { requestStructuredOpenAi } from '@/app/lib/openai-response';
 import { getReviewItems, saveReviewProposals } from '@/app/lib/review-store';
 import { getOpenAiCredentials } from '@/app/lib/secrets';
 import { postProcessSummary } from '@/app/lib/summary-postprocess';
+import { analysisBasisStatus, caseHistoryKey, type AnalysisBasis } from '@/app/lib/analysis-provenance';
+import { getDocumentMetadata } from '@/app/lib/document-cache';
 
 type PatentPayload = {
   bibliography?: null | {
@@ -31,7 +33,7 @@ type PatentPayload = {
   };
   cpc?: Array<{ number?: string }>;
   family?: unknown[];
-  history?: Array<{ date?: string; title?: string; status?: string }>;
+  history?: Array<{ documentNumber?: string; date?: string; title?: string; status?: string }>;
 };
 
 type FullTextPayload = {
@@ -50,6 +52,8 @@ type FullTextPayload = {
     multipleDependent?: boolean;
   }>;
   sourceFileName?: string;
+  sourceHash?: string;
+  fetchedAt?: string;
 };
 
 type ExaminationSummary = {
@@ -254,12 +258,15 @@ function paragraphText(paragraphs: FullTextPayload['abstract']) {
 function specificationText(
   fullText: FullTextPayload,
   fallbackClaims: NonNullable<PatentPayload['bibliography']>['claims'],
+  onTruncated?: () => void,
 ) {
   let remaining = MAX_SPECIFICATION_CHARS;
   const parts: string[] = [];
   const append = (title: string, text: string, limit: number) => {
-    if (!text || remaining <= 0) return;
+    if (!text) return;
+    if (remaining <= 0) { onTruncated?.(); return; }
     const selected = text.slice(0, Math.min(limit, remaining));
+    if (selected.length < text.length) onTruncated?.();
     remaining -= selected.length;
     parts.push(`## ${title}\n${selected}`);
   };
@@ -476,8 +483,16 @@ async function cachedSummary(userId: string, applicationNumber: string, sourceHa
       updated_at: string;
     }>();
   if (!row) return null;
+  const storedValue = JSON.parse(row.content_json) as ExaminationSummary & { _sourceBasis?: AnalysisBasis };
+  const { _sourceBasis: sourceBasis, ...summary } = storedValue;
+  const currentCase = await getPatentCase<PatentPayload>(userId, applicationNumber);
+  const currentDocument = await getDocumentMetadata(`fulltext:${applicationNumber}`);
+  const history = (currentCase?.payload.history ?? []).map((item) => ({ documentNumber: item.documentNumber || '', date: item.date || '', title: item.title || '' }));
   return {
-    summary: JSON.parse(row.content_json) as ExaminationSummary,
+    summary,
+    sourceBasis,
+    sourceHash: row.source_hash,
+    basisStatus: analysisBasisStatus(sourceBasis, history, currentDocument?.source_hash),
     reviewItems: await getReviewItems(userId, applicationNumber, 'summary', row.source_hash),
     model: row.model,
     version: PROMPT_VERSION,
@@ -497,7 +512,15 @@ async function caseAndSource(
     throw new HttpError(404, '먼저 출원번호를 조회해 서지정보를 불러와 주세요.');
   }
   const source = summarySource(applicationNumber, stored.payload, fullText);
-  return { source, sourceHash: await sha256(source) };
+  let sourceScope: AnalysisBasis['sourceScope'] = 'full';
+  specificationText(fullText, stored.payload.bibliography?.claims, () => { sourceScope = 'partial'; });
+  const sourceBasis: AnalysisBasis = {
+    caseHistoryKey: caseHistoryKey((stored.payload.history ?? []).map((item) => ({ documentNumber: item.documentNumber || '', date: item.date || '', title: item.title || '' }))),
+    caseFetchedAt: stored.fetchedAt, fullTextHash: fullText.sourceHash || '', fullTextFetchedAt: fullText.fetchedAt || '',
+    sourceFileName: fullText.sourceFileName || '', claimNumbers: (fullText.claims ?? []).map((claim) => claim.number || 0),
+    sourceScope,
+  };
+  return { source, sourceHash: await sha256(source), sourceBasis };
 }
 
 export async function GET(request: Request) {
@@ -534,7 +557,7 @@ export async function POST(request: Request) {
     if (fullTextApplicationNumber && fullTextApplicationNumber !== applicationNumber) {
       throw new HttpError(400, '출원번호와 전문 명세서가 일치하지 않습니다.');
     }
-    const { source, sourceHash } = await caseAndSource(
+    const { source, sourceHash, sourceBasis } = await caseAndSource(
       WORKSPACE_USER_ID,
       applicationNumber,
       fullText,
@@ -546,7 +569,15 @@ export async function POST(request: Request) {
         applicationNumber,
         sourceHash,
       );
-      if (cached) return NextResponse.json(cached);
+      if (cached) {
+        // An exact input hash match verifies legacy provenance without another
+        // model call. Do not change updated_at: that is the generation time.
+        const db = await appDatabase();
+        await db.prepare(`UPDATE patent_summaries SET content_json = ?
+          WHERE user_id = ? AND application_number = ? AND summary_type = ? AND source_hash = ?`)
+          .bind(JSON.stringify({ ...cached.summary, _sourceBasis: sourceBasis }), WORKSPACE_USER_ID, applicationNumber, SUMMARY_TYPE, sourceHash).run();
+        return NextResponse.json({ ...cached, sourceBasis, basisStatus: sourceBasis.fullTextHash ? 'current' : 'unverified' });
+      }
     }
 
     const { apiKey, model } = getOpenAiCredentials();
@@ -622,7 +653,7 @@ export async function POST(request: Request) {
         SUMMARY_TYPE,
         model,
         sourceHash,
-        JSON.stringify(summary),
+        JSON.stringify({ ...summary, _sourceBasis: sourceBasis }),
         inputTokens,
         outputTokens,
       )
@@ -657,6 +688,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       summary,
+      sourceBasis,
+      sourceHash,
+      basisStatus: sourceBasis.fullTextHash ? 'current' : 'unverified',
       reviewItems,
       model,
       version: PROMPT_VERSION,

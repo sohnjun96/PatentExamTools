@@ -41,13 +41,6 @@ async function sha256(value: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    if (rateLimited(request)) {
-      return NextResponse.json(
-        { error: '청구항 변동이력 요청이 많습니다. 잠시 후 다시 시도해 주세요.' },
-        { status: 429 },
-      );
-    }
-
     const applicationNumber = (request.nextUrl.searchParams.get('applicationNumber') ?? '')
       .replace(/\D/g, '');
     if (!/^(10|20)\d{11}$/.test(applicationNumber)) {
@@ -87,6 +80,15 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    if (request.nextUrl.searchParams.get('cachedOnly') === 'true') {
+      return NextResponse.json({ error: '저장된 청구항 변동이력이 없습니다.' }, { status: 404 });
+    }
+    if (rateLimited(request)) {
+      return NextResponse.json(
+        { error: '청구항 변동이력 요청이 많습니다. 잠시 후 다시 시도해 주세요.' },
+        { status: 429 },
+      );
+    }
     const url = new URL(ENDPOINT);
     url.searchParams.set('applicationNumber', applicationNumber);
     url.searchParams.set('accessKey', getKiprisKey());

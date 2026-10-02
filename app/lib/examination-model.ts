@@ -27,6 +27,8 @@ export type ExaminationRound<T extends HistoryLike = HistoryLike> = {
   notice: T;
   opinions: T[];
   amendments: T[];
+  /** Procedural or unclassified amendments are not evidence of a claim change. */
+  otherAmendments: T[];
   decisions: T[];
   otherDocuments: T[];
   connectionStatus: 'linked' | 'needs_confirmation';
@@ -266,8 +268,23 @@ function isOpinion(item: HistoryLike) {
   return /의견서|답변서|소명서/.test(item.title) && !isNotice(item);
 }
 
+export type AmendmentKind = 'claims' | 'procedural' | 'unknown' | 'none';
+
+export function classifyAmendmentDocument(item: Pick<HistoryLike, 'title'>): AmendmentKind {
+  const title = item.title.normalize('NFKC').replace(/\s/g, '');
+  if (!/보정서/.test(title)) return 'none';
+  // These documents correct formalities, not the specification/claims.
+  if (/출원서등보완|출원서보완|절차보정|방식보정|수수료|대리인|출원인|특허고객번호|서지사항|주소|성명/.test(title)) return 'procedural';
+  if (/명세서|청구범위|청구항|도면/.test(title)) return 'claims';
+  return 'unknown';
+}
+
+export function amendmentKindLabel(kind: AmendmentKind) {
+  return kind === 'claims' ? '명세서·청구범위 보정' : kind === 'procedural' ? '절차·서지 보완' : '보정 대상 확인 필요';
+}
+
 function isAmendment(item: HistoryLike) {
-  return /보정서/.test(item.title);
+  return classifyAmendmentDocument(item) === 'claims';
 }
 
 function isDecision(item: HistoryLike) {
@@ -277,6 +294,7 @@ function isDecision(item: HistoryLike) {
 export function buildExaminationRounds<T extends HistoryLike>(
   history: T[],
   notices: T[] = history.filter(isNotice),
+  verifiedAmendmentNumbers: ReadonlySet<string> = new Set(),
 ): ExaminationRound<T>[] {
   const orderedHistory = [...history].sort(historyOrder);
   const orderedNotices = [...notices].sort(historyOrder);
@@ -291,9 +309,11 @@ export function buildExaminationRounds<T extends HistoryLike>(
       return date >= noticeDate && (!nextDate || date < nextDate);
     });
     const opinions = documents.filter(isOpinion);
-    const amendments = documents.filter(isAmendment);
+    const amendments = documents.filter((item) => isAmendment(item) ||
+      (classifyAmendmentDocument(item) === 'unknown' && verifiedAmendmentNumbers.has(item.documentNumber)));
+    const otherAmendments = documents.filter((item) => /보정서/.test(item.title) && !amendments.includes(item));
     const decisions = documents.filter(isDecision);
-    const classified = new Set([...opinions, ...amendments, ...decisions].map((item) => item.documentNumber));
+    const classified = new Set([...opinions, ...amendments, ...otherAmendments, ...decisions].map((item) => item.documentNumber));
     const otherDocuments = documents.filter((item) => !classified.has(item.documentNumber));
     const ambiguous = opinions.length > 1 || amendments.length > 1;
     const hasResponse = opinions.length > 0 || amendments.length > 0 || decisions.length > 0;
@@ -303,6 +323,7 @@ export function buildExaminationRounds<T extends HistoryLike>(
       notice,
       opinions,
       amendments,
+      otherAmendments,
       decisions,
       otherDocuments,
       connectionStatus: hasResponse && !ambiguous ? 'linked' : 'needs_confirmation',

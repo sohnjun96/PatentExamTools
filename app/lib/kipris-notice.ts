@@ -2,6 +2,8 @@ import { XMLParser } from 'fast-xml-parser';
 import { getApiUsage, recordApiUsage, WORKSPACE_USER_ID } from '@/app/lib/db';
 import { recordKiprisApiCall } from '@/app/lib/kipris-usage';
 import { getKiprisKey } from '@/app/lib/secrets';
+import { documentSingleFlight, readDocument, saveDocument } from '@/app/lib/document-cache';
+import { documentHash } from '@/app/lib/document-cache-core';
 
 const BASE_URL = 'https://plus.kipris.or.kr';
 const PDF_INFO_PATH = '/openapi/rest/IntermediateDocumentOPService/pdfInfoV2';
@@ -124,38 +126,52 @@ export function noticeIdentifiers(request: Request) {
   return { applicationNumber, sendNumber };
 }
 
-export async function loadNoticePdf(applicationNumber: string, sendNumber: string) {
+export async function loadNoticePdf(applicationNumber: string, sendNumber: string, refresh = false) {
   validateIdentifiers(applicationNumber, sendNumber);
-  const accessKey = getKiprisKey();
-  await recordApiUsage(
-    WORKSPACE_USER_ID,
-    'kipris',
-    ['의견제출통지서 PDF_V2'],
-    applicationNumber,
-  );
-  const metadata = await fetchPdfMetadata(applicationNumber, sendNumber, accessKey);
-  const response = await fetch(metadata.fileUrl, {
-    cache: 'no-store',
-    headers: { Accept: 'application/pdf, application/octet-stream;q=0.9' },
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-  if (!response.ok) throw new Error(`의견제출통지서 다운로드 오류 (${response.status})`);
+  const original = await documentSingleFlight(`notice-pdf:${applicationNumber}:${sendNumber}:${refresh}`, async () => {
+    const key = `notice-pdf:${applicationNumber}:${sendNumber}`;
+    if (!refresh) {
+      const cached = await readDocument(key);
+      if (cached) return { ...cached, cached: true };
+    }
+    const accessKey = getKiprisKey();
+    await recordApiUsage(
+      WORKSPACE_USER_ID,
+      'kipris',
+      ['의견제출통지서 PDF_V2'],
+      applicationNumber,
+    );
+    const metadata = await fetchPdfMetadata(applicationNumber, sendNumber, accessKey);
+    const response = await fetch(metadata.fileUrl, {
+      cache: 'no-store',
+      headers: { Accept: 'application/pdf, application/octet-stream;q=0.9' },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error(`의견제출통지서 다운로드 오류 (${response.status})`);
 
-  const announcedLength = Number(response.headers.get('content-length') || 0);
-  if (announcedLength > MAX_NOTICE_PDF_BYTES) {
-    throw new Error('의견제출통지서 PDF가 허용 크기를 초과했습니다.');
-  }
-  const buffer = await response.arrayBuffer();
-  if (buffer.byteLength > MAX_NOTICE_PDF_BYTES) {
-    throw new Error('의견제출통지서 PDF가 허용 크기를 초과했습니다.');
-  }
-  const header = new Uint8Array(buffer.slice(0, 5));
-  if (String.fromCharCode(...header) !== '%PDF-') {
-    throw new Error('PDF_V2 응답이 올바른 PDF 파일이 아닙니다.');
-  }
+    const announcedLength = Number(response.headers.get('content-length') || 0);
+    if (announcedLength > MAX_NOTICE_PDF_BYTES) {
+      throw new Error('의견제출통지서 PDF가 허용 크기를 초과했습니다.');
+    }
+    const buffer = await response.arrayBuffer();
+    if (buffer.byteLength > MAX_NOTICE_PDF_BYTES) {
+      throw new Error('의견제출통지서 PDF가 허용 크기를 초과했습니다.');
+    }
+    const header = new Uint8Array(buffer.slice(0, 5));
+    if (String.fromCharCode(...header) !== '%PDF-') {
+      throw new Error('PDF_V2 응답이 올바른 PDF 파일이 아닙니다.');
+    }
+    const document = { bytes: new Uint8Array(buffer), fileName: metadata.fileName, mimeType: 'application/pdf',
+      sourceHash: await documentHash(new Uint8Array(buffer)), fetchedAt: new Date().toISOString(), metadata: {} };
+    await saveDocument(key, applicationNumber, document);
+    return { ...document, cached: false };
+  });
   return {
-    ...metadata,
-    buffer,
+    fileName: original.fileName,
+    buffer: original.bytes.slice().buffer,
+    sourceHash: original.sourceHash,
+    fetchedAt: original.fetchedAt,
+    cached: original.cached,
     usage: await getApiUsage(WORKSPACE_USER_ID),
   };
 }

@@ -23,6 +23,11 @@ export type NoticeAnalysis = {
   model: string;
   cached: boolean;
   generatedAt: string;
+  version?: string;
+  postprocessVersion?: string;
+  sourceHash?: string;
+  documentNumber?: string;
+  tableWarnings?: string[];
   usage?: { inputTokens: number; outputTokens: number };
   error?: string;
 };

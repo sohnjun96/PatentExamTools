@@ -1,0 +1,32 @@
+import type { ClaimLike } from './examination-model';
+import { createSingleFlight } from './document-cache-core';
+
+export type FullTextDocument = {
+  applicationNumber: string; title: string;
+  abstract: Array<{ number: string | null; text: string }>;
+  sections: Array<{ id: string; title: string; paragraphs: Array<{ number: string | null; text: string }> }>;
+  claims: ClaimLike[]; sourceFileName: string; sourceFileUrl?: string;
+  sourceHash?: string; fetchedAt?: string; parserVersion?: string; cached?: boolean; isDemo?: boolean; figureCount?: number;
+  usage?: { total: number; startedAt: string; lastCalledAt: string | null; byOperation: Record<string, number> };
+};
+
+const documents = new Map<string, FullTextDocument>();
+const singleFlight = createSingleFlight();
+
+export function invalidateFullText(applicationNumber: string) { documents.delete(applicationNumber); }
+
+export function fetchFullText(applicationNumber: string, refresh = false): Promise<FullTextDocument> {
+  if (!refresh && documents.has(applicationNumber)) return Promise.resolve(documents.get(applicationNumber)!);
+  return singleFlight(`${applicationNumber}:${refresh}`, async () => {
+    const params = new URLSearchParams({ applicationNumber });
+    if (refresh) params.set('refresh', 'true');
+    const response = await fetch(`/api/patent/fulltext?${params}`, { cache: 'no-store' });
+    const payload = await response.json() as FullTextDocument & { error?: string };
+    if (!response.ok) throw new Error(payload.error || '전문 원문을 불러오지 못했습니다.');
+    if (!Array.isArray(payload.sections) || !Array.isArray(payload.claims)) throw new Error('전문 원문 형식을 확인할 수 없습니다.');
+    documents.delete(applicationNumber);
+    documents.set(applicationNumber, payload);
+    while (documents.size > 3) documents.delete(documents.keys().next().value!);
+    return payload;
+  });
+}

@@ -3,6 +3,7 @@ import type { ClaimChangeDocument } from '@/app/lib/claim-changes';
 import {
   appDatabase,
   getPatentCase,
+  getClaimChangeHistory,
   recordApiUsage,
   WORKSPACE_USER_ID,
 } from '@/app/lib/db';
@@ -15,6 +16,8 @@ import type {
 import type { NoticeSummary } from '@/app/lib/notice-analysis';
 import { requestStructuredOpenAi } from '@/app/lib/openai-response';
 import { getOpenAiCredentials } from '@/app/lib/secrets';
+import { buildExaminationRounds, type HistoryLike } from '@/app/lib/examination-model';
+import { stripGuidanceFromSummary } from '@/app/lib/notice-postprocess';
 
 const SUMMARY_TYPE_PREFIX = 'amendment_resolution_v1';
 const PROMPT_VERSION = 'amendment-resolution-2026-08-29-v1';
@@ -245,7 +248,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const { applicationNumber, sendNumber } = noticeIdentifiers(request);
-    if (!await getPatentCase(WORKSPACE_USER_ID, applicationNumber)) {
+    const patentCase = await getPatentCase<{ history?: HistoryLike[]; notices?: HistoryLike[] }>(WORKSPACE_USER_ID, applicationNumber);
+    if (!patentCase) {
       throw new HttpError(404, '먼저 출원번호를 조회해 사건자료를 불러와 주세요.');
     }
     const body = await request.json().catch(() => ({})) as {
@@ -255,11 +259,19 @@ export async function POST(request: Request) {
     if (!body.noticeSummary) {
       throw new HttpError(400, '법조항별 거절 청구항이 포함된 통지서 요약이 필요합니다.');
     }
+    const changeHistory = await getClaimChangeHistory<{ documents: ClaimChangeDocument[] }>(WORKSPACE_USER_ID, applicationNumber);
+    const verifiedNumbers = new Set((changeHistory?.payload.documents ?? []).filter((document) => document.changes.length > 0).map((document) => document.documentNumber));
+    const round = buildExaminationRounds(patentCase.payload.history ?? [], patentCase.payload.notices, verifiedNumbers)
+      .find((item) => item.notice.documentNumber === sendNumber);
+    if (!round || round.connectionStatus !== 'linked') throw new HttpError(409, '통지서·대응서류의 연결을 확정할 수 없어 자동 해소 검토를 실행하지 않습니다.');
+    const allowed = new Set(round.amendments.map((item) => item.documentNumber));
+    const requested = new Set((Array.isArray(body.documents) ? body.documents : []).map((document) => document.documentNumber));
+    const documents = (changeHistory?.payload.documents ?? []).filter((document) => allowed.has(document.documentNumber) && requested.has(document.documentNumber));
     const { source, documentNumbers } = analysisSource(
       applicationNumber,
       sendNumber,
-      body.noticeSummary,
-      Array.isArray(body.documents) ? body.documents : [],
+      stripGuidanceFromSummary(body.noticeSummary),
+      documents,
     );
     const sourceHash = await sha256(source);
     const force = new URL(request.url).searchParams.get('force') === 'true';

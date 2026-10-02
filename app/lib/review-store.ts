@@ -1,4 +1,4 @@
-import { appDatabase } from '@/app/lib/db';
+import { appDatabase, getClaimChangeHistory } from '@/app/lib/db';
 import { analyzeClaims, buildExaminationRounds, type HistoryLike } from '@/app/lib/examination-model';
 import {
   effectiveReviewText,
@@ -62,10 +62,6 @@ export async function syncCaseReviewFoundation(
     const analyzedClaims = analyzeClaims(claims);
     const claimsJson = JSON.stringify(analyzedClaims);
     const sourceHash = await sha256Text(claimsJson);
-    const latestAmendment = [...history]
-      .filter((item) => /보정서/.test(item.title))
-      .sort((left, right) => left.date.localeCompare(right.date))
-      .at(-1);
     await db.batch([
       db.prepare(
         `UPDATE claim_versions SET is_current = 0, updated_at = CURRENT_TIMESTAMP
@@ -86,20 +82,24 @@ export async function syncCaseReviewFoundation(
         userId,
         applicationNumber,
         `claims-${sourceHash.slice(0, 24)}`,
-        latestAmendment?.documentNumber ?? null,
+        // Bibliography claims do not identify their originating amendment.
+        null,
         sourceHash,
         claimsJson,
       ),
     ]);
   }
 
-  const rounds = buildExaminationRounds(history, notices);
+  const changes = await getClaimChangeHistory<{ documents?: Array<{ documentNumber: string; changes: unknown[] }> }>(userId, applicationNumber);
+  const verifiedAmendments = new Set((changes?.payload.documents ?? []).filter((document) => document.changes.length > 0).map((document) => document.documentNumber));
+  const rounds = buildExaminationRounds(history, notices, verifiedAmendments);
   if (rounds.length) {
     const statements = await Promise.all(rounds.map(async (round) => {
       const documentsJson = JSON.stringify({
         notice: round.notice,
         opinions: round.opinions,
         amendments: round.amendments,
+        otherAmendments: round.otherAmendments,
         decisions: round.decisions,
         otherDocuments: round.otherDocuments,
         connectionReason: round.connectionReason,

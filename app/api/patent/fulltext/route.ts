@@ -6,6 +6,8 @@ import { getApiUsage, recordApiUsage, WORKSPACE_USER_ID } from '@/app/lib/db';
 import { errorResponse } from '@/app/lib/http';
 import { extractClaimReferenceNumbers } from '@/app/lib/patent-claim-xml';
 import { getKiprisKey } from '@/app/lib/secrets';
+import { documentSingleFlight, readDocument, saveDocument } from '@/app/lib/document-cache';
+import { documentHash } from '@/app/lib/document-cache-core';
 
 const BASE_URL = 'https://plus.kipris.or.kr';
 const METADATA_PATH =
@@ -270,57 +272,66 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  let accessKey: string;
   try {
-    accessKey = getKiprisKey();
-  } catch (error) {
-    return errorResponse(error);
-  }
+    const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
+    const original = await documentSingleFlight(`fulltext:${applicationNumber}:${refresh}`, async () => {
+      if (!refresh) {
+        const cached = await readDocument(`fulltext:${applicationNumber}`);
+        if (cached) return { ...cached, cached: true };
+      }
+      const accessKey = getKiprisKey();
+      await recordApiUsage(
+        WORKSPACE_USER_ID,
+        'kipris',
+        ['전문파일정보'],
+        applicationNumber,
+      );
+      const metadata = await fetchFullTextMetadata(applicationNumber, accessKey);
+      const fileResponse = await fetch(metadata.fileUrl, {
+        cache: 'no-store',
+        headers: { Accept: 'application/xml, text/xml;q=0.9, */*;q=0.8' },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      if (!fileResponse.ok) {
+        throw new Error(`전문 XML 다운로드 오류 (${fileResponse.status})`);
+      }
 
-  try {
-    await recordApiUsage(
-      WORKSPACE_USER_ID,
-      'kipris',
-      ['전문파일정보'],
-      applicationNumber,
-    );
-    const metadata = await fetchFullTextMetadata(applicationNumber, accessKey);
-    const fileResponse = await fetch(metadata.fileUrl, {
-      cache: 'no-store',
-      headers: { Accept: 'application/xml, text/xml;q=0.9, */*;q=0.8' },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      const announcedLength = Number(fileResponse.headers.get('content-length') || 0);
+      if (announcedLength > MAX_FULL_TEXT_BYTES) {
+        throw new Error('전문 XML 파일이 허용 크기를 초과했습니다.');
+      }
+
+      const buffer = await fileResponse.arrayBuffer();
+      if (buffer.byteLength > MAX_FULL_TEXT_BYTES) {
+        throw new Error('전문 XML 파일이 허용 크기를 초과했습니다.');
+      }
+      const bytes = new Uint8Array(buffer);
+      const document = { bytes, fileName: metadata.fileName, mimeType: 'application/xml',
+        sourceHash: await documentHash(bytes), fetchedAt: new Date().toISOString(), metadata: {} };
+      // Only cache files after successfully parsing/validating them.
+      normalizeFullTextXml(decodePatentXml(buffer), applicationNumber, metadata.fileName);
+      await saveDocument(`fulltext:${applicationNumber}`, applicationNumber, document);
+      return { ...document, cached: false };
     });
-    if (!fileResponse.ok) {
-      throw new Error(`전문 XML 다운로드 오류 (${fileResponse.status})`);
+    if (request.nextUrl.searchParams.get('raw') === 'true') {
+      return new Response(original.bytes.slice().buffer, { headers: {
+        'Content-Type': 'application/xml', 'X-Content-Type-Options': 'nosniff',
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(original.fileName)}`,
+        'Cache-Control': 'private, no-store',
+      } });
     }
-
-    const announcedLength = Number(fileResponse.headers.get('content-length') || 0);
-    if (announcedLength > MAX_FULL_TEXT_BYTES) {
-      throw new Error('전문 XML 파일이 허용 크기를 초과했습니다.');
-    }
-
-    const buffer = await fileResponse.arrayBuffer();
-    if (buffer.byteLength > MAX_FULL_TEXT_BYTES) {
-      throw new Error('전문 XML 파일이 허용 크기를 초과했습니다.');
-    }
-
     const payload = normalizeFullTextXml(
-      decodePatentXml(buffer),
+      decodePatentXml(original.bytes.slice().buffer),
       applicationNumber,
-      metadata.fileName,
+      original.fileName,
     );
-    return NextResponse.json({ ...payload, usage: await getApiUsage(WORKSPACE_USER_ID) }, {
+    return NextResponse.json({ ...payload, fetchedAt: original.fetchedAt, sourceHash: original.sourceHash,
+      cached: original.cached, parserVersion: 'fulltext-xml-v2',
+      sourceFileUrl: `/api/patent/fulltext?applicationNumber=${applicationNumber}&raw=true`,
+      usage: await getApiUsage(WORKSPACE_USER_ID) }, {
       headers: { 'Cache-Control': 'no-store' },
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : '전문파일을 불러오지 못했습니다.',
-      },
-      { status: 502 },
-    );
+    return errorResponse(error);
   }
 }

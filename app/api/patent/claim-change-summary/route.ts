@@ -3,12 +3,14 @@ import type { ClaimChangeDocument } from '@/app/lib/claim-changes';
 import {
   appDatabase,
   getPatentCase,
+  getClaimChangeHistory,
   recordApiUsage,
   WORKSPACE_USER_ID,
 } from '@/app/lib/db';
 import { errorResponse, HttpError } from '@/app/lib/http';
 import { requestStructuredOpenAi } from '@/app/lib/openai-response';
 import { getOpenAiCredentials } from '@/app/lib/secrets';
+import { buildExaminationRounds, type HistoryLike } from '@/app/lib/examination-model';
 
 type AmendmentLink = {
   documentNumber: string;
@@ -288,15 +290,21 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const applicationNumber = applicationNumberFrom(request);
-    if (!await getPatentCase(WORKSPACE_USER_ID, applicationNumber)) {
+    const patentCase = await getPatentCase<{ history?: HistoryLike[]; notices?: HistoryLike[] }>(WORKSPACE_USER_ID, applicationNumber);
+    if (!patentCase) {
       throw new HttpError(404, '먼저 출원번호를 조회해 사건자료를 불러와 주세요.');
     }
     const body = await request.json().catch(() => ({})) as {
       documents?: ClaimChangeDocument[];
       amendments?: AmendmentLink[];
     };
-    const documents = Array.isArray(body.documents) ? body.documents : [];
-    const amendments = Array.isArray(body.amendments) ? body.amendments : [];
+    const changeHistory = await getClaimChangeHistory<{ documents: ClaimChangeDocument[] }>(WORKSPACE_USER_ID, applicationNumber);
+    const verified = new Set((changeHistory?.payload.documents ?? []).filter((document) => document.changes.length > 0).map((document) => document.documentNumber));
+    const rounds = buildExaminationRounds(patentCase.payload.history ?? [], patentCase.payload.notices, verified);
+    const amendments = rounds.filter((round) => round.connectionStatus === 'linked').flatMap((round) => round.amendments.map((item) => ({ documentNumber: item.documentNumber, date: item.date, roundNumber: round.number })));
+    const allowed = new Set(amendments.map((item) => item.documentNumber));
+    const requested = new Set((Array.isArray(body.documents) ? body.documents : []).map((document) => document.documentNumber));
+    const documents = (changeHistory?.payload.documents ?? []).filter((document) => allowed.has(document.documentNumber) && requested.has(document.documentNumber));
     const { source, documentNumbers } = analysisSource(
       applicationNumber,
       documents,
