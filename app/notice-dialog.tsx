@@ -7,6 +7,7 @@ import { splitTableRow, isTableSeparator, normalizeNoticeMarkdown } from '@/app/
 import { exactEvidenceExpression, type OriginalTarget } from '@/app/lib/evidence-location';
 import { OriginalHighlight } from '@/app/original-document-viewer';
 import { formatAnalysisDate } from '@/app/lib/analysis-provenance';
+import { patentPlainText } from '@/app/lib/patent-text';
 
 type Notice = {
   documentNumber: string;
@@ -36,7 +37,7 @@ async function fetchAnalysis(
 
 function InlineText({ text, excerpt = '' }: { text: string; excerpt?: string }) {
   const plain = text.replace(/<br\s*\/?\s*>/gi, '\n').replace(/\*\*/g, '');
-  if (excerpt && exactEvidenceExpression(plain, excerpt)) return <span className="notice-inline-text"><OriginalHighlight text={plain} excerpt={excerpt}/></span>;
+  if (excerpt && exactEvidenceExpression(patentPlainText(plain), patentPlainText(excerpt))) return <span className="notice-inline-text"><OriginalHighlight text={plain} excerpt={excerpt}/></span>;
   return <>{text.split(/(<br\s*\/?\s*>|\*\*[^*]+\*\*)/gi).filter(Boolean).map((part, index) =>
     /^<br/i.test(part) ? <br key={index}/> : part.startsWith('**') && part.endsWith('**')
       ? <strong key={index}><OriginalHighlight text={part.slice(2, -2)} excerpt={excerpt}/></strong>
@@ -51,7 +52,7 @@ function MarkdownDocument({ markdown, target }: { markdown: string; target?: Ori
   useEffect(() => {
     if (!target?.excerpt) return;
     const nodes = Array.from(rootRef.current?.querySelectorAll<HTMLElement>('p, td, th, li, h2, h3, h4, h5') ?? []);
-    const node = nodes.find((element) => exactEvidenceExpression(element.textContent || '', target.excerpt));
+    const node = nodes.find((element) => exactEvidenceExpression(element.textContent || '', patentPlainText(target.excerpt)));
     node?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     if (node) { node.tabIndex = -1; node.focus({ preventScroll: true }); }
   }, [target, markdown]);
@@ -158,7 +159,7 @@ export default function NoticeDialog({
   }, [applicationNumber, notice.documentNumber]);
 
   const tableWarnings = analysis ? [...new Set([...(analysis.tableWarnings ?? []), ...normalizeNoticeMarkdown(analysis.markdown).warnings])] : [];
-  const excerptFound = analysis && target?.excerpt ? !!exactEvidenceExpression(analysis.markdown.replace(/<br\s*\/?\s*>/gi, ' ').replace(/\*\*/g, ''), target.excerpt) : false;
+  const excerptFound = analysis && target?.excerpt ? !!exactEvidenceExpression(patentPlainText(analysis.markdown.replace(/\*\*/g, '')), patentPlainText(target.excerpt)) : false;
 
   async function copyMarkdown() {
     if (!analysis?.markdown) return;

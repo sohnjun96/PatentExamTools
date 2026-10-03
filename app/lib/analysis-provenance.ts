@@ -2,6 +2,7 @@ export type AnalysisBasis = {
   caseHistoryKey: string;
   caseFetchedAt: string;
   fullTextHash: string;
+  fullTextParserVersion?: string;
   fullTextFetchedAt: string;
   sourceFileName: string;
   claimNumbers: number[];
@@ -14,9 +15,10 @@ export function caseHistoryKey(history: Array<{ documentNumber: string; date: st
     .sort((a, b) => a.join('|').localeCompare(b.join('|'))));
 }
 
-export function analysisBasisStatus(basis: AnalysisBasis | undefined, history: Array<{ documentNumber: string; date: string; title: string }>, fullTextHash?: string): BasisStatus {
+export function analysisBasisStatus(basis: AnalysisBasis | undefined, history: Array<{ documentNumber: string; date: string; title: string }>, fullTextHash?: string, fullTextParserVersion?: string): BasisStatus {
   if (!basis?.caseHistoryKey || !basis.fullTextHash) return 'unverified';
   if (basis.caseHistoryKey !== caseHistoryKey(history) || (fullTextHash && basis.fullTextHash !== fullTextHash)) return 'changed';
+  if (fullTextParserVersion && basis.fullTextParserVersion !== fullTextParserVersion) return 'changed';
   return 'current';
 }
 

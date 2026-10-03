@@ -31,6 +31,7 @@ import type { NoticeAnalysis, NoticeSummary } from '@/app/lib/notice-analysis';
 import { useModalBehavior } from '@/app/lib/use-modal-behavior';
 import NoticeDialog from '@/app/notice-dialog';
 import OriginalDocumentViewer from '@/app/original-document-viewer';
+import PatentText from '@/app/patent-text';
 import { fetchFullText, invalidateFullText, type FullTextDocument } from '@/app/lib/patent-document-client';
 import { analysisBasisStatus, caseHistoryKey, formatAnalysisDate, type AnalysisBasis, type BasisStatus } from '@/app/lib/analysis-provenance';
 import { noticeGroundTarget, type OriginalTarget } from '@/app/lib/evidence-location';
@@ -43,6 +44,7 @@ import type { CandidateDocument as Candidate } from '@/app/lib/candidate-documen
 import type { RoundDocumentLink } from '@/app/lib/examination-model';
 import RoundLinkEditor from '@/app/round-link-editor';
 import CandidateEditor from '@/app/candidate-editor';
+import CaseActionsMenu from '@/app/case-actions-menu';
 import { parseWorkspacePreferences, WORKSPACE_PREFERENCES_PREFIX, type WorkspacePreferences } from '@/app/lib/workspace-preferences';
 
 type WorkMode = 'initial' | 'response';
@@ -132,6 +134,7 @@ type PatentCase = {
   claimStructureSource?: 'bibliography' | 'fulltext';
   fetchedAt?: string;
   fullTextHash?: string;
+  fullTextParserVersion?: string;
   fullTextFetchedAt?: string;
 };
 type StoredWorkspace = { version: 1 | 2; data: PatentCase; summary: SummaryPayload | null; mode?: WorkMode; savedAt: string };
@@ -442,6 +445,7 @@ export default function ExamWorkspace() {
             claimStructureSource: 'fulltext',
             fullText: { fileName: fullText.sourceFileName, fileUrl: fullText.sourceFileUrl || '' },
             fullTextHash: fullText.sourceHash,
+            fullTextParserVersion: fullText.parserVersion,
             fullTextFetchedAt: fullText.fetchedAt,
           };
           const nextSelectedClaim =
@@ -516,7 +520,7 @@ export default function ExamWorkspace() {
   const activeAvailableIndex = Math.max(0, activeIndex);
   const stepNumber = (target: WorkView) => String(Math.max(1, steps.findIndex(([step]) => step === target) + 1)).padStart(2, '0');
   const targetLabel = `청구항 ${selectedClaim} · ${data.claimStructureSource === 'fulltext' ? '전문 XML' : '서지 API'} · 원문 버전 미확인`;
-  const basisStatus = summary?.basisStatus === 'changed' ? 'changed' : summary?.summary ? analysisBasisStatus(summary.sourceBasis, data.history, data.fullTextHash) : 'unverified';
+  const basisStatus = summary?.basisStatus === 'changed' ? 'changed' : summary?.summary ? analysisBasisStatus(summary.sourceBasis, data.history, data.fullTextHash, data.fullTextParserVersion) : 'unverified';
   const failedSources = data.sources.filter((source) => !source.ok);
   const approvedReviewItems = (summary?.reviewItems ?? []).filter((item) => isApprovedReviewStatus(item.reviewStatus));
   const approvedKeywords = approvedReviewItems.filter((item) => item.entityId.startsWith('searchKeywords.')).map((item) => item.text);
@@ -532,7 +536,7 @@ export default function ExamWorkspace() {
   const features = searchFeatureRows(data.claims, selectedClaim, basisStatus === 'current' ? claimFeatureAnalyses ?? [] : [])
     .map((feature) => ({ ...feature, role: featureRoleOverrides[feature.id] ?? feature.role }));
   const searchExpression = buildSearchExpression(data, features, strategyKeywords, searchOptions);
-  const readiness = reviewReadiness({ history: data.history, fullTextHash: data.fullTextHash, summary, rounds: examinationRounds, notices: noticeAnalyses, resolutions: amendmentResolutions, documents: visibleClaimChanges?.documents ?? [], changeSummary: claimChangeSummary });
+  const readiness = reviewReadiness({ history: data.history, fullTextHash: data.fullTextHash, fullTextParserVersion: data.fullTextParserVersion, summary, rounds: examinationRounds, notices: noticeAnalyses, resolutions: amendmentResolutions, documents: visibleClaimChanges?.documents ?? [], changeSummary: claimChangeSummary });
   const currentChangeSummary = readiness.changes ? claimChangeSummary : null;
   const currentResolutions = Object.fromEntries(examinationRounds.flatMap((round) => {
     const result = amendmentResolutions[round.notice.documentNumber];
@@ -566,6 +570,24 @@ export default function ExamWorkspace() {
     return () => { cancelled = true; };
   }, [loadCachedSummary]);
   useEffect(() => { void fetchUsage().then(setUsage).catch(() => undefined); }, []);
+  useEffect(() => {
+    if (restoring || data.isDemo) return;
+    const applicationNumber = data.applicationNumberRaw;
+    let cancelled = false;
+    // Reparse saved XML to repair browser-restored v2 claims without provider calls.
+    void fetchFullText(applicationNumber, false, true).then((original) => {
+      if (cancelled) return;
+      if (original.usage) setUsage(original.usage);
+      setData((current) => current.applicationNumberRaw !== applicationNumber ? current : {
+        ...current, claims: original.claims.length ? original.claims : current.claims,
+        claimCount: original.claims.length || current.claimCount,
+        claimStructureSource: original.claims.length ? 'fulltext' : current.claimStructureSource,
+        fullText: { fileName: original.sourceFileName, fileUrl: original.sourceFileUrl || '' },
+        fullTextHash: original.sourceHash, fullTextFetchedAt: original.fetchedAt, fullTextParserVersion: original.parserVersion,
+      });
+    }).catch(() => { /* No saved XML: leave retrieval to the user's original/AI action. */ });
+    return () => { cancelled = true; };
+  }, [restoring, data.isDemo, data.applicationNumberRaw]);
   useEffect(() => {
     if (restoring) return;
     writeStoredWorkspace(data, summary, mode);
@@ -772,7 +794,7 @@ export default function ExamWorkspace() {
       ...current, claims: original.claims.length ? original.claims : current.claims,
       claimCount: original.claims.length || current.claimCount, claimStructureSource: original.claims.length ? 'fulltext' : current.claimStructureSource,
       fullText: { fileName: original.sourceFileName, fileUrl: original.sourceFileUrl || '' },
-      fullTextHash: original.sourceHash, fullTextFetchedAt: original.fetchedAt,
+      fullTextHash: original.sourceHash, fullTextFetchedAt: original.fetchedAt, fullTextParserVersion: original.parserVersion,
     });
   }
   async function copyText(value: string, label: string) { try { await navigator.clipboard.writeText(value); setToast(`${label}을 복사했습니다.`); } catch { setToast(`${label}을 복사하지 못했습니다.`); } }
@@ -1025,7 +1047,7 @@ export default function ExamWorkspace() {
         refreshedData = { ...nextData, claims: original.claims.length ? original.claims : nextData.claims,
           claimCount: original.claims.length || nextData.claimCount, claimStructureSource: original.claims.length ? 'fulltext' : 'bibliography',
           fullText: { fileName: original.sourceFileName, fileUrl: original.sourceFileUrl || '' },
-          fullTextHash: original.sourceHash, fullTextFetchedAt: original.fetchedAt };
+          fullTextHash: original.sourceHash, fullTextFetchedAt: original.fetchedAt, fullTextParserVersion: original.parserVersion };
       } catch (reason) {
         fullTextError = reason instanceof Error ? reason.message : '전문 갱신 실패';
         refreshedData = { ...nextData, sources: [...nextData.sources.filter((source) => source.name !== 'fullText'), { name: 'fullText', ok: false, message: fullTextError }] };
@@ -1119,7 +1141,22 @@ export default function ExamWorkspace() {
       <form className="exam-search" onSubmit={handleSearch}><label htmlFor="case-search">출원번호 검색</label><input id="case-search" value={query} onChange={(event) => setQuery(event.target.value)} inputMode="numeric" placeholder="출원번호 13자리 입력"/><button type="submit" disabled={loading || preReview.phase === 'running'}>검색</button></form>
       <div className="exam-header-actions">
         <button className="exam-secondary mobile-case-materials" type="button" onClick={() => openResource('biblio')}><span className="desktop-label">사건자료</span><span className="mobile-label">자료</span></button>
-        <details className="mobile-more-menu"><summary aria-label="더보기">⋮</summary><div role="group" aria-label="사건 작업"><label className="download-original-choice"><input type="checkbox" checked={includeOriginals} onChange={(event) => setIncludeOriginals(event.target.checked)}/>저장된 XML·PDF 포함</label><button type="button" onClick={downloadPackage} disabled={packageBusy}>{packageBusy ? '정리 중…' : '검토결과 내려받기'}</button><button type="button" disabled={data.isDemo || loading || preReview.phase === 'running' || summaryBusy || claimChangesBusy} onClick={() => void refreshPatentCase()}>사건·전문 최신 조회 · KIPRIS 최대 5회</button><button type="button" onClick={() => setSourceDetailsOpen((current) => !current)}>데이터 진단정보</button><button type="button" onClick={() => selectMode('initial')}>최초심사 검토로 보기</button><button type="button" onClick={() => selectMode('response')}>중간서류 검토로 보기</button><button type="button" disabled={preReview.phase === 'running' || data.isDemo} onClick={() => void runPreReview(true)}>전체 AI 재분석 · OpenAI 호출</button><span>KIPRIS 누적 {usage?.total ?? '—'}회</span>{usage?.limits && <span>오늘 KIPRIS {usage.limits.kipris.used}/{usage.limits.kipris.limit} · OpenAI {usage.limits.openai.used}/{usage.limits.openai.limit}</span>}</div></details>
+        <CaseActionsMenu>
+          <div className="case-menu-section"><h3>자료</h3>
+            <button type="button" onClick={downloadPackage} disabled={packageBusy}>{packageBusy ? '정리 중…' : '검토결과 내려받기'}</button>
+            <label className="download-original-choice"><input type="checkbox" checked={includeOriginals} onChange={(event) => setIncludeOriginals(event.target.checked)}/>저장된 XML·PDF 포함</label>
+            <button type="button" disabled={data.isDemo || loading || preReview.phase === 'running' || summaryBusy || claimChangesBusy} onClick={() => void refreshPatentCase()}><span>최신 자료 조회</span><small>KIPRIS API 최대 5회 사용</small></button>
+            <button type="button" onClick={() => setSourceDetailsOpen((current) => !current)}>데이터 진단정보</button>
+          </div>
+          <div className="case-menu-section"><h3>검토 관점</h3>
+            <button type="button" aria-pressed={mode === 'initial'} onClick={() => selectMode('initial')}>최초심사 검토</button>
+            <button type="button" aria-pressed={mode === 'response'} onClick={() => selectMode('response')}>중간서류 검토</button>
+          </div>
+          <div className="case-menu-section"><h3>AI 분석</h3>
+            <button type="button" disabled={preReview.phase === 'running' || data.isDemo} onClick={() => void runPreReview(true)}><span>전체 재분석</span><small>OpenAI API 사용 · 비용 발생</small></button>
+            <p className="case-menu-usage">KIPRIS 누적 {usage?.total ?? '—'}회{usage?.limits && <><br/>오늘 KIPRIS {usage.limits.kipris.used}/{usage.limits.kipris.limit} · OpenAI {usage.limits.openai.used}/{usage.limits.openai.limit}</>}</p>
+          </div>
+        </CaseActionsMenu>
       </div>
     </header>
     <div className="exam-modebar" aria-label="현재 사건 정보">
@@ -1131,9 +1168,9 @@ export default function ExamWorkspace() {
       <aside className="exam-sidebar" inert={Boolean(selectedNotice || drawingOpen || claimTreeOpen || (isMobile && resourceOpen))}><p>검토 메뉴</p><label className="mobile-step-picker"><span>{activeAvailableIndex + 1} / {steps.length}</span><select aria-label="검토 메뉴 선택" value={view} onChange={(event) => go(event.target.value as WorkView)}>{steps.map((step) => <option key={step[0]} value={step[0]}>{step[1]}</option>)}</select></label><nav aria-label="검토 메뉴">{steps.map((step, index) => { const state = step[0] === view ? 'active' : 'idle'; return <button ref={(node) => { stepRefs.current[step[0]] = node; }} key={step[0]} className={state} type="button" aria-current={state === 'active' ? 'page' : undefined} onClick={() => go(step[0])}><span>{String(index + 1)}</span><strong>{step[1]}</strong></button>; })}</nav></aside>
       <main className="exam-main" id="exam-main" tabIndex={-1} inert={Boolean(selectedNotice || drawingOpen || claimTreeOpen || (isMobile && resourceOpen))}>
         {view !== 'overview' && (preReview.phase === 'running' || preReview.phase === 'partial') && <section className={`pre-review-global-status ${preReview.phase}`} role="status" aria-live="polite"><span>{preReview.phase === 'running' ? 'AI 분석 진행 중' : '일부 분석 미완료'}</span><strong>{preReview.phase === 'running' ? preReviewTaskLabels[preReview.currentStep] : `${failedPreReviewTasks || 1}개 항목 확인 필요`}</strong><small>{preReview.phase === 'running' ? preReview.tasks?.[preReview.currentStep]?.detail || '분석 상태를 갱신하고 있습니다.' : preReview.error || '대시보드에서 항목별 상태를 확인할 수 있습니다.'}</small><button type="button" onClick={() => go('overview')}>분석상태 보기</button></section>}
-        {summary?.summary && <section className={`analysis-provenance status-${basisStatus}`} aria-label="AI 분석 기준"><div><strong>AI 분석 · 미확인</strong><span>분석 {formatAnalysisDate(summary.generatedAt)}</span><span>사건 조회 {formatAnalysisDate(data.fetchedAt)}</span></div>{basisStatus !== 'current' && <p>{basisStatus === 'changed' ? '분석 이후 사건자료 또는 전문이 변경되었습니다. 이전 분석을 현재 판단에 사용하지 마세요.' : basisStatus === 'unverified' ? '기존 분석의 원문 버전 기록이 없어 최신 자료와의 일치 여부를 확인할 수 없습니다.' : '저장된 원문·접수 이력 기준 분석입니다. 새로운 서류 반영 여부는 최신 조회로 확인하세요.'}</p>}<details><summary>분석 기준</summary><dl><Data label="모델" value={summary.model || '기록 없음'}/><Data label="프롬프트" value={summary.version || '기록 없음'}/><Data label="전문파일" value={summary.sourceBasis?.sourceFileName || '기록 없음'}/><Data label="원문 조회" value={formatAnalysisDate(summary.sourceBasis?.fullTextFetchedAt)}/><Data label="원문 식별" value={summary.sourceBasis?.fullTextHash?.slice(0, 16) || '기록 없음'}/><Data label="분석 범위" value={summary.sourceBasis?.sourceScope === 'partial' ? '입력 길이 제한에 따른 발췌 분석' : summary.sourceBasis ? '제공된 전문·청구항' : '기록 없음'}/></dl></details></section>}
+        {summary?.summary && <section className={`analysis-provenance status-${basisStatus}`} aria-label="AI 분석 기준"><div><strong>AI 분석 · 미확인</strong><span>분석 {formatAnalysisDate(summary.generatedAt)}</span></div>{basisStatus !== 'current' && <p>{basisStatus === 'changed' ? '사건자료 또는 전문 해석 방식이 달라졌습니다. 이전 분석을 현재 판단에 사용하지 마세요.' : basisStatus === 'unverified' ? '기존 분석의 원문 버전 기록이 없어 최신 자료와의 일치 여부를 확인할 수 없습니다.' : '저장된 원문·접수 이력 기준 분석입니다. 새로운 서류 반영 여부는 최신 조회로 확인하세요.'}</p>}<details><summary>분석 기준</summary><dl><Data label="모델" value={summary.model || '기록 없음'}/><Data label="프롬프트" value={summary.version || '기록 없음'}/><Data label="사건 조회" value={formatAnalysisDate(data.fetchedAt)}/><Data label="전문파일" value={summary.sourceBasis?.sourceFileName || '기록 없음'}/><Data label="원문 조회" value={formatAnalysisDate(summary.sourceBasis?.fullTextFetchedAt)}/><Data label="원문 식별" value={summary.sourceBasis?.fullTextHash?.slice(0, 16) || '기록 없음'}/><Data label="분석 범위" value={summary.sourceBasis?.sourceScope === 'partial' ? '입력 길이 제한에 따른 발췌 분석' : summary.sourceBasis ? '제공된 전문·청구항' : '기록 없음'}/></dl></details></section>}
         {failedSources.length > 0 && <section className="source-warning" role="alert"><div><strong>일부 사건자료를 불러오지 못했습니다.</strong><span>{failedSources.map((source) => sourceLabel(source.name)).join(' · ')}</span></div><div><button type="button" onClick={() => setSourceDetailsOpen((current) => !current)}>{sourceDetailsOpen ? '상세 닫기' : '상세 보기'}</button><button type="button" disabled={data.isDemo || loading || preReview.phase === 'running' || summaryBusy || claimChangesBusy} onClick={() => void refreshPatentCase()}>다시 조회</button></div>{sourceDetailsOpen && <ul>{failedSources.map((source) => <li key={source.name}><b>{sourceLabel(source.name)}</b>{source.message}</li>)}</ul>}</section>}
-        {view === 'overview' && <OverviewView step={stepNumber('overview')} data={data} mode={mode} lifecycle={lifecycle} rounds={examinationRounds} readiness={readiness} summary={summary} noticeAnalyses={noticeAnalyses} amendmentResolutions={amendmentResolutions} claimChangeSummary={claimChangeSummary?.summary ?? null} preReview={preReview} onRun={(force) => void runPreReview(force)} onView={go} onResource={openResource}/>}
+        {view === 'overview' && <OverviewView step={stepNumber('overview')} data={data} rounds={examinationRounds} readiness={readiness} summary={summary} noticeAnalyses={noticeAnalyses} amendmentResolutions={amendmentResolutions} claimChangeSummary={claimChangeSummary?.summary ?? null} preReview={preReview} onRun={(force) => void runPreReview(force)} onView={go} onResource={openResource}/>}
         {view === 'response-analysis' && <ResponseAnalysisView step={stepNumber('response-analysis')} rounds={examinationRounds} history={data.history} onSaveLinks={saveLinks} claimChanges={visibleClaimChanges} claimChangeSummary={currentChangeSummary?.summary ?? null} claimChangesBusy={claimChangesBusy} claimChangesError={claimChangesError || claimChangeSummaryError} noticeAnalyses={noticeAnalyses} amendmentResolutions={currentResolutions} onLoadChanges={() => void loadClaimChanges(data.applicationNumberRaw)} selectedRoundKey={selectedRound} onSelectRound={setSelectedRound} onNotice={openNotice} onResource={openResource}/>}
         {view === 'technology' && <TechnologyView step={stepNumber('technology')} data={data} claimAnalysis={claimAnalysis} summary={summary} summaryBusy={summaryBusy} summaryError={summaryError} onOpenClaimTree={() => { setClaimTreeOpen(true); pushMobileOverlay('claim-tree'); }} onEvidence={openEvidence} onOpenReview={() => go('overview')}/>}
         {view === 'strategy' && <StrategyView step={stepNumber('strategy')} data={data} mode={mode} claimAnalysis={claimAnalysis} selectedClaim={selectedClaim} targetLabel={targetLabel} features={features} approvedKeywords={approvedKeywords} suggestedKeywords={[...new Set([...features.map((feature) => feature.label), ...aiStrategySuggestions.filter((word) => features.some((feature) => keywordMatchesFeature(word, feature)))])]} selectedDraftKeywords={strategyDraftKeywords} claimChangeSummary={currentChangeSummary?.summary ?? null} candidates={candidates} searchRan={searchRan} hasAiAnalysis={basisStatus === 'current' && features.length > 0 && Boolean(claimFeatureAnalyses?.some((item) => item.claimNumber === selectedClaim))} analysisBusy={summaryBusy} analysisError={summaryError} onSelectClaim={selectSearchClaim} onOpenClaim={openClaimResource} onOpenEvidence={openFeatureEvidence} onAnalyze={() => void runPreReview(Boolean(summary?.summary), 'technology')} onToggleKeyword={toggleStrategyKeyword} onChangeRole={changeFeatureRole} onCopy={() => void copyText(searchExpression, '검색식')} onRunDemo={runSearch} onOpenResource={() => openResource('documents')} searchOptions={searchOptions} onSearchOptions={changeSearchOptions} onAddCandidate={saveCandidate} onRemoveCandidate={removeCandidate}/>}
@@ -1143,12 +1180,13 @@ export default function ExamWorkspace() {
 }
 
 function PageHeading({ step, title, description, action }: { step: string; title: string; description: string; action?: React.ReactNode }) { return <header className="work-heading"><div><span>{/^\d+$/.test(step) ? `단계 ${Number(step)}` : step}</span><h1>{title}</h1>{description && <p>{description}</p>}</div>{action}</header>; }
-function OverviewView({ step, data, mode, lifecycle, rounds, summary, noticeAnalyses, amendmentResolutions, claimChangeSummary, preReview, readiness, onRun, onView, onResource }: {
-  step: string; data: PatentCase; mode: WorkMode; lifecycle: CaseLifecycle; rounds: ExaminationRound<NoticeItem>[];
+function OverviewView({ step, data, rounds, summary, noticeAnalyses, amendmentResolutions, claimChangeSummary, preReview, readiness, onRun, onView, onResource }: {
+  step: string; data: PatentCase; rounds: ExaminationRound<NoticeItem>[];
   summary: SummaryPayload | null; noticeAnalyses: Record<string, NoticeAnalysis>; amendmentResolutions: Record<string, AmendmentResolutionPayload>;
   claimChangeSummary: ClaimChangeSummary | null; preReview: PreReviewProgress; readiness: ReturnType<typeof reviewReadiness>;
   onRun: (force: boolean) => void; onView: (view: WorkView) => void; onResource: (tab: ResourceTab) => void;
 }) {
+  const [showAllRecent, setShowAllRecent] = useState(false);
   const hasResults = Boolean(summary?.summary || Object.keys(noticeAnalyses).length || Object.keys(amendmentResolutions).length || claimChangeSummary);
   const bibliographyReady = data.sources.some((source) => source.name === 'bibliography' && source.ok);
   const hasAmendment = rounds.some((round) => round.amendments.length);
@@ -1175,23 +1213,35 @@ function OverviewView({ step, data, mode, lifecycle, rounds, summary, noticeAnal
     const live = preReview.tasks?.[key];
     return [key, preReview.phase === 'running' && live ? live : live?.status === 'failed' && tasks[key].status !== 'complete' && tasks[key].status !== 'skipped' ? live : tasks[key]] as const;
   });
+  const analysisTasks = taskRows.filter(([id, task]) => id !== 'case' && id !== 'results' && task.status !== 'skipped');
+  const completedAnalyses = analysisTasks.filter(([, task]) => task.status === 'complete').length;
+  const taskProblem = taskRows.some(([, task]) => task.status === 'failed' || task.status === 'stale');
+  const materialWarnings = materialRows.filter((item) => item.state === 'warning');
+  const materialDetails = materialRows.filter((item) => item.state !== 'warning');
+  const availableMaterials = materialRows.filter((item) => item.state === 'ready').length;
+  const expectedMaterials = materialRows.filter((item) => item.state !== 'empty').length;
+  function materialRow(item: (typeof materialRows)[number]) {
+    return <li className={`material-${item.state}`} key={item.label}><span aria-hidden="true">{item.state === 'ready' ? '✓' : item.state === 'warning' ? '!' : item.state === 'received' ? '○' : '–'}</span><strong>{item.label}</strong><small>{item.detail}</small></li>;
+  }
   return <>
     <PageHeading step={step} title="사건 대시보드" description=""/>
-    <section className="dashboard-case-card">
-      <header><div><span>{workModeLabel(mode, lifecycle)}</span><h2>사건 서지사항</h2><p>{data.applicant}</p></div><strong className={`dashboard-lifecycle ${lifecycle.tone}`}>{lifecycle.label}</strong></header>
-      <dl className="dashboard-biblio"><Data label="출원일" value={data.applicationDate}/><Data label="공개번호" value={data.publicationNumber || '—'}/><Data label="등록번호" value={data.registrationNumber || '—'}/><Data label="심사청구일" value={data.examinationRequestDate || '—'}/><Data label="청구항" value={`${data.claims.length}개`}/><Data label="자료 기준" value={data.updatedAt}/></dl>
-      <nav className="dashboard-resource-actions" aria-label="사건 원문 바로가기"><button type="button" onClick={() => onResource('claims')}>청구항 원문</button><button type="button" onClick={() => onResource('specification')}>전체 명세서</button><button type="button" onClick={() => onResource('drawing')}>도면</button><button type="button" onClick={() => onResource('history')}>전체 접수 이력</button></nav>
-    </section>
-    <div className="dashboard-information-grid">
-      <section className="dashboard-document-status"><header><h2>최근 접수·발송 서류</h2><small>전체 {data.history.length}건</small></header>{orderedHistory.length ? <ol>{orderedHistory.slice(0, 7).map((item) => <li key={item.documentNumber}><time>{formatDate(item.date)}</time><div><strong title={item.title}>{shortDocumentTitle(item.title)}</strong><small>{shortDocumentStatus(item.status)}</small></div></li>)}</ol> : <p>접수 이력 없음</p>}<button type="button" onClick={() => onResource('history')}>전체 이력 보기</button></section>
-      <section className="dashboard-material-check"><header><h2>사건자료 확보 현황</h2></header><ul>{materialRows.map((item) => <li className={`material-${item.state}`} key={item.label}><span aria-hidden="true">{item.state === 'ready' ? '✓' : item.state === 'warning' ? '!' : item.state === 'received' ? '○' : '–'}</span><strong>{item.label}</strong><small>{item.detail}</small></li>)}</ul></section>
-    </div>
     <section className={`pre-review-task-board dashboard-analysis-board phase-${preReview.phase}`} aria-label="AI 분석 상태" aria-live="polite">
-      <header><div><h2>{preReview.phase === 'running' ? 'AI 분석 중' : readiness.complete ? '분석 완료' : hasResults ? '분석 기준·미완료 항목 확인' : 'AI 분석'}</h2></div><button className="exam-primary" type="button" onClick={() => readiness.complete ? onView('technology') : onRun(false)} disabled={data.isDemo || preReview.phase === 'running'}>{preReview.phase === 'running' ? '분석 중…' : readiness.complete ? '기술 이해 보기' : hasResults ? '필요한 항목 분석' : 'AI 분석 시작'}</button></header>
-      <ol>{taskRows.map(([id, task]) => <li className={`task-${task.status}${preReview.phase === 'running' && preReview.currentStep === id ? ' current' : ''}`} key={id}><span>{preReviewStatusLabels[task.status]}</span><div><strong>{preReviewTaskLabels[id]}</strong><small>{task.error || task.detail}</small></div></li>)}</ol>
+      <header><div><h2>{preReview.phase === 'running' ? 'AI 분석 중' : readiness.complete ? '분석 완료' : hasResults ? '추가 분석 필요' : 'AI 분석'}</h2><p className="dashboard-analysis-tally">{completedAnalyses}/{analysisTasks.length}개 분석 완료</p></div><div className="dashboard-analysis-action"><button className="exam-primary" type="button" onClick={() => readiness.complete ? onView('technology') : onRun(false)} disabled={data.isDemo || preReview.phase === 'running'}>{preReview.phase === 'running' ? '분석 중…' : readiness.complete ? '기술 이해 보기' : hasResults ? '미완료 분석 실행' : 'AI 분석 시작'}</button>{!readiness.complete && !data.isDemo && <small>OpenAI API 사용 · 저장된 결과 재사용</small>}</div></header>
+      <details className="dashboard-task-details" open={preReview.phase === 'running' || taskProblem}><summary>{preReview.phase === 'running' ? '진행 상황' : taskProblem ? '확인 필요 항목' : '분석 상세'}</summary>
+        <ol>{taskRows.map(([id, task]) => <li className={`task-${task.status}${preReview.phase === 'running' && preReview.currentStep === id ? ' current' : ''}`} key={id}><span>{preReviewStatusLabels[task.status]}</span><div><strong>{preReviewTaskLabels[id]}</strong><small>{task.error || task.detail}</small></div></li>)}</ol>
+      </details>
       {data.isDemo && <p className="dashboard-demo-note">실제 출원번호를 조회하면 AI 분석을 사용할 수 있습니다.</p>}
       {hasResults && preReview.phase !== 'running' && !readiness.complete && <footer className="dashboard-next-actions"><button type="button" onClick={() => onView('technology')}>저장된 기술 분석 보기</button>{rounds.length > 0 && <button type="button" onClick={() => onView('response-analysis')}>통지·보정 검토</button>}</footer>}
     </section>
+    <section className="dashboard-case-card">
+      <header><div><h2>서지사항</h2><p>{data.applicant}</p></div></header>
+      <dl className="dashboard-biblio"><Data label="출원일" value={data.applicationDate}/><Data label="공개번호" value={data.publicationNumber || '—'}/><Data label="등록번호" value={data.registrationNumber || '—'}/><Data label="심사청구일" value={data.examinationRequestDate || '—'}/><Data label="청구항" value={`${data.claims.length}개`}/></dl>
+      <nav className="dashboard-resource-actions" aria-label="사건 원문 바로가기"><button type="button" onClick={() => onResource('claims')}>청구항 원문</button><button type="button" onClick={() => onResource('specification')}>명세서</button><button type="button" onClick={() => onResource('drawing')}>도면</button></nav>
+    </section>
+    <div className="dashboard-information-grid">
+      <section className="dashboard-document-status"><header><h2>최근 접수·발송 서류</h2></header>{orderedHistory.length ? <ol id="dashboard-recent-documents" className={`recent-documents${showAllRecent ? ' expanded' : ''}`}>{orderedHistory.slice(0, 7).map((item) => <li key={item.documentNumber}><time>{formatDate(item.date)}</time><div><strong title={item.title}>{shortDocumentTitle(item.title)}</strong><small>{shortDocumentStatus(item.status)}</small></div></li>)}</ol> : <p>접수 이력 없음</p>}<div className="dashboard-document-actions">{orderedHistory.length > 3 && <button className="dashboard-documents-toggle" type="button" aria-controls="dashboard-recent-documents" aria-expanded={showAllRecent} onClick={() => setShowAllRecent((current) => !current)}>{showAllRecent ? '최근 서류 접기' : '최근 서류 더보기'}</button>}<button type="button" onClick={() => onResource('history')}>전체 이력 · {data.history.length}건</button></div></section>
+      <section className="dashboard-material-check"><header><h2>사건자료</h2><small>{availableMaterials}/{expectedMaterials} 확보</small></header>{materialWarnings.length > 0 && <ul className="material-exceptions" aria-label="확인 필요한 사건자료">{materialWarnings.map(materialRow)}</ul>}<details className="dashboard-material-details"><summary>자료 상세</summary><ul>{materialDetails.map(materialRow)}</ul></details></section>
+    </div>
   </>;
 }
 function shortDocumentTitle(title: string) {
@@ -1369,7 +1419,7 @@ function ResponseAnalysisView({ step, rounds, history, claimChanges, claimChange
             <header><div><strong>보정서</strong><small>{formatDate(date)} · {document.documentNumber}</small></div><span>{claimChangeStats(document)}</span></header>
             {insight && <section className="compact-change-result"><AiSummaryBulletList value={insight.summary}/></section>}
             <AmendmentClaimTreeComparison version={versions.find((version) => version.documentNumber === document.documentNumber)}/>
-            {document.changes.map((change) => <details id={`amendment-${digits(document.documentNumber)}-claim-${change.claimNumber}`} key={change.claimNumber}><summary><strong>청구항 {change.claimNumber}</strong><span>{change.changeTypeName || change.changeTypeCode}</span></summary><div className="claim-change-markup"><ClaimChangeMarkup segments={change.changeSegments}/></div><div className="claim-text-compare"><section><small>보정 전</small><p>{change.previousClaimText || '이전 문언 미확보'}</p></section><section><small>보정 후</small><p>{change.changeTypeCode === 'D' ? '삭제' : change.claimText || '변경 문언 미확보'}</p></section></div></details>)}
+            {document.changes.map((change) => <details id={`amendment-${digits(document.documentNumber)}-claim-${change.claimNumber}`} key={change.claimNumber}><summary><strong>청구항 {change.claimNumber}</strong><span>{change.changeTypeName || change.changeTypeCode}</span></summary><div className="claim-change-markup"><ClaimChangeMarkup segments={change.changeSegments}/></div><div className="claim-text-compare"><section><small>보정 전</small><p><PatentText text={change.previousClaimText || '이전 문언 미확보'}/></p></section><section><small>보정 후</small><p><PatentText text={change.changeTypeCode === 'D' ? '삭제' : change.claimText || '변경 문언 미확보'}/></p></section></div></details>)}
           </article>;
         })}
       </section>
@@ -1379,13 +1429,10 @@ function ResponseAnalysisView({ step, rounds, history, claimChanges, claimChange
 
 function ClaimChangeMarkup({ segments }: { segments: ClaimChangeSegment[] }) {
   if (!segments.length) return <p>변동문이 제공되지 않았습니다.</p>;
-  return <p>{segments.map((segment, index) => segment.type === 'lineBreak'
-    ? <br key={`br-${index}`}/>
-    : segment.type === 'inserted'
-      ? <ins key={`ins-${index}`}>{segment.text}</ins>
-      : segment.type === 'deleted'
-        ? <del key={`del-${index}`}>{segment.text}</del>
-    : <span key={`text-${index}`}>{segment.text}</span>)}</p>;
+  const text = segments.map((segment) => segment.type === 'lineBreak' ? '\n'
+    : segment.type === 'inserted' ? `<ins>${segment.text}</ins>`
+      : segment.type === 'deleted' ? `<del>${segment.text}</del>` : segment.text).join('');
+  return <p><PatentText text={text} allowChanges/></p>;
 }
 
 
@@ -1477,11 +1524,11 @@ function TechnologyView({ step, data, claimAnalysis, summary, summaryBusy, summa
   const multipleDependentClaims = claimAnalysis.filter((claim) => claim.multipleDependent);
   const claimErrorCount = claimAnalysis.filter((claim) => claim.errors.length > 0).length;
   return <>
-    <PageHeading step={step} title="기술 이해" description="해결하고자 하는 과제, 핵심 해결수단, 주요 효과와 청구항 인용관계를 파악합니다." action={<button className="exam-secondary" type="button" onClick={onOpenClaimTree}>청구항 트리 열기</button>}/>
+    <PageHeading step={step} title="기술 이해" description=""/>
     {summaryError && <div className="inline-warning">△ {summaryError}</div>}
+    <section className="claim-structure-compact"><div><h2>청구항 관계</h2><p>독립항 {independentClaims.length}개 · 종속항 {dependentClaims.length}개{multipleDependentClaims.length > 0 && ` · 다중종속 ${multipleDependentClaims.length}개`}</p><small>{data.claimStructureSource === 'fulltext' ? '전문 XML 기준' : '서지 API 기준'}</small>{claimErrorCount > 0 && <p className="claim-structure-warning">인용관계 확인 필요 {claimErrorCount}건</p>}</div><button className="exam-secondary" type="button" onClick={onOpenClaimTree}>인용관계 보기</button></section>
     <section className="technology-center">
-      {ai ? <TechnicalAiBrief summary={ai} reviewItems={summary?.reviewItems ?? []} claimAnalysis={claimAnalysis} onEvidence={onEvidence}/> : <section className="ai-analysis-state"><span>{summaryBusy ? 'AI 분석 중' : '분석 전'}</span><h2>{summaryBusy ? '명세서의 핵심 구성을 정리하고 있습니다.' : '아직 생성된 발명 분석이 없습니다.'}</h2><p>사건 대시보드에서 AI 분석을 실행하면 전문 내용을 바탕으로 발명을 요약합니다.</p>{!summaryBusy && <button className="exam-secondary" type="button" onClick={onOpenReview}>사건 대시보드로 이동</button>}</section>}
-      <section className="claim-structure-launch"><div><span>{data.claimStructureSource === 'fulltext' ? '전문 XML 기준' : '서지 API 기준'}</span><h2>청구항 인용 구조</h2><p>독립항별 종속 계보와 다중종속·인용 오류를 모달에서 확인합니다.</p></div><dl><Data label="전체" value={`${claimAnalysis.length}개`}/><Data label="독립항" value={`${independentClaims.length}개`}/><Data label="종속항" value={`${dependentClaims.length}개`}/><Data label="다중종속" value={`${multipleDependentClaims.length}개`}/></dl><div className="claim-root-preview">{independentClaims.slice(0, 6).map((claim) => <span key={claim.number}>청구항 {claim.number} 계보 · 후속 {claimDescendantNumbers(claimAnalysis, claim.number).size}개</span>)}{claimErrorCount > 0 && <span className="warning">인용관계 확인 필요 {claimErrorCount}건</span>}</div><button className="exam-secondary" type="button" onClick={onOpenClaimTree}>청구항 트리 전체 보기</button><small>{data.claimStructureSource === 'fulltext' ? '전체 명세서 XML의 청구항 문언을 기준으로 분석했습니다.' : '서지 API 청구항 문언을 기준으로 분석했습니다.'}</small></section>
+      {ai ? <TechnicalAiBrief summary={ai} reviewItems={summary?.reviewItems ?? []} claimAnalysis={claimAnalysis} onEvidence={onEvidence}/> : <section className="ai-analysis-state"><h2>{summaryBusy ? '명세서 분석 중…' : '발명 요약 전'}</h2>{!summaryBusy && <button className="exam-secondary" type="button" onClick={onOpenReview}>대시보드에서 분석 실행</button>}</section>}
     </section>
   </>;
 }
@@ -1514,9 +1561,9 @@ function ClaimTreeDialog({ data, claimAnalysis, initialClaim, onOpenClaim, onClo
           const totalDescendants = claimDescendantNumbers(claimAnalysis, claim.number).size;
           const relation = selected?.number === claim.number ? 'selected' : ancestors.has(claim.number) ? 'ancestor' : descendants.has(claim.number) ? 'descendant' : 'unrelated';
           const relationLabel = relation === 'selected' ? '선택 항' : relation === 'ancestor' ? '선행 계보' : relation === 'descendant' ? '후속 계보' : '';
-          return <article role="listitem" className={`claim-tree-item relation-${relation}${claim.errors.length ? ' invalid' : ''}${relatedClaims.has(claim.number) ? ' related' : ''}`} style={{ marginLeft: `${Math.min(claim.depth, 6) * 16}px` }} key={claim.number}><button className="claim-tree-main" type="button" aria-pressed={selected?.number === claim.number} onClick={() => { setFocusedClaim(claim.number); setMobilePane('detail'); }}><span className={`claim-kind ${claim.multipleDependent ? 'multiple' : claim.isIndependent ? 'independent' : 'dependent'}`}>{claim.isIndependent ? '독립' : claim.multipleDependent ? '다중' : '종속'}</span><div><strong>청구항 {claim.number}</strong><small>{claim.isIndependent ? `직접 종속 ${claim.children.length}개 · 전체 후속 ${totalDescendants}개` : `제${claim.directReferences.join('·')}항 직접 인용 · ${claim.depth}단계${totalDescendants ? ` · 후속 ${totalDescendants}개` : ''}`}</small>{relationLabel && <b className="claim-relation-label">{relationLabel}</b>}{claim.errors.length > 0 && <em>{claim.errors.join(' ')}</em>}</div></button></article>;
+          return <article role="listitem" className={`claim-tree-item relation-${relation}${claim.errors.length ? ' invalid' : ''}${relatedClaims.has(claim.number) ? ' related' : ''}`} style={{ marginLeft: `${Math.min(claim.depth, 6) * 16}px`, '--claim-indent': `${Math.min(claim.depth, 6) * 16}px` } as React.CSSProperties} key={claim.number}><button className="claim-tree-main" type="button" aria-pressed={selected?.number === claim.number} onClick={() => { setFocusedClaim(claim.number); setMobilePane('detail'); }}><span className={`claim-kind ${claim.multipleDependent ? 'multiple' : claim.isIndependent ? 'independent' : 'dependent'}`}>{claim.isIndependent ? '독립' : claim.multipleDependent ? '다중' : '종속'}</span><div><strong>청구항 {claim.number}</strong><small>{claim.isIndependent ? `직접 종속 ${claim.children.length}개 · 전체 후속 ${totalDescendants}개` : `제${claim.directReferences.join('·')}항 직접 인용 · ${claim.depth}단계${totalDescendants ? ` · 후속 ${totalDescendants}개` : ''}`}</small>{relationLabel && <b className="claim-relation-label">{relationLabel}</b>}{claim.errors.length > 0 && <em>{claim.errors.join(' ')}</em>}</div></button></article>;
         })}</div>
-        <aside className="claim-tree-selection" aria-live="polite">{selected ? <><header><span className={`claim-kind ${selected.multipleDependent ? 'multiple' : selected.isIndependent ? 'independent' : 'dependent'}`}>{selected.isIndependent ? '독립항' : selected.multipleDependent ? '다중종속항' : '종속항'}</span><h3>청구항 {selected.number}</h3></header><dl><Data label="직접 인용항" value={selected.directReferences.length ? `청구항 ${selected.directReferences.join(', ')}` : '없음'}/><Data label="종속 깊이" value={selected.isIndependent ? '독립항' : `${selected.depth}단계`}/><Data label="직접 종속항" value={selected.children.length ? `청구항 ${selected.children.join(', ')}` : '없음'}/><Data label="전체 후속항" value={`${descendants.size}개`}/></dl>{selected.errors.length > 0 && <p className="claim-tree-selection-warning">{selected.errors.join(' ')}</p>}<div className="claim-tree-text"><small>청구항 문언</small><p>{selectedText || '청구항 원문을 불러오지 못했습니다.'}</p></div><button className="exam-primary" type="button" onClick={() => onOpenClaim(selected.number)}>청구항 {selected.number} 원문 보기</button></> : <p>분석 가능한 청구항이 없습니다.</p>}</aside>
+        <aside className="claim-tree-selection" aria-live="polite">{selected ? <><header><span className={`claim-kind ${selected.multipleDependent ? 'multiple' : selected.isIndependent ? 'independent' : 'dependent'}`}>{selected.isIndependent ? '독립항' : selected.multipleDependent ? '다중종속항' : '종속항'}</span><h3>청구항 {selected.number}</h3></header><dl><Data label="직접 인용항" value={selected.directReferences.length ? `청구항 ${selected.directReferences.join(', ')}` : '없음'}/><Data label="종속 깊이" value={selected.isIndependent ? '독립항' : `${selected.depth}단계`}/><Data label="직접 종속항" value={selected.children.length ? `청구항 ${selected.children.join(', ')}` : '없음'}/><Data label="전체 후속항" value={`${descendants.size}개`}/></dl>{selected.errors.length > 0 && <p className="claim-tree-selection-warning">{selected.errors.join(' ')}</p>}<div className="claim-tree-text"><small>청구항 문언</small><p><PatentText text={selectedText || '청구항 원문을 불러오지 못했습니다.'}/></p></div><button className="exam-primary" type="button" onClick={() => onOpenClaim(selected.number)}>청구항 {selected.number} 원문 보기</button></> : <p>분석 가능한 청구항이 없습니다.</p>}</aside>
       </div>
     </section>
   </div>;
@@ -1525,7 +1572,7 @@ function ClaimTreeDialog({ data, claimAnalysis, initialClaim, onOpenClaim, onClo
 function AiSummaryBulletList({ value, maxItems = 4 }: { value: string | string[]; maxItems?: number }) {
   const items = summaryBulletItems(value, maxItems);
   return items.length
-    ? <ul className="ai-summary-bullets">{items.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul>
+    ? <ul className="ai-summary-bullets">{items.map((item, index) => <li key={`${item}-${index}`}><PatentText text={item}/></li>)}</ul>
     : <p className="ai-summary-empty">요약할 내용을 찾지 못했습니다.</p>;
 }
 
@@ -1535,7 +1582,7 @@ function TechnicalAiBrief({ summary, reviewItems = [], claimAnalysis, onEvidence
   claimAnalysis: ClaimAnalysis[];
   onEvidence?: (reference: ReviewItem['sourceRefs'][number]) => void;
 }) {
-  const operationFlow = summary.operationFlow ?? [];
+  const operationFlow = (summary.operationFlow ?? []).slice(0, 5);
   const independentClaimSummary = summary.independentClaimSummary || summary.claimOverview;
   const hasAiDependentGroups = Boolean(summary.dependentClaimGroups?.length);
   const dependentClaimGroups = hasAiDependentGroups
@@ -1559,18 +1606,18 @@ function TechnicalAiBrief({ summary, reviewItems = [], claimAnalysis, onEvidence
     ]),
   ).values()];
   return <section className="technical-ai-brief expanded">
-    <header className="technical-summary-hero"><small>발명의 핵심</small><p>{summary.oneLine}</p>{evidence('oneLine')}</header>
+    <header className="technical-summary-hero"><small>발명의 핵심</small><p><PatentText text={summary.oneLine}/></p>{evidence('oneLine')}</header>
     <div className="technical-summary-grid">
       <article className="technical-summary-card"><h3>해결하고자 하는 과제</h3><AiSummaryBulletList value={summary.technicalProblem}/>{evidence('technicalProblem')}</article>
       <article className="technical-summary-card"><h3>핵심 해결수단</h3><AiSummaryBulletList value={summary.solution}/>{evidence('solution')}</article>
-      <article className="technical-summary-card effects"><h3>주요 효과</h3>{summary.effects.length ? <ul>{summary.effects.slice(0, 3).map((item, index) => <li key={`${item}-${index}`}><p>{item}</p>{evidence(`effects.${index}`)}</li>)}</ul> : <p>명세서에서 명시적인 효과 근거를 찾지 못했습니다.</p>}{!summary.effects.length && <span className="evidence-missing">근거 부족</span>}</article>
+      <article className="technical-summary-card effects"><h3>주요 효과</h3>{summary.effects.length ? <ul>{summary.effects.slice(0, 3).map((item, index) => <li key={`${item}-${index}`}><p><PatentText text={item}/></p>{evidence(`effects.${index}`)}</li>)}</ul> : <p>명세서에서 명시적인 효과 근거를 찾지 못했습니다.</p>}{!summary.effects.length && <span className="evidence-missing">근거 부족</span>}</article>
     </div>
-    {operationFlow.length > 0 && <section className="operation-flow-panel"><header><h3>작동 흐름</h3></header><ol className="operation-flow">{operationFlow.slice(0, 5).map((step, index) => <li className="operation-flow-step" key={`${step}-${index}`}><span>{index + 1}</span><p>{step}</p>{evidence(`operationFlow.${index}`)}</li>)}</ol></section>}
+    {operationFlow.length > 0 && <section className="operation-flow-panel"><header><h3>작동 흐름</h3></header><ol className={`operation-flow flow-count-${operationFlow.length}`} role="list">{operationFlow.map((step, index) => <li className="operation-flow-step" key={`${step}-${index}`}><span className="operation-flow-number" aria-hidden="true">{index + 1}</span><p><PatentText text={step}/></p>{evidence(`operationFlow.${index}`)}</li>)}</ol></section>}
     <div className="technical-bottom-grid">
-      <section className="technical-core-elements"><h3>핵심 구성</h3><ol>{summary.keyElements.slice(0, 6).map((item, index) => <li key={`${item}-${index}`}><p>{item}</p>{evidence(`keyElements.${index}`)}</li>)}</ol></section>
+      <details className="technical-core-elements"><summary>구성요소 목록 · {Math.min(summary.keyElements.length, 6)}개</summary><ol>{summary.keyElements.slice(0, 6).map((item, index) => <li key={`${item}-${index}`}><p><PatentText text={item}/></p>{evidence(`keyElements.${index}`)}</li>)}</ol></details>
       <section className="claim-scope-summary"><h3>청구항 구조 요약</h3><article><small>독립항의 핵심 조합</small><AiSummaryBulletList value={independentClaimSummary}/>{evidence('independentClaimSummary', independentClaims.slice(0, 3).map(claimEvidenceReference))}</article><div className="dependent-claim-groups"><small>종속항의 주요 추가 한정</small>{dependentClaimGroups.length ? dependentClaimGroups.slice(0, 5).map((group, index) => <article key={`${group.claimNumbers.join('-')}-${index}`}><strong>{claimNumbersLabel(group.claimNumbers)}</strong><AiSummaryBulletList value={group.addition} maxItems={3}/>{evidence(`dependentClaimGroups.${index}`, group.claimNumbers.filter((number) => claimAnalysis.some((claim) => claim.number === number && !claim.isIndependent)).slice(0, 3).map(claimEvidenceReference))}</article>) : <p>종속항이 없거나 주요 추가 한정을 분류하지 못했습니다.</p>}</div></section>
     </div>
-    <details className="technical-supporting-details"><summary>상세정보 보기</summary><div className="technical-detail-grid">{summary.examinationPoints.length > 0 && <section><h3>선행기술 대조 포인트</h3><ul>{summary.examinationPoints.slice(0, 5).map((item, index) => <li key={`${item}-${index}`}>{item}{evidence(`examinationPoints.${index}`)}</li>)}</ul></section>}{summary.cautions.length > 0 && <section className="detail-cautions"><h3>AI 유의사항</h3><ul>{summary.cautions.slice(0, 3).map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></section>}{summary.claimOverview && summary.claimOverview !== independentClaimSummary && <section><h3>추가 청구항 설명</h3><AiSummaryBulletList value={summary.claimOverview}/>{evidence('claimOverview')}</section>}<section><h3>전체 근거 목록</h3>{allReferences.length ? <div className="technical-all-evidence">{allReferences.map((reference, index) => <button type="button" key={`${reference.sourceId}-${index}`} onClick={() => onEvidence?.(reference)}><span>{reference.locator}</span><small>{reference.excerpt}</small></button>)}</div> : <p className="evidence-missing">연결된 원문 근거가 없습니다.</p>}</section></div></details>
+    <details className="technical-supporting-details"><summary>상세정보 보기</summary><div className="technical-detail-grid">{summary.examinationPoints.length > 0 && <section><h3>선행기술 대조 포인트</h3><ul>{summary.examinationPoints.slice(0, 5).map((item, index) => <li key={`${item}-${index}`}><PatentText text={item}/>{evidence(`examinationPoints.${index}`)}</li>)}</ul></section>}{summary.cautions.length > 0 && <section className="detail-cautions"><h3>AI 유의사항</h3><ul>{summary.cautions.slice(0, 3).map((item, index) => <li key={`${item}-${index}`}><PatentText text={item}/></li>)}</ul></section>}{summary.claimOverview && summary.claimOverview !== independentClaimSummary && <section><h3>추가 청구항 설명</h3><AiSummaryBulletList value={summary.claimOverview}/>{evidence('claimOverview')}</section>}<section><h3>전체 근거 목록</h3>{allReferences.length ? <div className="technical-all-evidence">{allReferences.map((reference, index) => <button type="button" key={`${reference.sourceId}-${index}`} onClick={() => onEvidence?.(reference)}><span>{reference.locator}</span><small><PatentText text={reference.excerpt}/></small></button>)}</div> : <p className="evidence-missing">연결된 원문 근거가 없습니다.</p>}</section></div></details>
   </section>;
 }
 function StrategyView({ step, data, mode, claimAnalysis, selectedClaim, targetLabel, features, suggestedKeywords, selectedDraftKeywords, claimChangeSummary, candidates, searchRan, hasAiAnalysis, analysisBusy, analysisError, onSelectClaim, onOpenClaim, onOpenEvidence, onAnalyze, onToggleKeyword, onChangeRole, onCopy, onRunDemo, searchOptions, onSearchOptions, onAddCandidate, onRemoveCandidate }: {
@@ -1598,7 +1645,7 @@ function StrategyView({ step, data, mode, claimAnalysis, selectedClaim, targetLa
       <div className="search-claim-selector"><label htmlFor="search-claim-number">분석 대상<select id="search-claim-number" value={selectedClaim} onChange={(event) => onSelectClaim(Number(event.target.value))}>{claimAnalysis.map((claim) => <option key={claim.number} value={claim.number}>청구항 {claim.number} · {claim.isIndependent ? '독립항' : '종속항'}</option>)}</select></label><div>{ancestors.length > 0 && <p>승계: 청구항 {ancestors.join(', ')}</p>}{hasAiAnalysis && <p>승계 구성 {features.filter((feature) => feature.inherited).length}개 · 추가 구성 {features.filter((feature) => !feature.inherited).length}개</p>}</div></div>
     </section>
     <section className="search-workspace-card ai-feature-workspace"><header><h2>기술적 구성과 검색 역할</h2><strong className={hasAiAnalysis ? 'complete' : 'pending'}>{analysisBusy ? '분석 중…' : hasAiAnalysis ? `${features.length}개 구성` : '분석 전'}</strong></header>
-      {hasAiAnalysis ? <div className="search-feature-roles">{features.map((feature) => <article key={feature.id}><div className="search-feature-copy"><header><b>{feature.id}</b><span>{categories[feature.category]}</span><em className={`importance-${feature.importance}`}>{importance[feature.importance]}</em></header><strong>{feature.label}</strong>{feature.inherited && <small>청구항 {feature.sourceClaimNumber}에서 승계</small>}<blockquote>{feature.text}</blockquote>{feature.rationale && <details><summary>검색 의미</summary><p>{feature.rationale}</p></details>}<button type="button" onClick={() => onOpenEvidence(feature)}>원문 근거</button></div><label>검색 역할<select aria-label={`${feature.id} 검색 역할`} value={feature.role} onChange={(event) => onChangeRole(feature.id, event.target.value as SearchRole)}>{(['핵심 검색', '조합 검색', '일반 구성', '검색 제외', '확인 필요'] as SearchRole[]).map((role) => <option key={role}>{role}</option>)}</select></label></article>)}</div> : <div className="ai-feature-empty"><div><h3>선택한 청구항의 구성 분석이 없습니다.</h3>{analysisError && <p className="inline-warning">{analysisError}</p>}</div><button type="button" disabled={analysisBusy || data.isDemo} onClick={onAnalyze}>{analysisBusy ? '분석 중…' : '기술 분석 갱신 · OpenAI 호출'}</button></div>}
+      {hasAiAnalysis ? <div className="search-feature-roles">{features.map((feature) => <article key={feature.id}><div className="search-feature-copy"><header><b>{feature.id}</b><span>{categories[feature.category]}</span><em className={`importance-${feature.importance}`}>{importance[feature.importance]}</em></header><strong><PatentText text={feature.label}/></strong>{feature.inherited && <small>청구항 {feature.sourceClaimNumber}에서 승계</small>}<blockquote><PatentText text={feature.text}/></blockquote>{feature.rationale && <details><summary>검색 의미</summary><p><PatentText text={feature.rationale}/></p></details>}<button type="button" onClick={() => onOpenEvidence(feature)}>원문 근거</button></div><label>검색 역할<select aria-label={`${feature.id} 검색 역할`} value={feature.role} onChange={(event) => onChangeRole(feature.id, event.target.value as SearchRole)}>{(['핵심 검색', '조합 검색', '일반 구성', '검색 제외', '확인 필요'] as SearchRole[]).map((role) => <option key={role}>{role}</option>)}</select></label></article>)}</div> : <div className="ai-feature-empty"><div><h3>구성 분석 전</h3>{analysisError && <p className="inline-warning">{analysisError}</p>}</div><div className="ai-feature-empty-action"><button type="button" disabled={analysisBusy || data.isDemo} onClick={onAnalyze}>{analysisBusy ? '분석 중…' : '구성 분석 실행'}</button><small>OpenAI API 사용 · 비용 발생</small></div></div>}
       {(suggestedKeywords.length > 0 || activeKeywords.length > 0) && <div className="strategy-keyword-picks">{[...new Set([...suggestedKeywords, ...activeKeywords])].map((keyword) => {
         const excluded = !allowedSearchKeywords(features, [keyword]).length;
         const selected = activeKeywords.includes(keyword);

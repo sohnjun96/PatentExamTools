@@ -141,6 +141,12 @@ function segmentsFromNodes(
         appendLiteralMarkup(result, inheritedType, scalar(value));
       } else if (key.toLowerCase() === 'br') {
         appendSegment(result, 'lineBreak', '\n');
+      } else if (Array.isArray(value) && ['sup', 'sub'].includes(key.toLowerCase())) {
+        const tag = key.toLowerCase();
+        // Keep each diff segment balanced, including insertions inside a script.
+        for (const segment of segmentsFromNodes(value as OrderedNode[], inheritedType)) {
+          appendSegment(result, segment.type, segment.type === 'lineBreak' ? segment.text : `<${tag}>${segment.text}</${tag}>`);
+        }
       } else if (Array.isArray(value)) {
         const type = key.toLowerCase() === 'ins'
           ? 'inserted'

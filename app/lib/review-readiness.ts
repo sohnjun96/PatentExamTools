@@ -5,11 +5,11 @@ import type { ClaimChangeDocument } from './claim-changes';
 import type { NoticeAnalysis } from './notice-analysis';
 import type { AmendmentResolutionPayload } from './amendment-resolution';
 export function reviewReadiness(input: {
-  history: HistoryLike[]; fullTextHash?: string; summary: { summary: unknown; sourceBasis?: AnalysisBasis; basisStatus?: BasisStatus } | null;
+  history: HistoryLike[]; fullTextHash?: string; fullTextParserVersion?: string; summary: { summary: unknown; sourceBasis?: AnalysisBasis; basisStatus?: BasisStatus } | null;
   rounds: ExaminationRound[]; notices: Record<string, NoticeAnalysis>; resolutions: Record<string, AmendmentResolutionPayload>;
   documents: ClaimChangeDocument[]; changeSummary: { summary: unknown; inputKey?: string } | null;
 }) {
-  const basis = input.summary?.basisStatus === 'changed' ? 'changed' : input.summary?.summary ? analysisBasisStatus(input.summary.sourceBasis, input.history, input.fullTextHash) : 'unverified';
+  const basis = input.summary?.basisStatus === 'changed' ? 'changed' : input.summary?.summary ? analysisBasisStatus(input.summary.sourceBasis, input.history, input.fullTextHash, input.fullTextParserVersion) : 'unverified';
   const technology = Boolean(input.summary?.summary && basis === 'current');
   const notices = input.rounds.every((round) => input.notices[round.notice.documentNumber]?.basisStatus === 'current');
   const amendmentRounds = input.rounds.filter((round) => round.amendments.length);

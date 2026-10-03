@@ -90,6 +90,8 @@ assert.equal(analysisBasisStatus(basis, [...liveHistory].reverse(), 'abc'), 'cur
 assert.equal(analysisBasisStatus(basis, liveHistory, 'new XML'), 'changed');
 assert.equal(analysisBasisStatus(basis, [...liveHistory, unclassified]), 'changed');
 assert.equal(analysisBasisStatus(undefined, liveHistory), 'unverified');
+assert.equal(analysisBasisStatus(basis, liveHistory, 'abc', 'fulltext-xml-v4'), 'changed', 'old parsed input is stale even with identical original XML bytes');
+assert.equal(analysisBasisStatus({ ...basis, fullTextParserVersion: 'fulltext-xml-v4' }, liveHistory, 'abc', 'fulltext-xml-v4'), 'current');
 
 const original = { claims: [{ number: 4, text: '제1항에 있어서, 하드웨어 필터의 위상 지연을 보상한다.' }], abstract: [], sections: [{ id: 'summary', title: '발명의 내용', paragraphs: [{ number: '0048', text: '위상 지연을 보상한다.' }] }] };
 assert.equal(canonicalOriginalId('paragraph-48', original), 'paragraph-0048');

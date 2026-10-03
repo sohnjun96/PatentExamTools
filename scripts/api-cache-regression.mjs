@@ -24,7 +24,7 @@ mock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'
   openAiCalls += 1;
   return {statusCode:200,data:JSON.stringify({status:'completed',output_text:'{"ok":true}',usage:{input_tokens:10,output_tokens:5}})};
 }).delay(60).persist();
-const xml = `<?xml version="1.0" encoding="UTF-8"?><patent><invention-title>동위상 전압 보상 장치</invention-title><abstract><p>전압 보상</p></abstract><description><technical-field><p num="0001">기술 분야<br/>개행 보존</p></technical-field><description-of-embodiments><p num="0048">위상 지연을 보상한다.</p></description-of-embodiments></description><claims><claim num="0001"><claim-text>필터를 포함하는 장치.</claim-text></claim><claim num="0002"><claim-text>제 <claim-ref idref="claim-0001">1</claim-ref> 항에 있어서, 위상 지연을 보상하는 장치.</claim-text></claim></claims></patent>`;
+const xml = `<?xml version="1.0" encoding="UTF-8"?><patent><invention-title>동위상 전압 보상 장치</invention-title><abstract><p>전압 보상</p></abstract><description><technical-field><p num="0001">기술 분야<br/>개행 보존</p></technical-field><description-of-embodiments><p num="0048">위상 지연을 보상한다.</p><p num="0049">Mg<sup>2+</sup>, Ca<sup>2+</sup> 및 Fe(OH)<sub>3</sub>를 순서대로 처리한다.</p><p num="0050"><![CDATA[Ni<sup>2+</sup> 및 Al(OH)<sub>3</sub>]]></p><p num="0051">Zn&lt;sup&gt;2+&lt;/sup&gt; 이온</p></description-of-embodiments></description><claims><claim num="0001"><claim-text>필터를 포함하는 장치. Fe(OH)<sub>3</sub>를 처리한다.</claim-text></claim><claim num="0002"><claim-text>제 <claim-ref idref="claim-0001">1</claim-ref> 항에 있어서, 위상 지연을 보상하는 장치.</claim-text></claim></claims></patent>`;
 kipris.intercept({ path: /\/openapi\/rest\/patUtiModInfoSearchSevice\/patentFullTextFileInfo\?/, method: 'GET' }).reply(() => {
   metadataCalls += 1;
   return { statusCode: 200, data: '<response><resultCode>00</resultCode><fullTextFileInfo><docName>test.xml</docName><path>https://plus.kipris.or.kr/openapi/fileToss.jsp?arg=xml-fixture</path></fullTextFileInfo></response>' };
@@ -43,7 +43,7 @@ const result = await build({
     import { GET as notice, POST as analyze } from './app/api/patent/notice-analysis/route';
     import { POST as resolution } from './app/api/patent/amendment-resolution/route';
     import { GET as changes } from './app/api/patent/claim-changes/route';
-    import { GET as summary } from './app/api/patent/summary/route';
+    import { GET as summary, POST as generateSummary } from './app/api/patent/summary/route';
     import { appDatabase, savePatentCase, saveClaimChangeHistory, WORKSPACE_USER_ID } from './app/lib/db';
     import { saveDocument, readDocument } from './app/lib/document-cache';
     import { documentHash } from './app/lib/document-cache-core';
@@ -93,7 +93,7 @@ const result = await build({
           return Response.json(result);
         } catch(error) { return errorResponse(error); }
       }
-      const route = { '/fulltext':fulltext,'/pdf':pdf,'/notice':request.method==='POST'?analyze:notice,'/resolution':resolution,'/changes':changes,'/summary':summary,
+      const route = { '/fulltext':fulltext,'/pdf':pdf,'/notice':request.method==='POST'?analyze:notice,'/resolution':resolution,'/changes':changes,'/summary':request.method==='POST'?generateSummary:summary,
         '/round-links':request.method==='PUT'?saveLinks:roundLinks, '/candidates':request.method==='POST'?saveCandidate:request.method==='DELETE'?removeCandidate:candidates }[url.pathname];
       return route ? route(request) : new Response('Not found',{status:404});
     }};
@@ -118,6 +118,18 @@ try {
   assert((await Promise.all(coldResponses.slice(1).map((response)=>response.json()))).every((item)=>item.sourceHash===first.sourceHash && item.usage.total===1));
   assert.equal(first.sections[0].paragraphs[0].text, '기술 분야\n개행 보존');
   assert.deepEqual(first.claims[1].referenceNumbers, [1]);
+  assert.equal(first.parserVersion, 'fulltext-xml-v4');
+  assert.equal(first.sections[1].paragraphs[1].text, 'Mg<sup>2+</sup>, Ca<sup>2+</sup> 및 Fe(OH)<sub>3</sub>를 순서대로 처리한다.');
+  assert.equal(first.sections[1].paragraphs[2].text, 'Ni<sup>2+</sup> 및 Al(OH)<sub>3</sub>');
+  assert.equal(first.sections[1].paragraphs[3].text, 'Zn<sup>2+</sup> 이온');
+  assert.equal(first.claims[0].text, '필터를 포함하는 장치. Fe(OH)<sub>3</sub>를 처리한다.');
+  assert.equal(first.claims[1].text, '제 1 항에 있어서, 위상 지연을 보상하는 장치.');
+  const missingXml = await call('/fulltext?applicationNumber=1020240093845&cachedOnly=true');
+  assert.equal(missingXml.status, 404);
+  assert.equal(metadataCalls, 1, 'cache-only recovery must not fall back to KIPRIS on a miss');
+  const legacyInput = await call(`/summary?${parameters}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fullText: { ...first, parserVersion: 'fulltext-xml-v2' } }) });
+  assert.equal(legacyInput.status, 409);
+  assert.equal(openAiCalls, 0, 'outdated parsed input must be rejected before any OpenAI call');
   const repeated = await Promise.all(Array.from({length:4},async()=> (await call(`/fulltext?${parameters}`)).json()));
   assert(repeated.every((item)=>item.cached && item.sourceHash===first.sourceHash && item.usage.total===1));
   assert.equal(metadataCalls, 1);
@@ -201,7 +213,7 @@ try {
   assert.equal(budget.kipris.used,3);
   assert.equal(budget.openai.used,2);
   const currentSummary = await (await call(`/summary?${parameters}`)).json();
-  assert.equal(currentSummary.basisStatus,'current');
+  assert.equal(currentSummary.basisStatus,'changed','legacy XML parser summaries must not look current solely because the raw XML hash matches');
   const firstAmendment={documentNumber:'112025000000002',date:'2025.09.02',title:'[명세서 등]보정서',status:''};
   const secondAmendment={documentNumber:'112025000000003',date:'2025.09.03',title:'[명세서 등]보정서',status:''};
   const workflowHistory=[noticeDocument,firstAmendment,secondAmendment,procedural];

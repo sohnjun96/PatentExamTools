@@ -4,11 +4,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchFullText, type FullTextDocument } from '@/app/lib/patent-document-client';
 import { canonicalOriginalId, exactEvidenceExpression, type OriginalTarget } from '@/app/lib/evidence-location';
 import { formatAnalysisDate } from '@/app/lib/analysis-provenance';
+import PatentText from '@/app/patent-text';
+import { patentPlainText } from '@/app/lib/patent-text';
+
+function originalExpression(text: string, excerpt: string) {
+  return exactEvidenceExpression(patentPlainText(text), patentPlainText(excerpt));
+}
 
 export function OriginalHighlight({ text, excerpt = '', query = '' }: { text: string; excerpt?: string; query?: string }) {
-  const expression = exactEvidenceExpression(text, excerpt) ?? exactEvidenceExpression(text, query);
-  if (!expression) return <>{text}</>;
-  return <>{text.split(expression).map((part, index) => index % 2 ? <mark key={index} className={excerpt ? 'evidence-highlight' : 'search-highlight'}>{part}</mark> : part)}</>;
+  return <PatentText text={text} excerpt={excerpt} query={query}/>;
 }
 
 export default function OriginalDocumentViewer({ applicationNumber, target, claimsOnly = false, fallbackClaims = [], onLoaded }: {
@@ -34,16 +38,16 @@ export default function OriginalDocumentViewer({ applicationNumber, target, clai
       .finally(() => { if (!cancelled) setBusy(false); });
     return () => { cancelled = true; };
   }, [applicationNumber, retryCount]);
-  const abstractIndex = payload && target?.sourceId === 'abstract' && target.excerpt ? payload.abstract.findIndex((paragraph) => exactEvidenceExpression(paragraph.text, target.excerpt)) : -1;
+  const abstractIndex = payload && target?.sourceId === 'abstract' && target.excerpt ? payload.abstract.findIndex((paragraph) => originalExpression(paragraph.text, target.excerpt)) : -1;
   const canonicalId = payload && target ? abstractIndex >= 0 ? `abstract-${payload.abstract[abstractIndex].number || abstractIndex + 1}` : canonicalOriginalId(target.sourceId, payload) : target?.sourceId || '';
   const entries = useMemo(() => payload ? [
     ...(!claimsOnly ? payload.abstract.map((paragraph, index) => ({ id: `abstract-${paragraph.number || index + 1}`, text: paragraph.text })) : []),
     ...(!claimsOnly ? payload.sections.flatMap((section) => section.paragraphs.map((paragraph, index) => ({ id: paragraph.number ? `paragraph-${paragraph.number}` : `${section.id}-${index}`, text: paragraph.text }))) : []),
     ...payload.claims.map((claim) => ({ id: `claim-${claim.number}`, text: claim.text })),
   ] : [], [payload, claimsOnly]);
-  const matched = query.trim() ? entries.filter((entry) => exactEvidenceExpression(entry.text, query)) : [];
+  const matched = query.trim() ? entries.filter((entry) => originalExpression(entry.text, query)) : [];
   const targetEntry = entries.find((entry) => entry.id === canonicalId);
-  const excerptMatched = targetEntry && target?.excerpt ? !!exactEvidenceExpression(targetEntry.text, target.excerpt) : false;
+  const excerptMatched = targetEntry && target?.excerpt ? !!originalExpression(targetEntry.text, target.excerpt) : false;
   function navigate(id: string) {
     const element = Array.from(rootRef.current?.querySelectorAll<HTMLElement>('[data-original-id]') ?? []).find((node) => node.dataset.originalId === id);
     element?.scrollIntoView({ block: 'center', behavior: 'smooth' });

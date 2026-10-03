@@ -6,6 +6,7 @@ import type { ReviewItem } from './review-model';
 import type { CandidateDocument } from './candidate-documents';
 import type { BasisStatus } from './analysis-provenance';
 import { noticeGroundTarget } from './evidence-location';
+import { patentTextHtml } from './patent-text';
 
 type Technical = {
   oneLine: string; technicalProblem: string; solution: string; keyElements: string[];
@@ -77,8 +78,8 @@ export function createReviewReport(input: ReviewReportInput, now = new Date().to
   const escape = (value: string) => value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]!));
   const body = markdown.split('\n').map((line) => {
     const heading = line.match(/^(#{1,4})\s+(.+)$/);
-    if (heading) return `<h${heading[1].length}>${escape(heading[2])}</h${heading[1].length}>`;
-    return line.startsWith('- ') ? `<p class="bullet">• ${escape(line.slice(2))}</p>` : line ? `<p>${escape(line)}</p>` : '';
+    if (heading) return `<h${heading[1].length}>${patentTextHtml(heading[2])}</h${heading[1].length}>`;
+    return line.startsWith('- ') ? `<p class="bullet">• ${patentTextHtml(line.slice(2))}</p>` : line ? `<p>${patentTextHtml(line)}</p>` : '';
   }).join('\n');
   const html = `<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(data.applicationNumber)} 검토보고서</title><style>body{font:17px/1.8 system-ui,sans-serif;max-width:960px;margin:32px auto;padding:0 24px;color:#172b4d}h1{font-size:30px;border-bottom:3px solid #174b85}h2{font-size:24px;border-top:1px solid #cad5e4;padding-top:24px;margin-top:36px}h3{font-size:20px}p{white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0}.bullet{padding-left:20px;text-indent:-16px}@media print{body{font-size:11pt;margin:0}h2{break-after:avoid}h3,h4{break-after:avoid}}</style><body>${body}</body></html>`;
   return { markdown, html };

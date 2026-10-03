@@ -14,6 +14,7 @@ import { getOpenAiCredentials } from '@/app/lib/secrets';
 import { postProcessSummary } from '@/app/lib/summary-postprocess';
 import { analysisBasisStatus, caseHistoryKey, type AnalysisBasis } from '@/app/lib/analysis-provenance';
 import { getDocumentMetadata } from '@/app/lib/document-cache';
+import { FULLTEXT_PARSER_VERSION } from '@/app/lib/fulltext-version';
 
 type PatentPayload = {
   bibliography?: null | {
@@ -54,6 +55,7 @@ type FullTextPayload = {
   }>;
   sourceFileName?: string;
   sourceHash?: string;
+  parserVersion?: string;
   fetchedAt?: string;
 };
 
@@ -493,7 +495,7 @@ async function cachedSummary(userId: string, applicationNumber: string, sourceHa
     summary,
     sourceBasis,
     sourceHash: row.source_hash,
-    basisStatus: analysisBasisStatus(sourceBasis, history, currentDocument?.source_hash),
+    basisStatus: analysisBasisStatus(sourceBasis, history, currentDocument?.source_hash, FULLTEXT_PARSER_VERSION),
     reviewItems: await getReviewItems(userId, applicationNumber, 'summary', row.source_hash),
     model: row.model,
     version: PROMPT_VERSION,
@@ -520,6 +522,7 @@ async function caseAndSource(
     caseFetchedAt: stored.fetchedAt, fullTextHash: fullText.sourceHash || '', fullTextFetchedAt: fullText.fetchedAt || '',
     sourceFileName: fullText.sourceFileName || '', claimNumbers: (fullText.claims ?? []).map((claim) => claim.number || 0),
     sourceScope,
+    fullTextParserVersion: fullText.parserVersion,
   };
   return { source, sourceHash: await sha256(source), sourceBasis };
 }
@@ -558,6 +561,9 @@ export async function POST(request: Request) {
     const fullTextApplicationNumber = (fullText.applicationNumber ?? '').replace(/\D/g, '');
     if (fullTextApplicationNumber && fullTextApplicationNumber !== applicationNumber) {
       throw new HttpError(400, '출원번호와 전문 명세서가 일치하지 않습니다.');
+    }
+    if (fullText.parserVersion !== FULLTEXT_PARSER_VERSION) {
+      throw new HttpError(409, '전문 파싱 방식이 변경되었습니다. 화면을 새로고침한 뒤 AI 분석을 다시 실행해 주세요.');
     }
     const { source, sourceHash, sourceBasis } = await caseAndSource(
       WORKSPACE_USER_ID,

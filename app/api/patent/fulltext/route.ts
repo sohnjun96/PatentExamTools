@@ -5,7 +5,8 @@ import demoFullText from '@/app/data/demo-fulltext.json';
 import { recordKiprisApiCall } from '@/app/lib/kipris-usage';
 import { getApiUsage, recordApiUsage, WORKSPACE_USER_ID } from '@/app/lib/db';
 import { errorResponse, HttpError } from '@/app/lib/http';
-import { extractClaimReferenceNumbers } from '@/app/lib/patent-claim-xml';
+import { normalizeFullTextXml } from '@/app/lib/fulltext-xml';
+import { FULLTEXT_PARSER_VERSION } from '@/app/lib/fulltext-version';
 import { getKiprisKey } from '@/app/lib/secrets';
 import { documentSingleFlight, readDocument, saveDocument } from '@/app/lib/document-cache';
 import { documentHash } from '@/app/lib/document-cache-core';
@@ -15,7 +16,6 @@ const METADATA_PATH =
   '/openapi/rest/patUtiModInfoSearchSevice/patentFullTextFileInfo';
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_FULL_TEXT_BYTES = 8 * 1024 * 1024;
-const LINE_BREAK_TOKEN = '\uE000KIPRIS_BR\uE001';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -55,18 +55,11 @@ function plainText(value: unknown): string {
 
 function cleanText(value: unknown): string {
   return plainText(value)
-    .replaceAll(LINE_BREAK_TOKEN, '\n')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n[ \t]+/g, '\n')
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-}
-
-function preserveExplicitLineBreaks(xml: string): string {
-  return xml
-    .replace(/<br\b[^>]*>\s*<\/br\s*>/gi, LINE_BREAK_TOKEN)
-    .replace(/<br\b[^>]*\/\s*>/gi, LINE_BREAK_TOKEN);
 }
 
 function valuesByKey(value: unknown, targetKey: string, found: unknown[] = []) {
@@ -131,94 +124,6 @@ function decodePatentXml(buffer: ArrayBuffer): string {
   } catch {
     return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
   }
-}
-
-function normalizeParagraphNumber(value: unknown): string | null {
-  const number = cleanText(value);
-  if (!number) return null;
-  return /^\d+$/.test(number) ? number.padStart(4, '0') : number;
-}
-
-function paragraphsFrom(value: unknown) {
-  const paragraphs = valuesByKey(value, 'p').flatMap(asArray);
-  if (paragraphs.length === 0) {
-    const fallback = cleanText(value);
-    return fallback ? [{ number: null, text: fallback }] : [];
-  }
-  return paragraphs
-    .map((paragraph) => {
-      const record = asRecord(paragraph);
-      return {
-        number: normalizeParagraphNumber(record['@_num']),
-        text: cleanText(paragraph),
-      };
-    })
-    .filter((paragraph) => paragraph.text);
-}
-
-function normalizeFullTextXml(
-  xml: string,
-  applicationNumber: string,
-  sourceFileName: string,
-) {
-  // fast-xml-parser groups mixed child tags by name, so the original position
-  // of <br/> is lost unless it is converted to text before parsing.
-  const parsed = parser.parse(preserveExplicitLineBreaks(xml)) as UnknownRecord;
-  const resultCode = firstTextByKey(parsed, 'resultCode');
-  if (resultCode && resultCode !== '00') {
-    throw new Error(
-      firstTextByKey(parsed, 'resultMsg') || `전문파일 오류 코드 ${resultCode}`,
-    );
-  }
-
-  const sectionDefinitions = [
-    ['technical-field', '기술분야'],
-    ['background-art', '배경기술'],
-    ['summary-of-invention', '발명의 내용'],
-    ['description-of-drawings', '도면의 간단한 설명'],
-    ['description-of-embodiments', '발명을 실시하기 위한 구체적인 내용'],
-    ['reference-signs-list', '부호의 설명'],
-  ] as const;
-
-  const sections = sectionDefinitions
-    .map(([id, title]) => {
-      const node = valuesByKey(parsed, id)[0];
-      return { id, title, paragraphs: paragraphsFrom(node) };
-    })
-    .filter((section) => section.paragraphs.length > 0);
-
-  const claimNodes = valuesByKey(parsed, 'claim').flatMap(asArray);
-  const claims = claimNodes
-    .map((claim, index) => {
-      const record = asRecord(claim);
-      const referenceNumbers = extractClaimReferenceNumbers(claim);
-      return {
-        number: Number(record['@_num']) || index + 1,
-        text: cleanText(record['claim-text'] ?? claim),
-        ...(referenceNumbers.length > 0
-          ? {
-              referenceNumbers,
-              multipleDependent: referenceNumbers.length > 1,
-            }
-          : {}),
-      };
-    })
-    .filter((claim) => claim.text);
-
-  const abstractNode = valuesByKey(parsed, 'abstract')[0];
-  const figureCount = valuesByKey(parsed, 'figure').flatMap(asArray).length;
-
-  return {
-    applicationNumber,
-    title: firstTextByKey(parsed, 'invention-title') || '발명의 명칭 미수신',
-    abstract: paragraphsFrom(abstractNode),
-    sections,
-    claims,
-    figureCount,
-    sourceFileName,
-    isDemo: false,
-    fetchedAt: new Date().toISOString(),
-  };
 }
 
 async function fetchFullTextMetadata(applicationNumber: string, accessKey: string) {
@@ -325,7 +230,7 @@ export async function GET(request: NextRequest) {
       original.fileName,
     );
     return NextResponse.json({ ...payload, fetchedAt: original.fetchedAt, sourceHash: original.sourceHash,
-      cached: original.cached, parserVersion: 'fulltext-xml-v2',
+      cached: original.cached, parserVersion: FULLTEXT_PARSER_VERSION,
       sourceFileUrl: `/api/patent/fulltext?applicationNumber=${applicationNumber}&raw=true`,
       usage: await getApiUsage(WORKSPACE_USER_ID) }, {
       headers: { 'Cache-Control': 'no-store' },
