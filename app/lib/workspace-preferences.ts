@@ -7,6 +7,8 @@ export type WorkspacePreferences = {
   keywords: string[];
   featureRoles: Record<string, string>;
   scrollPositions: Record<string, number>;
+  claimKeywords?: Record<string, string[]>;
+  searchOptions?: Record<string, { includeTitle: boolean; cpcCodes: string[]; customExpression: string; useCustomExpression?: boolean }>;
 };
 export const WORKSPACE_PREFERENCES_PREFIX = 'patent-exam-view-v1:';
 
@@ -19,6 +21,8 @@ export function parseWorkspacePreferences(raw: string | null): WorkspacePreferen
       version: 1, view: value.view, selectedClaim: Number.isInteger(value.selectedClaim) && value.selectedClaim > 0 ? value.selectedClaim : 1,
       selectedRound: typeof value.selectedRound === 'string' ? value.selectedRound : '', resourceTab: typeof value.resourceTab === 'string' ? value.resourceTab : 'biblio',
       keywords: Array.isArray(value.keywords) ? value.keywords.filter((item): item is string => typeof item === 'string').slice(0, 100) : [],
+      claimKeywords: value.claimKeywords && typeof value.claimKeywords === 'object' ? Object.fromEntries(Object.entries(value.claimKeywords).filter(([number, words]) => /^\d+$/.test(number) && Array.isArray(words)).map(([number, words]) => [number, words.filter((word): word is string => typeof word === 'string').slice(0, 100)])) : {},
+      searchOptions: value.searchOptions && typeof value.searchOptions === 'object' ? Object.fromEntries(Object.entries(value.searchOptions).filter(([number, option]) => /^\d+$/.test(number) && option && typeof option === 'object').map(([number, option]) => [number, { includeTitle: option.includeTitle === true, cpcCodes: Array.isArray(option.cpcCodes) ? option.cpcCodes.filter((code): code is string => typeof code === 'string' && /^[A-HY]\d{2}[A-Z]\s*\d+\/\d+$/i.test(code)).slice(0, 40) : [], customExpression: typeof option.customExpression === 'string' ? option.customExpression.slice(0, 20_000) : '', useCustomExpression: option.useCustomExpression === true }])) : {},
       featureRoles: value.featureRoles && typeof value.featureRoles === 'object' && !Array.isArray(value.featureRoles) ? Object.fromEntries(Object.entries(value.featureRoles).filter(([key, role]) => /^\d+[A-Z]+$/.test(key) && ['핵심 검색', '조합 검색', '일반 구성', '검색 제외', '확인 필요'].includes(role))) : {},
       scrollPositions: value.scrollPositions && typeof value.scrollPositions === 'object' ? Object.fromEntries(Object.entries(value.scrollPositions).filter(([key, number]) => ['overview', 'technology', 'response-analysis', 'strategy'].includes(key) && Number.isFinite(number) && number >= 0)) : {},
     };

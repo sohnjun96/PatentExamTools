@@ -29,7 +29,7 @@ async function fetchAnalysis(
   const parameters = new URLSearchParams({ applicationNumber, sendNumber });
   const response = await fetch(`/api/patent/notice-analysis?${parameters}`, { cache: 'no-store' });
   const payload = await response.json() as NoticeAnalysis;
-  if (response.status === 404) throw new Error('텍스트 변환 결과가 없습니다. AI 사전검토를 실행하면 함께 생성됩니다.');
+  if (response.status === 404) throw new Error('텍스트 변환 결과가 없습니다. 대시보드에서 AI 분석을 실행하세요.');
   if (!response.ok) throw new Error(payload.error || '저장된 통지서 텍스트를 불러오지 못했습니다.');
   return payload;
 }

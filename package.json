@@ -14,6 +14,7 @@
     "test:summary": "node --experimental-strip-types scripts/summary-postprocess-regression.mjs",
     "test:workflow": "node --experimental-strip-types scripts/workflow-regression.mjs",
     "test:api": "node scripts/api-cache-regression.mjs",
+    "test:review": "node scripts/review-improvements-regression.mjs",
     "deploy": "wrangler deploy --config dist/server/wrangler.json",
     "deploy:preview": "wrangler versions upload --config dist/server/wrangler.json"
   },

@@ -3868,3 +3868,52 @@ mark.evidence-highlight { padding: 2px 3px; border-radius: 3px; color: #052b57; 
   .resource-drawing-original figcaption { align-items: stretch; flex-direction: column; }
   .resource-drawing .resource-drawing-original figcaption button { width: 100%; }
 }
+
+/* Review controls: blue for available/current data, red for missing/stale data. */
+.task-stale { border-left: 4px solid #b42332; background: #fff4f5; }
+.task-stale > span { color: #a21b2b; background: #ffe8ec; }
+.round-link-editor, .candidate-editor, .notice-legal-summary {
+  padding: 20px; margin-block: 18px; border: 1px solid var(--exam-line-light); border-radius: 8px; background: #fff;
+}
+.round-link-editor summary, .candidate-editor summary, .concept-groups-details summary {
+  min-height: 44px; display: list-item; cursor: pointer; font-size: 18px; font-weight: 650; color: #164c83;
+}
+.round-link-editor fieldset { border: 1px solid #c5d3e3; margin-block: 14px; padding: 14px; min-width: 0; }
+.round-link-editor legend { font-weight: 700; padding-inline: 6px; }
+.round-link-editor label { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; min-height: 44px; }
+.round-link-editor label span { min-width: 0; overflow-wrap: anywhere; }
+.round-link-editor label small { display: block; color: #526782; }
+.round-link-editor input, .search-filter-options input, .download-original-choice input { width: 22px; height: 22px; accent-color: #175c9a; flex: 0 0 auto; }
+.notice-legal-summary header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.notice-legal-summary ul { padding: 0; list-style: none; }
+.notice-legal-summary > ul > li { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 12px 0; border-bottom: 1px solid #dce3ed; font-size: 20px; }
+.notice-legal-summary > ul > li strong { color: #164c83; }
+.notice-legal-summary details { margin-top: 18px; }
+.partial-claim-version { padding: 12px 16px; background: #edf3fa; color: #274566; border-left: 3px solid #23598a; font-size: 16px; }
+.compact-change-document > details { scroll-margin-block: 120px; padding: 12px; transition: background .2s; }
+.compact-change-document > details.evidence-active { border-left: 4px solid #1b65a4; background: #eaf3ff; outline: 2px solid #a9c6e8; }
+.search-filter-options { display: flex; flex-wrap: wrap; gap: 12px 22px; padding: 14px 0; }
+.search-filter-options label, .download-original-choice { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-size: 17px; }
+.manual-keyword-input { display: flex; align-items: flex-end; gap: 12px; padding: 18px 20px; }
+.manual-keyword-input label { display: grid; gap: 8px; flex: 1; min-width: 0; }
+.search-expression-editor { display: grid; gap: 12px; font-weight: 600; margin-block: 18px; }
+.search-expression-editor textarea { width: 100%; min-height: 170px; padding: 16px; font: 17px/1.7 ui-monospace, monospace; color: #153d69; background: #f4f7fb; border: 1px solid #9dafc4; border-radius: 6px; resize: vertical; overflow-wrap: anywhere; }
+.manual-keyword-input input, .candidate-input-grid input, .candidate-input-grid select, .candidate-input-grid textarea { width: 100%; min-height: 44px; padding: 10px 12px; font: inherit; border: 1px solid #9dafc4; border-radius: 4px; }
+.candidate-input-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-block: 20px; }
+.candidate-input-grid label { display: grid; gap: 8px; min-width: 0; font-size: 17px; font-weight: 600; }
+.candidate-input-grid .wide { grid-column: 1 / -1; }
+.candidate-editor form > small { display: block; color: #526782; margin-block: 12px; }
+.candidate-actions { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-top: 16px; }
+.candidate-actions a { display: inline-flex; align-items: center; min-height: 44px; color: #15528b; font-weight: 600; }
+.search-query-simple > small { display: block; color: #526782; padding-top: 12px; }
+@media (max-width: 600px) {
+  .round-link-editor, .candidate-editor, .notice-legal-summary { padding: 16px; }
+  .candidate-input-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .manual-keyword-input { flex-direction: column; align-items: stretch; padding: 16px; }
+  .manual-keyword-input button, .candidate-editor form > button, .round-link-editor > button { width: 100%; min-height: 44px; }
+  .search-expression-editor textarea { font-size: 16px; padding: 12px; }
+  .notice-legal-summary header { align-items: flex-start; flex-direction: column; }
+  .notice-legal-summary > ul > li { flex-direction: column; gap: 4px; font-size: 19px; }
+  .search-filter-options { flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) { .compact-change-document > details { transition: none; } }

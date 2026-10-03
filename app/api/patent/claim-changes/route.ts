@@ -14,6 +14,8 @@ import {
 import { errorResponse } from '@/app/lib/http';
 import { recordKiprisApiCall } from '@/app/lib/kipris-usage';
 import { getKiprisKey } from '@/app/lib/secrets';
+import { reserveProviderCall, assertSameOrigin } from '@/app/lib/api-protection';
+import { persistClaimVersions } from '@/app/lib/workflow-store';
 
 const ENDPOINT = 'https://plus.kipris.or.kr/openapi/rest/ClaimsChangeHistoryService/amendmentHistoryDetailInfo';
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -51,6 +53,7 @@ export async function GET(request: NextRequest) {
     }
 
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
+    if (refresh) assertSameOrigin(request);
     if (!refresh) {
       const stored = await getClaimChangeHistory<ClaimChangeHistory>(
         WORKSPACE_USER_ID,
@@ -73,6 +76,7 @@ export async function GET(request: NextRequest) {
             applicationNumber,
             fetchedAt: stored.fetchedAt,
             cached: true,
+            versions: await persistClaimVersions(applicationNumber, normalized),
             usage: await getApiUsage(WORKSPACE_USER_ID),
           },
           { headers: { 'Cache-Control': 'private, no-store' } },
@@ -92,6 +96,7 @@ export async function GET(request: NextRequest) {
     const url = new URL(ENDPOINT);
     url.searchParams.set('applicationNumber', applicationNumber);
     url.searchParams.set('accessKey', getKiprisKey());
+    await reserveProviderCall('kipris');
     recordKiprisApiCall('청구항변동이력');
 
     let response: Response;
@@ -132,6 +137,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         ...payload,
+        versions: await persistClaimVersions(applicationNumber, payload),
         fetchedAt,
         cached: false,
         usage: await getApiUsage(WORKSPACE_USER_ID),

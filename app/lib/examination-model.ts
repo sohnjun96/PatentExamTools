@@ -33,6 +33,16 @@ export type ExaminationRound<T extends HistoryLike = HistoryLike> = {
   otherDocuments: T[];
   connectionStatus: 'linked' | 'needs_confirmation';
   connectionReason: string;
+  connectionOrigin?: 'automatic' | 'user';
+};
+
+export type RoundDocumentLink = {
+  noticeNumber: string;
+  opinionNumbers: string[];
+  amendmentNumbers: string[];
+  decisionNumbers: string[];
+  historyKey: string;
+  updatedAt?: string;
 };
 
 export type CaseLifecycle = {
@@ -41,6 +51,8 @@ export type CaseLifecycle = {
     | 'under_examination'
     | 'response_period'
     | 'reexamination_after_amendment'
+    | 'response_received'
+    | 'allowed_pending_registration'
     | 'registered_closed'
     | 'rejected_closed'
     | 'needs_confirmation';
@@ -295,9 +307,11 @@ export function buildExaminationRounds<T extends HistoryLike>(
   history: T[],
   notices: T[] = history.filter(isNotice),
   verifiedAmendmentNumbers: ReadonlySet<string> = new Set(),
+  links: RoundDocumentLink[] = [],
 ): ExaminationRound<T>[] {
   const orderedHistory = [...history].sort(historyOrder);
   const orderedNotices = [...notices].sort(historyOrder);
+  const manualAssignments = new Map(links.flatMap((link) => [...link.opinionNumbers, ...link.amendmentNumbers, ...link.decisionNumbers].map((number) => [number, link.noticeNumber] as const)));
 
   return orderedNotices.map((notice, index) => {
     const nextNotice = orderedNotices[index + 1];
@@ -305,14 +319,16 @@ export function buildExaminationRounds<T extends HistoryLike>(
     const nextDate = nextNotice ? digits(nextNotice.date) : null;
     const documents = orderedHistory.filter((item) => {
       if (item.documentNumber === notice.documentNumber || isNotice(item)) return false;
+      if (manualAssignments.has(item.documentNumber)) return manualAssignments.get(item.documentNumber) === notice.documentNumber;
       const date = digits(item.date);
       return date >= noticeDate && (!nextDate || date < nextDate);
     });
-    const opinions = documents.filter(isOpinion);
-    const amendments = documents.filter((item) => isAmendment(item) ||
+    const manual = links.find((link) => link.noticeNumber === notice.documentNumber);
+    const opinions = manual ? orderedHistory.filter((item) => manual.opinionNumbers.includes(item.documentNumber) && isOpinion(item)) : documents.filter(isOpinion);
+    const amendments = (manual ? orderedHistory.filter((item) => manual.amendmentNumbers.includes(item.documentNumber)) : documents).filter((item) => isAmendment(item) ||
       (classifyAmendmentDocument(item) === 'unknown' && verifiedAmendmentNumbers.has(item.documentNumber)));
     const otherAmendments = documents.filter((item) => /보정서/.test(item.title) && !amendments.includes(item));
-    const decisions = documents.filter(isDecision);
+    const decisions = manual ? orderedHistory.filter((item) => manual.decisionNumbers.includes(item.documentNumber) && isDecision(item)) : documents.filter(isDecision);
     const classified = new Set([...opinions, ...amendments, ...otherAmendments, ...decisions].map((item) => item.documentNumber));
     const otherDocuments = documents.filter((item) => !classified.has(item.documentNumber));
     const ambiguous = opinions.length > 1 || amendments.length > 1;
@@ -326,8 +342,9 @@ export function buildExaminationRounds<T extends HistoryLike>(
       otherAmendments,
       decisions,
       otherDocuments,
-      connectionStatus: hasResponse && !ambiguous ? 'linked' : 'needs_confirmation',
-      connectionReason: !hasResponse
+      connectionStatus: manual || (hasResponse && !ambiguous) ? 'linked' : 'needs_confirmation',
+      connectionOrigin: manual ? 'user' : 'automatic',
+      connectionReason: manual ? '선택한 문서 연결을 저장했습니다.' : !hasResponse
         ? '통지 이후 연결할 의견서·보정서·결정이 확인되지 않았습니다.'
         : ambiguous
           ? '같은 회차 범위에 복수의 의견서 또는 보정서가 있어 연결 확인이 필요합니다.'
@@ -351,23 +368,26 @@ export function classifyCaseLifecycle(
   const combinedStatus = `${patentCase.status} ${patentCase.registrationStatus}`;
   const hasRegistrationIdentifier = digits(patentCase.registrationNumber).length >= 7;
   const hasRegistrationDate = digits(patentCase.registrationDate).length === 8;
+  const latestDecision = [...ordered].reverse().find(isDecision);
 
   if (
     hasRegistrationIdentifier ||
-    hasRegistrationDate ||
-    /특허결정|등록결정|설정등록|등록종결/.test(combinedStatus) ||
-    ordered.some((item) => /특허결정|등록결정|설정등록/.test(item.title))
+    hasRegistrationDate || /설정등록|등록종결/.test(combinedStatus)
   ) {
     return {
       code: 'registered_closed',
       label: '등록 종결',
-      reason: '등록번호·등록일 또는 등록 결정 이력이 확인됩니다.',
+      reason: '등록번호 또는 등록일이 확인됩니다.',
       tone: 'success',
     };
   }
+  if (/특허결정|등록결정/.test(combinedStatus) || /특허결정|등록결정/.test(latestDecision?.title ?? '')) {
+    return { code: 'allowed_pending_registration', label: '등록 결정', reason: '등록 결정 이력은 있으나 등록번호·등록일은 미확인입니다.', tone: 'information' };
+  }
   if (
     /거절결정|거절종결|최종거절|포기|취하/.test(combinedStatus) ||
-    ordered.some((item) => /거절결정|포기서|취하서/.test(item.title))
+    /거절결정/.test(latestDecision?.title ?? '') ||
+    /포기서|취하서/.test(latest?.title ?? '')
   ) {
     return {
       code: 'rejected_closed',
@@ -392,7 +412,7 @@ export function classifyCaseLifecycle(
         tone: 'warning',
       };
     }
-    if (hasResponse) {
+    if (hasResponse && afterNotice.some(isAmendment)) {
       return {
         code: 'reexamination_after_amendment',
         label: '보정 후 재심사',
@@ -400,6 +420,7 @@ export function classifyCaseLifecycle(
         tone: 'information',
       };
     }
+    if (hasResponse) return { code: 'response_received', label: '대응서류 접수', reason: '최근 통지 이후 의견서가 접수되었으며 청구항 보정은 미확인입니다.', tone: 'information' };
   }
 
   if (/심사\s*(진행|중)|심사착수/.test(combinedStatus)) {

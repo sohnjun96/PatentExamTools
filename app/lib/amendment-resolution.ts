@@ -32,4 +32,5 @@ export type AmendmentResolutionPayload = {
   cached: boolean;
   generatedAt?: string;
   error?: string;
+  inputKey?: string;
 };

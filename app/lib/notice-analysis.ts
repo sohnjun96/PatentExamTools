@@ -30,4 +30,6 @@ export type NoticeAnalysis = {
   tableWarnings?: string[];
   usage?: { inputTokens: number; outputTokens: number };
   error?: string;
+  pdfHash?: string;
+  basisStatus?: 'current' | 'changed' | 'unverified';
 };

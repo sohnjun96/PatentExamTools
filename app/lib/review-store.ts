@@ -1,5 +1,6 @@
 import { appDatabase, getClaimChangeHistory } from '@/app/lib/db';
 import { analyzeClaims, buildExaminationRounds, type HistoryLike } from '@/app/lib/examination-model';
+import { storedRoundLinks } from './workflow-store';
 import {
   effectiveReviewText,
   type EvidenceLevel,
@@ -92,7 +93,7 @@ export async function syncCaseReviewFoundation(
 
   const changes = await getClaimChangeHistory<{ documents?: Array<{ documentNumber: string; changes: unknown[] }> }>(userId, applicationNumber);
   const verifiedAmendments = new Set((changes?.payload.documents ?? []).filter((document) => document.changes.length > 0).map((document) => document.documentNumber));
-  const rounds = buildExaminationRounds(history, notices, verifiedAmendments);
+  const rounds = buildExaminationRounds(history, notices, verifiedAmendments, await storedRoundLinks(applicationNumber, history));
   if (rounds.length) {
     const statements = await Promise.all(rounds.map(async (round) => {
       const documentsJson = JSON.stringify({

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { reserveProviderCall } from '@/app/lib/api-protection';
 import { XMLParser } from 'fast-xml-parser';
 import { recordKiprisApiCall } from '@/app/lib/kipris-usage';
 import {
@@ -105,6 +106,8 @@ async function fetchEndpoint(
   const url = new URL(definition.path, BASE_URL);
   url.searchParams.set('applicationNumber', applicationNumber);
   url.searchParams.set(definition.keyParameter, apiKey);
+  await reserveProviderCall('kipris');
+  await recordApiUsage(WORKSPACE_USER_ID, 'kipris', [definition.operation], applicationNumber);
   recordKiprisApiCall(definition.operation);
   const response = await fetch(url, {
     cache: 'no-store',
@@ -370,12 +373,6 @@ export async function GET(request: NextRequest) {
     cached: false,
   };
 
-    await recordApiUsage(
-      WORKSPACE_USER_ID,
-      'kipris',
-      names.map((name) => endpoints[name].operation),
-      applicationNumber,
-    );
     await savePatentCase(
       WORKSPACE_USER_ID,
       applicationNumber,

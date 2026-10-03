@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { assertSameOrigin } from '@/app/lib/api-protection';
 import {
   appDatabase,
   getPatentCase,
@@ -541,6 +542,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    assertSameOrigin(request);
     if (summaryRateLimited(request)) {
       throw new HttpError(
         429,

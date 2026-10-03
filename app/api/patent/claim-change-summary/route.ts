@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server';
+import { storedRoundLinks } from '@/app/lib/workflow-store';
+import { claimChangesInputKey } from '@/app/lib/analysis-input-key';
+import { assertSameOrigin } from '@/app/lib/api-protection';
 import type { ClaimChangeDocument } from '@/app/lib/claim-changes';
 import {
   appDatabase,
@@ -45,7 +48,7 @@ type ClaimChangeSummary = {
   };
   cautions: string[];
 };
-type StoredClaimChangeSummary = ClaimChangeSummary & { sourceDocumentNumbers?: string[] };
+type StoredClaimChangeSummary = ClaimChangeSummary & { sourceDocumentNumbers?: string[]; _inputKey?: string };
 
 const SUMMARY_TYPE = 'claim_change_impact_v1';
 const PROMPT_VERSION = 'claim-change-impact-2026-08-29-v1';
@@ -187,12 +190,12 @@ function sourceDocument(document: ClaimChangeDocument) {
     sourceDocumentNumber: digits(document.sourceDocumentNumber),
     isInitialFiling: Boolean(document.isInitialFiling),
     statistics: document.statistics,
-    changes: document.changes.slice(0, 80).map((change) => ({
+    changes: document.changes.map((change) => ({
       claimNumber: Number(change.claimNumber) || 0,
       changeTypeCode: boundedText(change.changeTypeCode, 10),
       changeTypeName: boundedText(change.changeTypeName, 80),
-      previousClaimText: boundedText(change.previousClaimText),
-      claimText: boundedText(change.claimText),
+      previousClaimText: change.previousClaimText?.trim() ?? '',
+      claimText: change.claimText.trim(),
       insertedText: change.changeSegments
         .filter((segment) => segment.type === 'inserted')
         .map((segment) => segment.text)
@@ -218,7 +221,6 @@ function analysisSource(
   const selected = documents
     .filter((document) => !document.isInitialFiling || linkedNumbers.has(digits(document.documentNumber)))
     .filter((document) => !linkedNumbers.size || linkedNumbers.has(digits(document.documentNumber)))
-    .slice(-12)
     .map(sourceDocument);
   if (!selected.length) {
     throw new HttpError(400, '분석할 보정 청구항 변동이 없습니다.');
@@ -226,7 +228,7 @@ function analysisSource(
   const source = JSON.stringify({
     promptVersion: PROMPT_VERSION,
     applicationNumber,
-    amendments: amendments.slice(-12).map((item) => ({
+    amendments: amendments.map((item) => ({
       documentNumber: digits(item.documentNumber),
       date: boundedText(item.date, 20),
       roundNumber: Number(item.roundNumber) || null,
@@ -261,9 +263,10 @@ async function cachedSummary(applicationNumber: string, sourceHash?: string) {
     }>();
   if (!row) return null;
   const stored = JSON.parse(row.content_json) as StoredClaimChangeSummary;
-  const { sourceDocumentNumbers: storedDocumentNumbers, ...summary } = stored;
+  const { sourceDocumentNumbers: storedDocumentNumbers, _inputKey, ...summary } = stored;
   return {
     summary,
+    inputKey: _inputKey,
     sourceDocumentNumbers: storedDocumentNumbers?.map(digits)
       ?? summary.documentSummaries.map((item) => digits(item.documentNumber)),
     model: row.model,
@@ -289,6 +292,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    assertSameOrigin(request);
     const applicationNumber = applicationNumberFrom(request);
     const patentCase = await getPatentCase<{ history?: HistoryLike[]; notices?: HistoryLike[] }>(WORKSPACE_USER_ID, applicationNumber);
     if (!patentCase) {
@@ -300,7 +304,8 @@ export async function POST(request: Request) {
     };
     const changeHistory = await getClaimChangeHistory<{ documents: ClaimChangeDocument[] }>(WORKSPACE_USER_ID, applicationNumber);
     const verified = new Set((changeHistory?.payload.documents ?? []).filter((document) => document.changes.length > 0).map((document) => document.documentNumber));
-    const rounds = buildExaminationRounds(patentCase.payload.history ?? [], patentCase.payload.notices, verified);
+    const links = await storedRoundLinks(applicationNumber, patentCase.payload.history ?? []);
+    const rounds = buildExaminationRounds(patentCase.payload.history ?? [], patentCase.payload.notices, verified, links);
     const amendments = rounds.filter((round) => round.connectionStatus === 'linked').flatMap((round) => round.amendments.map((item) => ({ documentNumber: item.documentNumber, date: item.date, roundNumber: round.number })));
     const allowed = new Set(amendments.map((item) => item.documentNumber));
     const requested = new Set((Array.isArray(body.documents) ? body.documents : []).map((document) => document.documentNumber));
@@ -314,7 +319,13 @@ export async function POST(request: Request) {
     const force = new URL(request.url).searchParams.get('force') === 'true';
     if (!force) {
       const cached = await cachedSummary(applicationNumber, sourceHash);
-      if (cached) return NextResponse.json(cached);
+      if (cached) {
+        const inputKey = claimChangesInputKey(documents);
+        const db = await appDatabase();
+        await db.prepare('UPDATE patent_summaries SET content_json = ? WHERE user_id = ? AND application_number = ? AND summary_type = ? AND source_hash = ?')
+          .bind(JSON.stringify({ ...cached.summary, sourceDocumentNumbers: documentNumbers, _inputKey: inputKey }), WORKSPACE_USER_ID, applicationNumber, SUMMARY_TYPE, sourceHash).run();
+        return NextResponse.json({ ...cached, inputKey });
+      }
     }
     if (rateLimited(request)) {
       throw new HttpError(429, '청구항 변동 AI 요약 요청이 많습니다. 잠시 후 다시 시도해 주세요.');
@@ -363,7 +374,7 @@ export async function POST(request: Request) {
       SUMMARY_TYPE,
       model,
       sourceHash,
-      JSON.stringify({ ...result.value, sourceDocumentNumbers: documentNumbers }),
+      JSON.stringify({ ...result.value, sourceDocumentNumbers: documentNumbers, _inputKey: claimChangesInputKey(documents) }),
       result.inputTokens,
       result.outputTokens,
     ).run();
@@ -377,6 +388,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       summary: result.value,
       sourceDocumentNumbers: documentNumbers,
+      inputKey: claimChangesInputKey(documents),
       model,
       version: PROMPT_VERSION,
       cached: false,

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { reserveProviderCall } from '@/app/lib/api-protection';
 import { XMLParser } from 'fast-xml-parser';
 import demoFullText from '@/app/data/demo-fulltext.json';
 import { recordKiprisApiCall } from '@/app/lib/kipris-usage';
 import { getApiUsage, recordApiUsage, WORKSPACE_USER_ID } from '@/app/lib/db';
-import { errorResponse } from '@/app/lib/http';
+import { errorResponse, HttpError } from '@/app/lib/http';
 import { extractClaimReferenceNumbers } from '@/app/lib/patent-claim-xml';
 import { getKiprisKey } from '@/app/lib/secrets';
 import { documentSingleFlight, readDocument, saveDocument } from '@/app/lib/document-cache';
@@ -225,6 +226,8 @@ async function fetchFullTextMetadata(applicationNumber: string, accessKey: strin
   url.searchParams.set('applicationNumber', applicationNumber);
   url.searchParams.set('accessKey', accessKey);
 
+  await reserveProviderCall('kipris');
+  await recordApiUsage(WORKSPACE_USER_ID, 'kipris', ['전문파일정보'], applicationNumber);
   recordKiprisApiCall('전문파일정보');
   const response = await fetch(url, {
     cache: 'no-store',
@@ -274,18 +277,14 @@ export async function GET(request: NextRequest) {
 
   try {
     const refresh = request.nextUrl.searchParams.get('refresh') === 'true';
-    const original = await documentSingleFlight(`fulltext:${applicationNumber}:${refresh}`, async () => {
+    const cachedOnly = request.nextUrl.searchParams.get('cachedOnly') === 'true';
+    const original = await documentSingleFlight(`fulltext:${applicationNumber}:${refresh}:${cachedOnly}`, async () => {
       if (!refresh) {
         const cached = await readDocument(`fulltext:${applicationNumber}`);
         if (cached) return { ...cached, cached: true };
       }
+      if (cachedOnly) throw new HttpError(404, '저장된 XML 원문이 없습니다.');
       const accessKey = getKiprisKey();
-      await recordApiUsage(
-        WORKSPACE_USER_ID,
-        'kipris',
-        ['전문파일정보'],
-        applicationNumber,
-      );
       const metadata = await fetchFullTextMetadata(applicationNumber, accessKey);
       const fileResponse = await fetch(metadata.fileUrl, {
         cache: 'no-store',

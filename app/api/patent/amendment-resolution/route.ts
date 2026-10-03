@@ -18,6 +18,10 @@ import { requestStructuredOpenAi } from '@/app/lib/openai-response';
 import { getOpenAiCredentials } from '@/app/lib/secrets';
 import { buildExaminationRounds, type HistoryLike } from '@/app/lib/examination-model';
 import { stripGuidanceFromSummary } from '@/app/lib/notice-postprocess';
+import { storedRoundLinks } from '@/app/lib/workflow-store';
+import { amendmentInputKey } from '@/app/lib/analysis-input-key';
+import { assertSameOrigin } from '@/app/lib/api-protection';
+import { getDocumentMetadata } from '@/app/lib/document-cache';
 
 const SUMMARY_TYPE_PREFIX = 'amendment_resolution_v1';
 const PROMPT_VERSION = 'amendment-resolution-2026-08-29-v1';
@@ -123,12 +127,12 @@ function sourceDocument(document: ClaimChangeDocument) {
   return {
     documentNumber: digits(document.documentNumber),
     statistics: document.statistics,
-    changes: document.changes.slice(0, 100).map((change) => ({
+    changes: document.changes.map((change) => ({
       claimNumber: Number(change.claimNumber) || 0,
       changeTypeCode: boundedText(change.changeTypeCode, 10),
       changeTypeName: boundedText(change.changeTypeName, 80),
-      previousClaimText: boundedText(change.previousClaimText),
-      claimText: boundedText(change.claimText),
+      previousClaimText: change.previousClaimText?.trim() ?? '',
+      claimText: change.claimText.trim(),
       insertedText: change.changeSegments
         .filter((segment) => segment.type === 'inserted')
         .map((segment) => segment.text)
@@ -153,7 +157,6 @@ function analysisSource(
 ) {
   const selectedDocuments = documents
     .filter((document) => digits(document.documentNumber))
-    .slice(-12)
     .map(sourceDocument);
   const notice = normalizedNoticeSummary(noticeSummary);
   if (!notice.rejectionGrounds.length) {
@@ -213,12 +216,14 @@ async function cachedSummary(
   if (!row) return null;
   const stored = JSON.parse(row.content_json) as AmendmentResolutionSummary & {
     sourceDocumentNumbers?: string[];
+    _inputKey?: string;
   };
-  const { sourceDocumentNumbers = [], ...summary } = stored;
+  const { sourceDocumentNumbers = [], _inputKey, ...summary } = stored;
   return {
     summary,
     sendNumber,
     sourceDocumentNumbers,
+    inputKey: _inputKey,
     model: row.model,
     version: PROMPT_VERSION,
     cached: true,
@@ -247,6 +252,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    assertSameOrigin(request);
     const { applicationNumber, sendNumber } = noticeIdentifiers(request);
     const patentCase = await getPatentCase<{ history?: HistoryLike[]; notices?: HistoryLike[] }>(WORKSPACE_USER_ID, applicationNumber);
     if (!patentCase) {
@@ -261,23 +267,40 @@ export async function POST(request: Request) {
     }
     const changeHistory = await getClaimChangeHistory<{ documents: ClaimChangeDocument[] }>(WORKSPACE_USER_ID, applicationNumber);
     const verifiedNumbers = new Set((changeHistory?.payload.documents ?? []).filter((document) => document.changes.length > 0).map((document) => document.documentNumber));
-    const round = buildExaminationRounds(patentCase.payload.history ?? [], patentCase.payload.notices, verifiedNumbers)
+    const links = await storedRoundLinks(applicationNumber, patentCase.payload.history ?? []);
+    const round = buildExaminationRounds(patentCase.payload.history ?? [], patentCase.payload.notices, verifiedNumbers, links)
       .find((item) => item.notice.documentNumber === sendNumber);
     if (!round || round.connectionStatus !== 'linked') throw new HttpError(409, '통지서·대응서류의 연결을 확정할 수 없어 자동 해소 검토를 실행하지 않습니다.');
     const allowed = new Set(round.amendments.map((item) => item.documentNumber));
     const requested = new Set((Array.isArray(body.documents) ? body.documents : []).map((document) => document.documentNumber));
     const documents = (changeHistory?.payload.documents ?? []).filter((document) => allowed.has(document.documentNumber) && requested.has(document.documentNumber));
+    if (!allowed.size || documents.length !== allowed.size) throw new HttpError(409, '연결된 보정서의 변동 자료를 모두 확보한 뒤 해소 검토를 실행해 주세요.');
+    const noticeDb = await appDatabase();
+    const noticeRow = await noticeDb.prepare(`SELECT summary_json FROM notice_analyses
+      WHERE user_id = ? AND application_number = ? AND send_number = ? AND source_hash LIKE 'notice-markdown-%'
+      ORDER BY updated_at DESC LIMIT 1`).bind(WORKSPACE_USER_ID, applicationNumber, sendNumber).first<{ summary_json: string }>();
+    const storedNotice = noticeRow ? JSON.parse(noticeRow.summary_json) as NoticeSummary & { _pdfHash?: string } : null;
+    const pdfMetadata = await getDocumentMetadata(`notice-pdf:${applicationNumber}:${sendNumber}`);
+    if (!storedNotice?._pdfHash || storedNotice._pdfHash !== pdfMetadata?.source_hash) throw new HttpError(409, '통지서 분석과 저장된 PDF 버전이 일치하지 않습니다. 통지서 분석을 먼저 갱신해 주세요.');
+    const noticeSummary = stripGuidanceFromSummary(storedNotice);
+    if (JSON.stringify(noticeSummary) !== JSON.stringify(stripGuidanceFromSummary(body.noticeSummary))) throw new HttpError(409, '통지서 요약이 변경되었습니다. 저장된 최신 분석을 다시 확인해 주세요.');
     const { source, documentNumbers } = analysisSource(
       applicationNumber,
       sendNumber,
-      stripGuidanceFromSummary(body.noticeSummary),
+      noticeSummary,
       documents,
     );
     const sourceHash = await sha256(source);
     const force = new URL(request.url).searchParams.get('force') === 'true';
     if (!force) {
       const cached = await cachedSummary(applicationNumber, sendNumber, sourceHash);
-      if (cached) return NextResponse.json(cached);
+      if (cached) {
+        const inputKey = amendmentInputKey(noticeSummary, documents);
+        const db = await appDatabase();
+        await db.prepare('UPDATE patent_summaries SET content_json = ? WHERE user_id = ? AND application_number = ? AND summary_type = ? AND source_hash = ?')
+          .bind(JSON.stringify({ ...cached.summary, sourceDocumentNumbers: documentNumbers, _inputKey: inputKey }), WORKSPACE_USER_ID, applicationNumber, summaryType(sendNumber), sourceHash).run();
+        return NextResponse.json({ ...cached, inputKey });
+      }
     }
     if (rateLimited(request)) {
       throw new HttpError(429, '보정 결과 AI 검토 요청이 많습니다. 잠시 후 다시 시도해 주세요.');
@@ -327,7 +350,7 @@ export async function POST(request: Request) {
       type,
       model,
       sourceHash,
-      JSON.stringify({ ...result.value, sourceDocumentNumbers: documentNumbers }),
+      JSON.stringify({ ...result.value, sourceDocumentNumbers: documentNumbers, _inputKey: amendmentInputKey(noticeSummary, documents) }),
       result.inputTokens,
       result.outputTokens,
     ).run();
@@ -342,6 +365,7 @@ export async function POST(request: Request) {
       summary: result.value,
       sendNumber,
       sourceDocumentNumbers: documentNumbers,
+      inputKey: amendmentInputKey(noticeSummary, documents),
       model,
       version: PROMPT_VERSION,
       cached: false,

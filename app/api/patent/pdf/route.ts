@@ -4,7 +4,8 @@ import { loadNoticePdf, noticeIdentifiers } from '@/app/lib/kipris-notice';
 export async function GET(request: Request) {
   try {
     const { applicationNumber, sendNumber } = noticeIdentifiers(request);
-    const pdf = await loadNoticePdf(applicationNumber, sendNumber, new URL(request.url).searchParams.get('refresh') === 'true');
+    const parameters = new URL(request.url).searchParams;
+    const pdf = await loadNoticePdf(applicationNumber, sendNumber, parameters.get('refresh') === 'true', parameters.get('cachedOnly') === 'true');
     const encodedName = encodeURIComponent(pdf.fileName);
     return new Response(pdf.buffer, {
       status: 200,

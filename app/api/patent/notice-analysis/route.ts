@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
+import { assertSameOrigin } from '@/app/lib/api-protection';
 import { appDatabase, recordApiUsage, WORKSPACE_USER_ID } from '@/app/lib/db';
 import { errorResponse, HttpError } from '@/app/lib/http';
 import { loadNoticePdf, noticeIdentifiers } from '@/app/lib/kipris-notice';
 import { requestStructuredOpenAi } from '@/app/lib/openai-response';
 import { envValue } from '@/app/lib/runtime-env';
+import { getDocumentMetadata } from '@/app/lib/document-cache';
 import { getOpenAiCredentials } from '@/app/lib/secrets';
 import type { NoticeAnalysis, NoticeSummary } from '@/app/lib/notice-analysis';
 import { normalizeNoticeMarkdown, trimNoticeMarkdown, stripGuidanceFromSummary, NOTICE_POSTPROCESS_VERSION } from '@/app/lib/notice-postprocess';
@@ -82,8 +84,8 @@ const SUMMARY_ONLY_SCHEMA = {
   properties: SUMMARY_PROPERTIES,
 };
 
-async function sha256(buffer: ArrayBuffer) {
-  const versionBytes = new TextEncoder().encode(ANALYSIS_VERSION);
+async function sha256(buffer: ArrayBuffer, version = ANALYSIS_VERSION) {
+  const versionBytes = new TextEncoder().encode(version);
   const sourceBytes = new Uint8Array(buffer);
   const combined = new Uint8Array(versionBytes.length + sourceBytes.length);
   combined.set(versionBytes);
@@ -92,7 +94,7 @@ async function sha256(buffer: ArrayBuffer) {
   const hash = Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, '0'),
   ).join('');
-  return `${ANALYSIS_VERSION}:${hash}`;
+  return `${version}:${hash}`;
 }
 
 async function cachedAnalysis(
@@ -125,6 +127,8 @@ async function cachedAnalysis(
       source_hash: string;
     }>();
   if (!row) return null;
+  const stored = JSON.parse(row.summary_json) as NoticeSummary & { _pdfHash?: string };
+  const metadata = await getDocumentMetadata(`notice-pdf:${applicationNumber}:${sendNumber}`);
   const cleaned = normalizeNoticeMarkdown(row.markdown_text);
   return {
     markdown: cleaned.markdown,
@@ -132,9 +136,11 @@ async function cachedAnalysis(
     version: row.source_hash.split(':')[0],
     postprocessVersion: NOTICE_POSTPROCESS_VERSION,
     sourceHash: row.source_hash,
+    pdfHash: stored._pdfHash,
+    basisStatus: stored._pdfHash && metadata ? (stored._pdfHash === metadata.source_hash ? 'current' as const : 'changed' as const) : 'unverified' as const,
     documentNumber: sendNumber,
     summary: stripGuidanceFromSummary(
-      JSON.parse(row.summary_json) as NoticeSummary,
+      stored,
     ),
     parser: row.parser,
     model: row.model,
@@ -286,17 +292,27 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    assertSameOrigin(request);
     const { applicationNumber, sendNumber } = noticeIdentifiers(request);
     const force = new URL(request.url).searchParams.get('force') === 'true';
     if (!force) {
       const latest = await cachedAnalysis(applicationNumber, sendNumber);
-      if (latest) return NextResponse.json(latest);
+      if (latest?.basisStatus === 'current') return NextResponse.json(latest);
     }
     if (analysisRateLimited(request)) {
       throw new HttpError(429, '통지서 AI 분석 요청이 많습니다. 잠시 후 다시 시도해 주세요.');
     }
 
     const pdf = await loadNoticePdf(applicationNumber, sendNumber);
+    if (!force) {
+      const legacy = await cachedAnalysis(applicationNumber, sendNumber);
+      if (legacy?.version && await sha256(pdf.buffer, legacy.version) === legacy.sourceHash) {
+        const db = await appDatabase();
+        await db.prepare('UPDATE notice_analyses SET summary_json = ? WHERE user_id = ? AND application_number = ? AND send_number = ? AND source_hash = ?')
+          .bind(JSON.stringify({ ...legacy.summary, _pdfHash: pdf.sourceHash }), WORKSPACE_USER_ID, applicationNumber, sendNumber, legacy.sourceHash).run();
+        return NextResponse.json({ ...legacy, pdfHash: pdf.sourceHash, basisStatus: 'current' });
+      }
+    }
     const sourceHash = await sha256(pdf.buffer);
     if (!force) {
       const matching = await cachedAnalysis(applicationNumber, sendNumber, sourceHash);
@@ -333,7 +349,7 @@ export async function POST(request: Request) {
       model,
       sourceHash,
       cleaned.markdown,
-      JSON.stringify(summary),
+      JSON.stringify({ ...summary, _pdfHash: pdf.sourceHash }),
       analyzed.inputTokens,
       analyzed.outputTokens,
     ).run();
@@ -351,6 +367,8 @@ export async function POST(request: Request) {
       postprocessVersion: NOTICE_POSTPROCESS_VERSION,
       sourceHash,
       documentNumber: sendNumber,
+      pdfHash: pdf.sourceHash,
+      basisStatus: 'current',
       summary,
       parser,
       model,

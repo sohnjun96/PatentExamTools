@@ -1,9 +1,11 @@
 import { XMLParser } from 'fast-xml-parser';
+import { reserveProviderCall } from './api-protection';
 import { getApiUsage, recordApiUsage, WORKSPACE_USER_ID } from '@/app/lib/db';
 import { recordKiprisApiCall } from '@/app/lib/kipris-usage';
 import { getKiprisKey } from '@/app/lib/secrets';
 import { documentSingleFlight, readDocument, saveDocument } from '@/app/lib/document-cache';
 import { documentHash } from '@/app/lib/document-cache-core';
+import { HttpError } from './http';
 
 const BASE_URL = 'https://plus.kipris.or.kr';
 const PDF_INFO_PATH = '/openapi/rest/IntermediateDocumentOPService/pdfInfoV2';
@@ -89,6 +91,8 @@ async function fetchPdfMetadata(
   url.searchParams.set('sendNumber', sendNumber);
   url.searchParams.set('accessKey', accessKey);
 
+  await reserveProviderCall('kipris');
+  await recordApiUsage(WORKSPACE_USER_ID, 'kipris', ['의견제출통지서 PDF_V2'], applicationNumber);
   recordKiprisApiCall('의견제출통지서 PDF_V2');
   const response = await fetch(url, {
     cache: 'no-store',
@@ -126,21 +130,16 @@ export function noticeIdentifiers(request: Request) {
   return { applicationNumber, sendNumber };
 }
 
-export async function loadNoticePdf(applicationNumber: string, sendNumber: string, refresh = false) {
+export async function loadNoticePdf(applicationNumber: string, sendNumber: string, refresh = false, cachedOnly = false) {
   validateIdentifiers(applicationNumber, sendNumber);
-  const original = await documentSingleFlight(`notice-pdf:${applicationNumber}:${sendNumber}:${refresh}`, async () => {
+  const original = await documentSingleFlight(`notice-pdf:${applicationNumber}:${sendNumber}:${refresh}:${cachedOnly}`, async () => {
     const key = `notice-pdf:${applicationNumber}:${sendNumber}`;
     if (!refresh) {
       const cached = await readDocument(key);
       if (cached) return { ...cached, cached: true };
     }
+    if (cachedOnly) throw new HttpError(404, '저장된 PDF 원문이 없습니다.');
     const accessKey = getKiprisKey();
-    await recordApiUsage(
-      WORKSPACE_USER_ID,
-      'kipris',
-      ['의견제출통지서 PDF_V2'],
-      applicationNumber,
-    );
     const metadata = await fetchPdfMetadata(applicationNumber, sendNumber, accessKey);
     const response = await fetch(metadata.fileUrl, {
       cache: 'no-store',

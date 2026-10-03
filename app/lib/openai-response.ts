@@ -1,4 +1,5 @@
 import { HttpError } from '@/app/lib/http';
+import { protectedProviderFetch, withApiJob } from './api-protection';
 
 type OpenAiResponsePayload = {
   status?: string;
@@ -79,7 +80,7 @@ function reasoningFor(model: unknown) {
     : {};
 }
 
-export async function requestStructuredOpenAi<T>({
+async function executeStructuredOpenAi<T>({
   apiKey,
   body,
   label,
@@ -93,7 +94,7 @@ export async function requestStructuredOpenAi<T>({
   const limits = [maxOutputTokens, retryMaxOutputTokens];
 
   for (let attempt = 0; attempt < limits.length; attempt += 1) {
-    const response = await fetch('https://api.openai.com/v1/responses', {
+    const response = await protectedProviderFetch('openai', 'https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -154,4 +155,10 @@ export async function requestStructuredOpenAi<T>({
     `${label} 결과가 올바른 JSON 형식이 아닙니다. 다시 실행해 주세요.`,
     'OPENAI_INVALID_JSON',
   );
+}
+
+export async function requestStructuredOpenAi<T>(options: StructuredRequestOptions): Promise<StructuredResponse<T>> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(options.body)));
+  const key = 'openai:' + Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return withApiJob(key, options.timeoutMs * 2 + 30_000, () => executeStructuredOpenAi<T>(options));
 }

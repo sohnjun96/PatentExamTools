@@ -8,6 +8,9 @@ export type AppBindings = {
   OPENAI_MODEL?: string;
   KORDOC_API_URL?: string;
   KORDOC_API_TOKEN?: string;
+  OPENAI_DAILY_LIMIT?: string;
+  KIPRIS_DAILY_LIMIT?: string;
+  AI_REANALYZE_COOLDOWN_SECONDS?: string;
 };
 
 export function bindings(): AppBindings {
