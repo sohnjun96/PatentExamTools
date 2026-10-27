@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { EvaluationError, visibleState, type EvaluationActor, type EvaluationAction } from '@/app/lib/evaluation';
-import { readEvaluationState, mutateEvaluationState } from '@/app/lib/evaluation-store';
+import { assertBureauActor, readEvaluationState, mutateEvaluationState } from '@/app/lib/evaluation-store';
+import { parseBureau } from '@/app/lib/bureaus';
 
 const headers = { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' };
+
+function requestedBureau(request: NextRequest) {
+  if (!request.nextUrl.searchParams.has('bureau')) return undefined;
+  const value = parseBureau(request.nextUrl.searchParams.get('bureau'));
+  if (!value) throw new EvaluationError('유효한 심사국을 선택해 주세요.');
+  return value;
+}
 
 function failure(error: unknown, operation: 'load' | 'save') {
   const status = error instanceof EvaluationError ? error.status : error instanceof SyntaxError ? 400 : 500;
@@ -18,14 +26,17 @@ function failure(error: unknown, operation: 'load' | 'save') {
 
 export async function GET(request: NextRequest) {
   try {
+    const bureau = requestedBureau(request);
     const actor: EvaluationActor = { admin: request.nextUrl.searchParams.get('admin') === '1', userId: request.nextUrl.searchParams.get('userId') ?? undefined };
-    const current = await readEvaluationState();
+    const current = await readEvaluationState(bureau);
+    assertBureauActor(current.state, actor, bureau);
     return NextResponse.json({ revision: current.revision, state: visibleState(current.state, actor) }, { headers });
   } catch (error) { return failure(error, 'load'); }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    const bureau = requestedBureau(request);
     // One action publishes a whole selection, result bundle or evaluation in a
     // single compare-and-swap update, so interrupted requests cannot publish rows.
     const raw = await request.text();
@@ -34,7 +45,7 @@ export async function POST(request: NextRequest) {
     if (!body || !Number.isSafeInteger(body.revision) || body.revision < 0 || !body.action || typeof body.action.type !== 'string') throw new EvaluationError('요청 형식을 확인해 주세요.');
     const actor: EvaluationActor = { admin: body.actor?.admin === true, userId: typeof body.actor?.userId === 'string' ? body.actor.userId : undefined };
     const action = body.action as EvaluationAction;
-    const current = await mutateEvaluationState(body.revision, actor, action);
+    const current = await mutateEvaluationState(body.revision, actor, action, bureau);
     const selectionRows = action.type === 'saveSelection' ? action.rows : action.type === 'adminAddCase' ? [action.row] : [];
     const selectionExaminer = action.type === 'adminAddCase' ? action.examinerId : actor.userId;
     const selectionMonth = action.type === 'saveSelection' || action.type === 'adminAddCase' ? action.monthId : '';

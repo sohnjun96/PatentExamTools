@@ -1,0 +1,15 @@
+.pd-error-toasts { position:fixed; z-index:5000; right:24px; bottom:24px; display:flex; flex-direction:column; gap:12px; width:min(480px,calc(100% - 48px)); max-height:calc(100dvh - 48px); padding:4px; overflow-y:auto; overscroll-behavior:contain; }
+.pd-error-toasts:focus-visible { outline:3px solid var(--krds-color-light-primary-50,#256ef4); outline-offset:2px; }
+.pd-error-toast { display:grid; grid-template-columns:24px minmax(0,1fr) 44px; align-items:start; gap:12px; flex-shrink:0; padding:20px 12px 20px 20px; border:1px solid var(--krds-color-light-danger-20,#f7afa1); border-radius:12px; color:var(--krds-color-light-gray-90,#1e2124); background:var(--krds-color-light-gray-0,#fff); box-shadow:0 8px 32px rgb(0 0 0 / 18%); }
+.pd-error-toast-icon { display:grid; place-items:center; width:24px; height:24px; margin-top:2px; border-radius:50%; color:#fff; background:var(--krds-color-light-danger-50,#de3412); font-size:17px; line-height:1; font-weight:700; }
+.pd-error-toast-copy { min-width:0; overflow-wrap:anywhere; word-break:keep-all; }
+.pd-error-toast-copy strong { display:block; margin:0; font-size:17px; line-height:1.5; font-weight:700; }
+.pd-error-toast-copy p { margin:8px 0 0; font-size:15px; line-height:1.6; }
+.pd-error-toast-copy .pd-error-toast-document { color:var(--krds-color-light-gray-70,#464c53); font-size:14px; }
+.pd-error-toast-close { display:grid; place-items:center; width:44px; min-width:44px; height:44px; margin:-8px 0 0; padding:0; border:0; border-radius:6px; color:var(--krds-color-light-gray-70,#464c53); background:transparent; font:inherit; font-size:28px; line-height:1; cursor:pointer; }
+.pd-error-toast-close:hover { background:var(--krds-color-light-gray-5,#f4f5f6); }
+.pd-error-toast-close:focus-visible { outline:3px solid var(--krds-color-light-primary-50,#256ef4); outline-offset:2px; }
+@media (max-width:600px) {
+  .pd-error-toasts { right:12px; bottom:12px; width:calc(100% - 24px); max-height:calc(100dvh - 24px); gap:8px; }
+  .pd-error-toast { gap:8px; padding:16px 8px 16px 12px; }
+}

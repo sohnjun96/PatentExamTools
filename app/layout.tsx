@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { ErrorToastProvider } from './components/error-toast';
 import 'krds-uiux/resources/css/component/output.css';
 import './globals.css';
 import './krds-foundation.css';
@@ -37,7 +38,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko" data-krds-mode="light">
-      <body>{children}</body>
+      <body><ErrorToastProvider>{children}</ErrorToastProvider></body>
     </html>
   );
 }

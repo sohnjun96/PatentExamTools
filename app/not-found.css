@@ -1,0 +1,6 @@
+.bureau-not-found { width:min(760px,calc(100% - 40px)); margin:64px auto; padding:32px; border:1px solid var(--krds-color-light-gray-20,#cdd1d5); border-radius:12px; background:#fff; color:var(--krds-color-light-gray-90,#1e2124); word-break:keep-all; }
+.bureau-not-found h1 { margin:16px 0; font-size:28px; font-weight:700; line-height:1.5; }
+.bureau-not-found p { margin:12px 0; line-height:1.7; }
+.bureau-not-found nav { display:flex; flex-wrap:wrap; gap:12px; margin:28px 0; }
+.bureau-not-found > a { text-decoration:underline; text-underline-offset:4px; }
+@media(max-width:600px) { .bureau-not-found { margin:24px auto; padding:24px; } .bureau-not-found h1 { font-size:24px; } }
