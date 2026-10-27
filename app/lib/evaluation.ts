@@ -23,13 +23,17 @@ export type DocumentEvaluation = { number: string; score: number | null; cited: 
 export type MethodEvaluation = { caseId: string; methodId: string; version: number; documents: DocumentEvaluation[]; updatedAt: string };
 export type RankValue = 1 | 2 | 3 | 'unranked' | 'excluded' | 'incomparable' | null;
 export type QualityRanking = { caseId: string; versions: Record<string, number>; values: Record<string, RankValue>; updatedAt: string };
+export type EvaluationNotice = { markdown: string; updatedAt: string };
+export const NOTICE_MAX_LENGTH = 20_000;
+export const LITERATURE_MAX_LENGTH = 2_000;
 export type EvaluationState = {
   schemaVersion: 1; users: EvaluationUser[]; groups: EvaluationGroup[]; methods: InvestigationMethod[];
   months: OperationMonth[]; cases: EvaluationCase[]; results: AIResult[]; evaluations: MethodEvaluation[];
-  rankings: QualityRanking[]; isDemo: boolean;
+  rankings: QualityRanking[]; isDemo: boolean; notice?: EvaluationNotice | null;
 };
 export type EvaluationActor = { admin?: boolean; userId?: string };
 export type EvaluationAction =
+  | { type: 'saveNotice'; markdown: string }
   | { type: 'saveUser'; user: Omit<EvaluationUser, 'id'> & { id?: string } }
   | { type: 'saveGroup'; group: { id?: string; name: string } }
   | { type: 'saveMethod'; method: Omit<InvestigationMethod, 'id'> & { id?: string } }
@@ -67,7 +71,7 @@ export function createInitialState(monthId = currentOperationMonth()): Evaluatio
     { id: 'chatgpt', name: 'ChatGPT', kind: 'ai', active: true },
     { id: 'claude', name: '클로드', kind: 'ai', active: true },
     { id: 'baseline', name: '선행기술조사', kind: 'baseline', active: true },
-  ], months: [emptyMonth(monthId)], cases: [], results: [], evaluations: [], rankings: [], isDemo: false };
+  ], months: [emptyMonth(monthId)], cases: [], results: [], evaluations: [], rankings: [], isDemo: false, notice: null };
 }
 
 function monthOf(state: EvaluationState, monthId: string) {
@@ -156,9 +160,12 @@ function createCase(state: EvaluationState, month: OperationMonth, user: Evaluat
 
 function documentsFrom(values: string[], allowEmpty: boolean) {
   if (!Array.isArray(values) || values.length > 7) fail('출원 1건 × AI 방식 1개당 최대 7문헌을 입력할 수 있습니다.');
-  const documents = values.map((value) => text(value, 120)).filter(Boolean);
-  if (!allowEmpty && documents.length === 0) fail('입력 완료하려면 문헌번호를 한 건 이상 입력해 주세요.');
-  if (new Set(documents.map(identity)).size !== documents.length) fail('같은 AI 결과 안에 중복 문헌번호가 있습니다.');
+  const documents = values.map((value) => {
+    if (typeof value !== 'string' || value.length > LITERATURE_MAX_LENGTH) fail('문헌은 특허번호, 논문 제목·서지정보, DOI 또는 URL을 2,000자 이내의 텍스트로 입력해 주세요.');
+    return value.trim();
+  }).filter(Boolean);
+  if (!allowEmpty && documents.length === 0) fail('입력 완료하려면 문헌을 한 건 이상 입력해 주세요.');
+  if (new Set(documents.map(identity)).size !== documents.length) fail('같은 AI 결과 안에 중복 문헌이 있습니다.');
   return documents;
 }
 
@@ -187,7 +194,14 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
     case 'loadDemo': {
       requireAdmin(actor);
       if (state.cases.length || state.users.length || state.groups.length) fail('운영 자료가 있는 상태에는 가상 자료를 추가할 수 없습니다.');
-      return createDemoState(state.months[0]?.id ?? currentOperationMonth(now));
+      return { ...createDemoState(state.months[0]?.id ?? currentOperationMonth(now)), notice: state.notice ?? null };
+    }
+    case 'saveNotice': {
+      requireAdmin(actor);
+      if (typeof action.markdown !== 'string' || action.markdown.length > NOTICE_MAX_LENGTH) fail('공지사항은 20,000자 이내의 텍스트로 입력해 주세요.');
+      const markdown = action.markdown.trim();
+      state.notice = markdown ? { markdown, updatedAt: now.toISOString() } : null;
+      return state;
     }
     case 'saveUser': {
       requireAdmin(actor);

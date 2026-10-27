@@ -37,7 +37,7 @@
 
 | 화면·상태 | 위치 | 현재 문구 |
 |---|---|---|
-| PDF 화면/브랜드 | `app/documents/page.tsx:70` header | 심 / 심사데스크 / AI 검색 결과 평가 |
+| PDF 화면/브랜드 | `app/documents/page.tsx:70` header | 심 / 선행기술 AI 검색 포털 / AI 검색 결과 평가 |
 | PDF 화면/메뉴 | `app/documents/page.tsx:70` nav | 평가 업무로 돌아가기 ↗ / 기존 사건 조회 ↗ |
 | PDF 화면/상단 | `app/documents/page.tsx:70` eyebrow | DOCUMENT WORKSPACE |
 | PDF 화면/제목 | `app/documents/page.tsx:70` h1 | 검색에 필요한 전문, / 한곳에서 내려받으세요. |
@@ -65,7 +65,7 @@
 | ZIP/유형 미선택 | `app/documents/page.tsx:34` message | 입력 번호 종류를 먼저 선택해 주세요. |
 | ZIP/건수 오류 | `app/documents/page.tsx:35` message | 번호를 1~50건 입력해 주세요. |
 | ZIP/형식 오류 | `app/documents/page.tsx:36` message | 국내 특허·실용신안 번호만 입력해 주세요. 번호 종류를 구분해 한 줄에 하나씩 입력합니다. |
-| ZIP/기본 파일명 | `app/documents/page.tsx:39` picker | 심사데스크_전문PDF.zip |
+| ZIP/기본 파일명 | `app/documents/page.tsx:39` picker | 선행기술 AI 검색 포털_전문PDF.zip |
 | ZIP/행 중단 | `app/documents/page.tsx:55` error | 사용자 중단 |
 | ZIP/행 오류 | `app/documents/page.tsx:56` error | {Error.message} / PDF 조회 실패 |
 | ZIP/파일 결과 표시 | `app/documents/page.tsx:50,57` outcomes | 성공 / 실패 |

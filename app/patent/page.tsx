@@ -477,7 +477,7 @@ export default function Home() {
 
       zip.file(
         'README.txt',
-        `심사데스크 검토자료\n출원번호: ${caseData.applicationNumber}\n생성일: ${new Date().toLocaleString('ko-KR')}\n\n이 ZIP에는 선택한 요약·청구항·이력·패밀리 정보와 원문 파일 목록이 들어갑니다. 공보 원문 PDF는 사이트의 전문 PDF 모으기에서 따로 내려받으세요.`,
+        `선행기술 AI 검색 포털 검토자료\n출원번호: ${caseData.applicationNumber}\n생성일: ${new Date().toLocaleString('ko-KR')}\n\n이 ZIP에는 선택한 요약·청구항·이력·패밀리 정보와 원문 파일 목록이 들어갑니다. 공보 원문 PDF는 사이트의 전문 PDF 모으기에서 따로 내려받으세요.`,
       );
       if (packageOptions.summary) {
         zip.file(
@@ -602,9 +602,9 @@ export default function Home() {
       </div>
       <main className="app-shell">
       <aside className="sidebar">
-        <a className="brand brand-button" href="/" aria-label="심사데스크 AI 평가 업무">
-          <span className="brand-mark">특허</span>
-          <span><strong>심사데스크</strong><small>특허 사건 검토 지원</small></span>
+        <a className="brand brand-button" href="/" aria-label="선행기술 AI 검색 포털 AI 평가 업무">
+          <span className="brand-mark" aria-hidden="true">AI</span>
+          <span><strong>선행기술 AI 검색 포털</strong><small>특허 사건 검토 지원</small></span>
         </a>
 
         <nav className="side-nav" aria-label="사건 메뉴">
@@ -875,7 +875,7 @@ export default function Home() {
           )}
         </div>
         <footer className="dashboard-footer">
-          <div><strong>심사데스크</strong><span>특허 사건 검토</span></div>
+          <div><strong>선행기술 AI 검색 포털</strong><span>특허 사건 검토</span></div>
           <p>사건 정보는 KIPRIS Plus에서 제공한 자료입니다.</p>
         </footer>
       </section>

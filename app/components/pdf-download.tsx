@@ -11,7 +11,7 @@ export type PdfNumberType = 'application' | 'publication' | 'registration';
 export type PdfKind = 'publication' | 'registration';
 export type PdfDownloadStatus = 'loading' | 'saved' | 'requested' | 'error' | 'cancelled';
 export function pdfUrl(number: string, kind: PdfKind = 'publication', numberType: PdfNumberType = 'application') {
-  const query = new URLSearchParams({ kind, download: '1' });
+  const query = new URLSearchParams({ kind, numberType, download: '1' });
   if (numberType === 'application') query.set('applicationNumber', number);
   else { query.set('documentNumber', number); query.set('numberType', numberType); }
   return '/api/patent/document?' + query;
@@ -31,8 +31,9 @@ export function choosePdfDestination(applicationNumber: string, kind: PdfKind, q
   return quickDownload ? Promise.resolve({ handle: null, filename }) : chooseSaveFile(filename, 'application/pdf', 'pdf');
 }
 
-export default function PdfDownloadButton({ applicationNumber, label = 'PDF 받기', kind = 'publication', numberType = 'application', disabled = false, quickDownload = false, onStatusChange }: {
+export default function PdfDownloadButton({ applicationNumber, label = 'PDF 받기', ariaLabel, kind = 'publication', numberType = 'application', disabled = false, quickDownload = false, onStatusChange }: {
   applicationNumber: string; label?: string; kind?: PdfKind; numberType?: PdfNumberType; disabled?: boolean;
+  ariaLabel?: string;
   quickDownload?: boolean;
   onStatusChange?: (status: PdfDownloadStatus, message?: string) => void;
 }) {
@@ -70,7 +71,7 @@ export default function PdfDownloadButton({ applicationNumber, label = 'PDF 받�
   }
   const loadingLabel = stage === 'choosing' && !quickDownload ? '저장 위치 선택 중' : stage === 'saving' ? '저장 중…' : 'PDF 불러오는 중…';
   return <span className="pd-download">
-    <button type="button" ref={button} className="pd-button krds-btn medium tertiary" onClick={() => void download()} disabled={disabled || stage !== 'idle'} aria-describedby={message ? messageId : undefined} aria-busy={stage !== 'idle'} aria-label={`${applicationNumber} ${documentKindLabels[kind]} PDF 받기`}>{stage !== 'idle' ? loadingLabel : label}</button>
+    <button type="button" ref={button} className="pd-button krds-btn medium tertiary" onClick={() => void download()} disabled={disabled || stage !== 'idle'} aria-describedby={message ? messageId : undefined} aria-busy={stage !== 'idle'} aria-label={ariaLabel ?? `${applicationNumber} ${documentKindLabels[kind]} PDF 받기`}>{stage !== 'idle' ? loadingLabel : label}</button>
     {message && <span id={messageId} className={`pd-message is-${messageKind}`} role={messageKind === 'error' ? hasErrorToast ? undefined : 'alert' : 'status'}>{message}</span>}
   </span>;
 }

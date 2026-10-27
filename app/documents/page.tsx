@@ -74,7 +74,7 @@ export default function DocumentDownloads() {
     const outcomes = new Map<string, { state: 'success' | 'error'; detail: string }>();
     let savingStarted = false;
     try {
-      const destination = await chooseSaveFile('심사데스크_전문PDF.zip', 'application/zip', 'zip');
+      const destination = await chooseSaveFile('선행기술 AI 검색 포털_전문PDF.zip', 'application/zip', 'zip');
       if (!destination) { feedback('저장을 취소했습니다. PDF를 조회하지 않았습니다.'); return; }
       ensureDocumentTaskActive(controller.signal);
       const JSZip = (await import('jszip')).default;
@@ -131,11 +131,11 @@ export default function DocumentDownloads() {
   return <div className="docs-page">
     <a className="docs-skip" href="#documents-main">본문 바로가기</a>
     <header className="docs-top">
-      <a href="/" className="docs-brand"><span aria-hidden="true">심</span><strong>심사데스크</strong><small>AI 검색 결과 평가</small></a>
+      <a href="/" className="docs-brand"><span aria-hidden="true">AI</span><strong>선행기술 AI 검색 포털</strong><small>AI 검색 결과 평가</small></a>
       <nav aria-label="업무 화면"><a href="/">평가 업무로 돌아가기</a><a href="/patent">기존 사건 조회</a></nav>
     </header>
     <main id="documents-main" className="docs-content">
-      <div className="docs-intro"><p className="docs-breadcrumb">심사데스크 <span aria-hidden="true">/</span> 전문 PDF</p><h1>전문 PDF 다운로드</h1><p>출원과 검색 문헌의 공보를 개별 PDF 또는 ZIP으로 받습니다.</p></div>
+      <div className="docs-intro"><p className="docs-breadcrumb">선행기술 AI 검색 포털 <span aria-hidden="true">/</span> 전문 PDF</p><h1>전문 PDF 다운로드</h1><p>출원과 검색 문헌의 공보를 개별 PDF 또는 ZIP으로 받습니다.</p></div>
       <div className="docs-layout">
         <section className="docs-panel" aria-labelledby="docs-input-title">
           <div className="docs-panel-title"><span aria-hidden="true">1</span><h2 id="docs-input-title">문헌번호 입력</h2></div>

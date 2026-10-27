@@ -45,6 +45,8 @@ export function migrateEvaluationBureau(legacy: EvaluationState, bureau: Bureau)
     evaluations: legacy.evaluations.filter((evaluation) => caseIds.has(evaluation.caseId)),
     rankings: legacy.rankings.filter((ranking) => caseIds.has(ranking.caseId)),
     isDemo: legacy.isDemo && Boolean(users.length || cases.length),
+    // A shared legacy announcement has no unambiguous bureau ownership.
+    notice: null,
   };
   return structuredClone(state);
 }

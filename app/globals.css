@@ -694,8 +694,10 @@ input:focus-visible {
   background: white;
 }
 
-.brand { gap: 13px; padding: 0; }
+.brand { min-width: 0; max-width: 100%; gap: 13px; padding: 0; }
+.brand > span:last-child { min-width: 0; }
 .brand-mark {
+  flex-shrink: 0;
   width: 52px;
   height: 40px;
   border: 0;
@@ -706,7 +708,7 @@ input:focus-visible {
   font-size: 14px;
   font-weight: 800;
 }
-.brand strong { color: var(--krds-gray-90); font-size: 20px; }
+.brand strong { color: var(--krds-gray-90); font-size: 18px; line-height: 1.45; overflow-wrap: anywhere; }
 .brand small {
   margin-top: 3px;
   color: var(--krds-gray-60);
@@ -1051,10 +1053,11 @@ input:focus-visible {
   gap: 32px;
   margin: 0 auto;
 }
-.service-identity { display: flex; align-items: center; gap: 13px; }
-.service-mark { display: grid; width: 52px; height: 40px; place-items: center; border-radius: 6px; color: white; background: var(--krds-primary-50); font-size: 14px; font-weight: 800; }
+.service-identity { display: flex; align-items: center; min-width: 0; gap: 13px; }
+.service-identity > span:last-child { min-width: 0; }
+.service-mark { display: grid; flex-shrink: 0; width: 52px; height: 40px; place-items: center; border-radius: 6px; color: white; background: var(--krds-primary-50); font-size: 14px; font-weight: 800; }
 .service-identity strong, .service-identity small { display: block; }
-.service-identity strong { color: var(--krds-gray-90); font-size: 20px; }
+.service-identity strong { color: var(--krds-gray-90); font-size: 20px; line-height: 1.45; overflow-wrap: anywhere; }
 .service-identity small { margin-top: 3px; color: var(--krds-gray-60); font-size: 11px; }
 .fulltext-site-header nav { display: flex; align-self: stretch; gap: 28px; }
 .fulltext-site-header nav a { position: relative; display: flex; align-items: center; color: var(--krds-gray-70); font-size: 15px; font-weight: 700; }
@@ -1062,7 +1065,7 @@ input:focus-visible {
 .fulltext-site-header nav a.active::after { position: absolute; right: 0; bottom: -1px; left: 0; height: 4px; background: var(--krds-primary-50); content: ""; }
 
 .fulltext-main { width: min(1280px, calc(100% - 48px)); min-height: 75vh; margin: 0 auto; padding: 32px 0 88px; }
-.fulltext-breadcrumb { display: flex; align-items: center; gap: 10px; }
+.fulltext-breadcrumb { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .fulltext-breadcrumb a:hover { color: var(--krds-primary-60); text-decoration: underline; }
 .fulltext-breadcrumb strong { color: var(--krds-gray-80); }
 .fulltext-hero {

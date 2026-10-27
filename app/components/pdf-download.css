@@ -6,3 +6,8 @@
 .pd-message { max-width:440px; color:var(--krds-color-light-gray-70,#464c53); font-size:15px; line-height:1.6; overflow-wrap:anywhere; white-space:normal; }
 .pd-message.is-error { color:var(--krds-color-light-danger-60,#bd2c0f); }
 .pd-message.is-success { color:var(--krds-color-light-success-60,#267337); }
+.pd-target-publication { display:grid; gap:8px; min-width:0; }
+.pd-target-publication-context { display:block; color:var(--krds-color-light-gray-60,#58616a); font-size:14px; line-height:1.6; overflow-wrap:anywhere; word-break:keep-all; }
+.pd-target-publication.is-list .pd-download { display:block; }
+.pd-target-publication.is-list .pd-button { width:100%; }
+.pd-target-publication.is-detail .pd-target-publication-context { font-size:15px; }

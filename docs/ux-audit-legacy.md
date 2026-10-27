@@ -77,7 +77,7 @@ TSX의 화면 텍스트, 접근성 이름, 플레이스홀더, 동적 문구와 
 | 사건 조회: 조회·요약·묶음 상태 | app/patent/page.tsx:452 | 상태·라벨 문자열 | AI 심사요약을 생성했습니다. |
 | 사건 조회: 조회·요약·묶음 상태 | app/patent/page.tsx:454 | 상태·라벨 문자열 | AI 요약을 불러오지 못했습니다. |
 | 사건 조회: 조회·요약·묶음 상태 | app/patent/page.tsx:468 | 상태·라벨 문자열 | README.txt |
-| 사건 조회: 조회·요약·묶음 상태 | app/patent/page.tsx:469 | 동적 문구 | 심사데스크 MVP 자료 묶음 ↵ 출원번호: ${caseData.applicationNumber} ↵ 생성일: ${new Date().toLocaleString('ko-KR')} ↵  ↵ 이 묶음은 MVP에서 가공한 검토용 데이터입니다. 원문 전문·대표도면·의견제출통지서 PDF는 KIPRIS Plus API 키 연결 후 서버에서 내려받아 포함하는 구조입니다. |
+| 사건 조회: 조회·요약·묶음 상태 | app/patent/page.tsx:469 | 동적 문구 | 선행기술 AI 검색 포털 MVP 자료 묶음 ↵ 출원번호: ${caseData.applicationNumber} ↵ 생성일: ${new Date().toLocaleString('ko-KR')} ↵  ↵ 이 묶음은 MVP에서 가공한 검토용 데이터입니다. 원문 전문·대표도면·의견제출통지서 PDF는 KIPRIS Plus API 키 연결 후 서버에서 내려받아 포함하는 구조입니다. |
 | 사건 조회: 조회·요약·묶음 상태 | app/patent/page.tsx:469 | 상태·라벨 문자열 | ko-KR |
 | 사건 조회: 조회·요약·묶음 상태 | app/patent/page.tsx:473 | 동적 문구 | 01_사건요약_${prefix}.json |
 | 사건 조회: 조회·요약·묶음 상태 | app/patent/page.tsx:495 | 동적 문구 | 02_청구항_${prefix}.json |
@@ -110,9 +110,9 @@ TSX의 화면 텍스트, 접근성 이름, 플레이스홀더, 동적 문구와 
 | 사건 조회: 조회·요약·묶음 상태 | app/patent/page.tsx:583 | 상태·라벨 문자열 | 집계 정보를 불러오는 중입니다. |
 | 사건 조회: 공통·검색 | app/patent/page.tsx:587 | 화면 텍스트 | 본문 바로가기 |
 | 사건 조회: 공통·검색 | app/patent/page.tsx:589 | 화면 텍스트 | 이 누리집은 대한민국 공식 전자정부 누리집의 디자인 원칙을 참고한 MVP입니다. |
-| 사건 조회: 공통·검색 | app/patent/page.tsx:593 | aria-label | 심사데스크 홈 |
+| 사건 조회: 공통·검색 | app/patent/page.tsx:593 | aria-label | 선행기술 AI 검색 포털 홈 |
 | 사건 조회: 공통·검색 | app/patent/page.tsx:594 | 화면 텍스트 | 특허 |
-| 사건 조회: 공통·검색 | app/patent/page.tsx:595 | 화면 텍스트 | 심사데스크 |
+| 사건 조회: 공통·검색 | app/patent/page.tsx:595 | 화면 텍스트 | 선행기술 AI 검색 포털 |
 | 사건 조회: 공통·검색 | app/patent/page.tsx:595 | 화면 텍스트 | 특허 사건 검토 지원 |
 | 사건 조회: 공통·검색 | app/patent/page.tsx:598 | aria-label | 사건 메뉴 |
 | 사건 조회: 공통·검색 | app/patent/page.tsx:599 | 화면 텍스트 | ← |
@@ -267,7 +267,7 @@ TSX의 화면 텍스트, 접근성 이름, 플레이스홀더, 동적 문구와 
 | 사건 조회: 문서함 | app/patent/page.tsx:856 | 화면 텍스트 | 심사자료 묶음 |
 | 사건 조회: 문서함 | app/patent/page.tsx:856 | 화면 텍스트 | 요약·청구항·이력·패밀리·원문 목록 |
 | 사건 조회: 문서함 | app/patent/page.tsx:856 | 화면 텍스트 | 구성하기 ↓ |
-| 사건 조회: 하단·상태 | app/patent/page.tsx:862 | 화면 텍스트 | 심사데스크 |
+| 사건 조회: 하단·상태 | app/patent/page.tsx:862 | 화면 텍스트 | 선행기술 AI 검색 포털 |
 | 사건 조회: 하단·상태 | app/patent/page.tsx:862 | 화면 텍스트 | KIPRIS Plus 특허 사건 검토 지원 MVP |
 | 사건 조회: 하단·상태 | app/patent/page.tsx:863 | 화면 텍스트 | 전문·도면·행정처리·패밀리 데이터는 원 API 응답을 기준으로 표시합니다. |
 | 사건 조회: 하단·상태 | app/patent/page.tsx:867 | 화면 텍스트 | KIPRIS Plus 조회 중 |
@@ -351,7 +351,7 @@ TSX의 화면 텍스트, 접근성 이름, 플레이스홀더, 동적 문구와 
 | 전문 읽기: 공통·오류·로딩 | app/fulltext/fulltext-viewer.tsx:133 | 화면 텍스트 | 본문 바로가기 |
 | 전문 읽기: 공통·오류·로딩 | app/fulltext/fulltext-viewer.tsx:135 | 화면 텍스트 | 이 누리집은 대한민국 공식 전자정부 누리집의 디자인 원칙을 참고한 MVP입니다. |
 | 전문 읽기: 공통·오류·로딩 | app/fulltext/fulltext-viewer.tsx:140 | 화면 텍스트 | 특허 |
-| 전문 읽기: 공통·오류·로딩 | app/fulltext/fulltext-viewer.tsx:141 | 화면 텍스트 | 심사데스크 |
+| 전문 읽기: 공통·오류·로딩 | app/fulltext/fulltext-viewer.tsx:141 | 화면 텍스트 | 선행기술 AI 검색 포털 |
 | 전문 읽기: 공통·오류·로딩 | app/fulltext/fulltext-viewer.tsx:141 | 화면 텍스트 | 특허 사건 검토 지원 |
 | 전문 읽기: 공통·오류·로딩 | app/fulltext/fulltext-viewer.tsx:143 | aria-label | 주요 메뉴 |
 | 전문 읽기: 공통·오류·로딩 | app/fulltext/fulltext-viewer.tsx:144 | 화면 텍스트 | 사건 대시보드 |
@@ -401,6 +401,6 @@ TSX의 화면 텍스트, 접근성 이름, 플레이스홀더, 동적 문구와 
 | 전문 읽기: 본문·청구범위 | app/fulltext/fulltext-viewer.tsx:236 | 화면 텍스트 | 독립항 |
 | 전문 읽기: 본문·청구범위 | app/fulltext/fulltext-viewer.tsx:242 | 화면 텍스트 | 청구항 |
 | 전문 읽기: 본문·청구범위 | app/fulltext/fulltext-viewer.tsx:242 | 화면 텍스트 | 독립항 |
-| 전문 읽기: 하단 | app/fulltext/fulltext-viewer.tsx:255 | 화면 텍스트 | 심사데스크 |
+| 전문 읽기: 하단 | app/fulltext/fulltext-viewer.tsx:255 | 화면 텍스트 | 선행기술 AI 검색 포털 |
 | 전문 읽기: 하단 | app/fulltext/fulltext-viewer.tsx:255 | 화면 텍스트 | KIPRIS Plus 데이터를 심사 흐름에 맞게 정리하는 검토용 MVP |
 | 전문 읽기: 하단 | app/fulltext/fulltext-viewer.tsx:256 | 화면 텍스트 | 전문 원문은 KIPRIS Plus API 응답을 기준으로 표시합니다. |

@@ -6,7 +6,7 @@ type Props = { params: Promise<{ bureau: string }> };
 
 export async function generateMetadata({ params }: Props) {
   const bureau = parseBureauRoute((await params).bureau);
-  return { title: bureau ? `${bureau} AI 검색 결과 평가 | 심사데스크` : '심사국 확인 | 심사데스크' };
+  return { title: bureau ? `${bureau} AI 검색 결과 평가 | 선행기술 AI 검색 포털` : '심사국 확인 | 선행기술 AI 검색 포털' };
 }
 
 export default async function BureauPage({ params }: Props) {
