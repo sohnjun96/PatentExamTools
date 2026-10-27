@@ -22,10 +22,11 @@ export type AIResult = {
 export type DocumentEvaluation = { number: string; score: number | null; cited: 'O' | 'X' | null; note: string };
 export type MethodEvaluation = { caseId: string; methodId: string; version: number; documents: DocumentEvaluation[]; updatedAt: string };
 export type RankValue = 1 | 2 | 3 | 'unranked' | 'excluded' | 'incomparable' | null;
-export type QualityRanking = { caseId: string; versions: Record<string, number>; values: Record<string, RankValue>; updatedAt: string };
+export type QualityRanking = { caseId: string; versions: Record<string, number>; values: Record<string, RankValue>; updatedAt: string; overallComment?: string };
 export type EvaluationNotice = { markdown: string; updatedAt: string };
 export const NOTICE_MAX_LENGTH = 20_000;
 export const LITERATURE_MAX_LENGTH = 2_000;
+export const OVERALL_COMMENT_MAX_LENGTH = 4_000;
 export type EvaluationState = {
   schemaVersion: 1; users: EvaluationUser[]; groups: EvaluationGroup[]; methods: InvestigationMethod[];
   months: OperationMonth[]; cases: EvaluationCase[]; results: AIResult[]; evaluations: MethodEvaluation[];
@@ -43,7 +44,7 @@ export type EvaluationAction =
   | { type: 'adminAddCase'; monthId: string; examinerId: string; row: SelectionRow }
   | { type: 'cancelCase'; caseId: string }
   | { type: 'saveResult'; caseId: string; methodId: string; documents: string[]; publish: boolean }
-  | { type: 'saveEvaluation'; caseId: string; evaluations: { methodId: string; version: number; documents: DocumentEvaluation[] }[]; rankings: Record<string, RankValue>; versions: Record<string, number> }
+  | { type: 'saveEvaluation'; caseId: string; evaluations: { methodId: string; version: number; documents: DocumentEvaluation[] }[]; rankings: Record<string, RankValue>; versions: Record<string, number>; overallComment?: string }
   | { type: 'loadDemo' };
 
 export class EvaluationError extends Error {
@@ -305,6 +306,10 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       if (item.examinerId !== user.id || !user.roles.includes('examiner')) fail('본인이 선정한 출원만 평가할 수 있습니다.', 403);
       const month = monthOf(state, item.monthId);
       editable(month, month.evaluationDeadline, now);
+      if (action.overallComment !== undefined && (typeof action.overallComment !== 'string' || action.overallComment.length > OVERALL_COMMENT_MAX_LENGTH)) fail('총평은 4,000자 이내의 텍스트로 입력해 주세요.');
+      const overallComment = action.overallComment === undefined
+        ? state.rankings.find((entry) => entry.caseId === item.id)?.overallComment ?? ''
+        : action.overallComment.trim();
       if (!Array.isArray(action.evaluations)) fail('평가 내용을 확인해 주세요.');
       if (new Set(action.evaluations.map((entry) => entry.methodId)).size !== action.evaluations.length) fail('조사 방식별 평가는 한 번씩 저장해 주세요.');
       for (const entry of action.evaluations) {
@@ -339,7 +344,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
           if ((action.versions[method.id] ?? 0) !== (resultFor(state, item.id, method.id)?.publishedVersion ?? 0)) fail('AI 결과가 변경되어 품질 순위를 다시 확인해야 합니다.', 409);
         }
       }
-      const ranking: QualityRanking = { caseId: item.id, versions: Object.fromEntries(aiMethods(state, month.id).map((method) => [method.id, resultFor(state, item.id, method.id)?.publishedVersion ?? 0])), values, updatedAt: now.toISOString() };
+      const ranking: QualityRanking = { caseId: item.id, versions: Object.fromEntries(aiMethods(state, month.id).map((method) => [method.id, resultFor(state, item.id, method.id)?.publishedVersion ?? 0])), values, updatedAt: now.toISOString(), overallComment };
       state.rankings = state.rankings.filter((old) => old.caseId !== item.id);
       state.rankings.push(ranking);
       return state;

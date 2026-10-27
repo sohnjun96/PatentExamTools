@@ -1,4 +1,4 @@
-# 선행기술 AI 검색 포털 · AI 검색 결과 평가
+# AI 선행기술 검색 포털 · AI 검색 결과 평가
 
 UI·UX는 공식 `krds-uiux@1.1.0` 컴포넌트·토큰과 Pretendard GOV를 적용했습니다. PDF 중복·해외 혼합 처리, 오류 복구, 역할별 진입, 작업 위치 복원과 키보드 조작을 보완했습니다. 요청한 Toss UX 라이팅 점검안도 모두 반영했습니다. 최신 문구·동작·검증 결과는 [UX 라이팅 적용 결과](docs/UX_WRITING_APPLIED.md), 앞선 디자인 변경은 [KRDS UI·UX 수정 결과](docs/KRDS_UI_UX_IMPLEMENTATION.md)에 있습니다. 이전 [UI·UX 점검 기록](docs/UI_UX_REVIEW.md)은 수정 전 상태를 기록한 문서입니다.
 

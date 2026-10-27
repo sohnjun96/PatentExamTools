@@ -14,7 +14,7 @@ type Props = {
   dirty: (value: boolean) => void;
 };
 
-const example = '## 이번 달 평가 안내\n\n**평가 기한을 확인해 주세요.**\n\n- 대상 출원을 선정하고 확정해 주세요.\n- AI 검색 결과 공개 후 문헌을 평가해 주세요.\n\n[업무 참고 자료](https://example.com)';
+const example = '## 공지 제목\n\n공지 내용을 입력하세요.';
 
 export default function NoticeManager({ state, bureau, busy, save, dirty }: Props) {
   const saved = state.notice?.markdown || '';
@@ -44,7 +44,7 @@ export default function NoticeManager({ state, bureau, busy, save, dirty }: Prop
     if (changed) void publish(markdown);
   }}>
     <div className="notice-manager-context">
-      <div><strong>{scope} 메인 페이지 공지</strong><p>저장하면 이 업무 공간의 메인 페이지에 표시됩니다. 운영월에 관계없이 같은 공지를 보여줍니다.</p></div>
+      <div><strong>{scope} 메인 페이지 공지</strong></div>
       <span className="adm-pill">{saved ? '게시 중' : '게시된 공지 없음'}</span>
     </div>
     <div className="notice-manager-grid">
@@ -54,17 +54,17 @@ export default function NoticeManager({ state, bureau, busy, save, dirty }: Prop
           <label htmlFor="notice-markdown-input">공지 내용</label>
           <textarea id="notice-markdown-input" className="krds-input notice-manager-input" rows={16} maxLength={NOTICE_MAX_LENGTH} value={markdown} disabled={disabled} aria-describedby="notice-markdown-help notice-markdown-count" placeholder={example} onChange={(event) => setMarkdown(event.target.value)} />
           <div id="notice-markdown-count" className="notice-manager-count">{markdown.length.toLocaleString('ko-KR')} / {NOTICE_MAX_LENGTH.toLocaleString('ko-KR')}자</div>
-          <p id="notice-markdown-help" className="adm-secondary">내용을 비워 저장하면 메인 페이지에서 공지가 사라집니다. 미리보기는 저장 전 내용입니다.</p>
+          <p id="notice-markdown-help" className="adm-secondary">내용을 비워 저장하면 공지가 내려갑니다.</p>
           <details className="notice-manager-help"><summary>마크다운 작성 방법</summary><ul><li><code>## 제목</code>으로 제목을 만듭니다.</li><li><code>**강조**</code>는 굵게, <code>- 항목</code>은 목록으로 표시합니다.</li><li><code>[링크 이름](https://주소)</code>로 링크를 넣습니다.</li><li>문단 사이는 한 줄을 비워 주세요. 표와 코드 블록도 사용할 수 있습니다.</li></ul></details>
         </div>
       </section>
       <section className="notice-manager-panel" aria-labelledby="notice-preview-title">
         <div className="notice-manager-heading"><h2 id="notice-preview-title">미리보기</h2><span>저장 전</span></div>
-        <div className="notice-manager-body notice-manager-preview">{markdown.trim() ? <NoticeMarkdown markdown={markdown} /> : <p className="notice-manager-empty">공지 내용을 입력하면 여기에 표시됩니다.</p>}</div>
+        <div className="notice-manager-body notice-manager-preview">{markdown.trim() ? <NoticeMarkdown markdown={markdown} /> : <p className="notice-manager-empty">작성 중인 공지 없음</p>}</div>
       </section>
     </div>
     <div className="notice-manager-footer">
-      <div><p className={`adm-dirty ${changed ? 'is-dirty' : ''}`} role="status">{changed ? '저장하지 않은 변경 있음' : '저장된 내용과 같습니다.'}</p>{state.notice?.updatedAt && <p className="adm-secondary">마지막 저장 <time dateTime={state.notice.updatedAt}>{new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(state.notice.updatedAt))}</time></p>}</div>
+      <div><p className={`adm-dirty ${changed ? 'is-dirty' : ''}`} role="status">{changed ? '저장하지 않은 변경 있음' : '저장됨'}</p>{state.notice?.updatedAt && <p className="adm-secondary">마지막 저장 <time dateTime={state.notice.updatedAt}>{new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(state.notice.updatedAt))}</time></p>}</div>
       <div className="notice-manager-actions">
         {saved && <button type="button" className="krds-btn medium ev-button danger" disabled={disabled} onClick={() => {
           if (window.confirm(`${scope} 공지사항을 내리시겠습니까? 메인 페이지에서 공지가 사라집니다.`)) void publish('');

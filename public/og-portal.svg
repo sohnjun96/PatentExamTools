@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title description">
-  <title id="title">선행기술 AI 검색 포털</title>
+  <title id="title">AI 선행기술 검색 포털</title>
   <desc id="description">AI 검색 결과 평가와 KIPRIS Plus 전문 PDF를 연결하는 선행기술 검색 포털</desc>
   <defs>
     <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
@@ -23,7 +23,7 @@
     <text x="104" y="108" text-anchor="middle" fill="#fff" font-size="30" font-weight="700">AI</text>
     <text x="154" y="106" fill="#c7dafb" font-size="25" font-weight="500">특허·논문 선행기술 검토</text>
     <rect x="72" y="206" width="52" height="6" rx="3" fill="#77a5ff"/>
-    <text x="68" y="307" fill="#fff" font-size="70" font-weight="700" letter-spacing="-1.8">선행기술 AI 검색 포털</text>
+    <text x="68" y="307" fill="#fff" font-size="70" font-weight="700" letter-spacing="-1.8">AI 선행기술 검색 포털</text>
     <text x="72" y="375" fill="#d7e5fc" font-size="30" font-weight="400">AI 검색 결과 평가 · KIPRIS Plus 전문 PDF</text>
     <text x="72" y="544" fill="#9bb7dc" font-size="22" font-weight="400">문헌 검색부터 원문 확인과 평가까지</text>
   </g>

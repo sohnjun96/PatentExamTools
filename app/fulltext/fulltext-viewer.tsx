@@ -138,7 +138,7 @@ export default function FullTextViewer({
         <div className="fulltext-site-header-inner">
           <Link className="service-identity" href="/">
             <span className="service-mark" aria-hidden="true">AI</span>
-            <span><strong>선행기술 AI 검색 포털</strong><small>특허 사건 검토 지원</small></span>
+            <span><strong>AI 선행기술 검색 포털</strong><small>특허 사건 검토 지원</small></span>
           </Link>
           <nav aria-label="주요 메뉴">
             <Link href={caseUrl}>사건 조회</Link>
@@ -265,7 +265,7 @@ export default function FullTextViewer({
       </main>
 
       <footer className="krds-footer">
-        <div><strong>선행기술 AI 검색 포털</strong><p>특허 사건 검토</p></div>
+        <div><strong>AI 선행기술 검색 포털</strong><p>특허 사건 검토</p></div>
         <span>명세서와 청구항은 KIPRIS Plus에서 제공한 자료입니다.</span>
       </footer>
     </>

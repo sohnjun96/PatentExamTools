@@ -15,9 +15,10 @@ let exportedWorkbook;
 let allowDiscard = true;
 const confirmations = [];
 const hookWrites = [];
+const hookEffects = [];
 const hooks = {
   useState(initial) { const index = hookIndex++; return [index in hookOverrides ? hookOverrides[index] : typeof initial === 'function' ? initial() : initial, value => hookWrites.push({ index, value })]; },
-  useEffect() {}, useCallback: value => value, useMemo: callback => callback(), useRef: value => ({ current: value }),
+  useEffect(effect) { hookEffects.push(effect); }, useCallback: value => value, useMemo: callback => callback(), useRef: value => ({ current: value }),
 };
 function PdfStub(props) {
   return require('react/jsx-runtime').jsx('button', { disabled: props.disabled, onClick: () => { if (!props.disabled) downloads++; }, children: props.label });
@@ -41,6 +42,8 @@ function loadModule(relative, append = '') {
     if (id === './admin-workspace') return loadModule('app/evaluation/admin-workspace.tsx');
     if (id === './notice-manager') return NoticeManagerStub;
     if (id.endsWith('/bureau-notice')) return loadModule('app/components/bureau-notice.tsx');
+    if (id === '@/app/components/operation-schedule') return loadModule('app/components/operation-schedule.tsx');
+    if (id === '@/app/lib/operation-schedule') return loadModule('app/lib/operation-schedule.ts');
     if (id === '@/app/components/literature-link') return loadModule('app/components/literature-link.tsx');
     if (id === '@/app/lib/literature-link') return loadModule('app/lib/literature-link.ts');
     if (id.endsWith('/evaluation-guidance')) return loadModule('app/lib/evaluation-guidance.ts');
@@ -61,6 +64,7 @@ const adminUI = loadModule('app/evaluation/admin-workspace.tsx', '\nexport { Acc
 const domain = loadModule('app/lib/evaluation.ts');
 const { BUREAUS } = loadModule('app/lib/bureaus.ts');
 const BureauNotice = loadModule('app/components/bureau-notice.tsx').default;
+const OperationSchedule = loadModule('app/components/operation-schedule.tsx').default;
 
 for (const prefix of ['simsadesk-workspace-user', 'simsadesk-workspace-admin', 'simsadesk-case:user:2026-10', 'simsadesk-ai-task:user:2026-10', 'simsadesk-ai-filter:user:2026-10']) {
   assert.equal(ui.workspaceSessionKey(prefix), prefix, 'Legacy session keys must remain unchanged.');
@@ -149,6 +153,34 @@ hookIndex = 0; hookOverrides = [];
 const noticeAdmin = adminUI.default({ state: domain.createInitialState('2026-10'), month: domain.emptyMonth('2026-10'), bureau: '기획국', section: 'notices', busy: false });
 assert(descendants(noticeAdmin).some(({ element }) => element.type === NoticeManagerStub));
 assert(!JSON.stringify(noticeAdmin).includes('가상 자료로 업무 흐름 확인'), 'Demo loading should not interrupt notice editing.');
+const scheduleState = domain.createInitialState('2026-10');
+scheduleState.users = [{ id: 'schedule-reader', name: '일정 확인자', bureau: '기획국', division: '시험과', roles: ['examiner', 'ai'], active: true }];
+Object.assign(scheduleState.months[0], { selectionDeadline: '2026-10-24', resultDeadline: '2026-10-27', evaluationDeadline: '2026-10-30' });
+scheduleState.months.push({ ...domain.emptyMonth('2026-11'), selectionDeadline: '2026-11-05', resultDeadline: '2026-11-15', evaluationDeadline: '2026-11-25' });
+function schedulePage(monthId, { admin = false, view = 'review', selected = true } = {}) {
+  const scope = ui.workspaceSessionKey(`simsadesk-workspace-${admin ? 'admin' : 'user'}`, '기획국');
+  hookIndex = 0; hookOverrides = [];
+  hookOverrides[0] = scheduleState; hookOverrides[1] = scope; hookOverrides[3] = selected ? 'schedule-reader' : '';
+  hookOverrides[5] = monthId; hookOverrides[6] = view; hookOverrides[8] = false; hookOverrides[14] = scope;
+  return ui.default({ bureau: '기획국', admin });
+}
+for (const monthId of ['2026-10', '2026-11']) {
+  const scheduleNode = descendants(schedulePage(monthId)).filter(({ element }) => element.type?.name === 'OperationSchedule');
+  assert.equal(scheduleNode.length, 1);
+  assert.equal(scheduleNode[0].element.props.month, scheduleState.months.find(month => month.id === monthId), 'The schedule must follow the selected month, including deadlines in another month.');
+}
+for (const mode of [{ admin: true }, { view: 'ai' }, { selected: false }]) {
+  assert(!descendants(schedulePage('2026-10', mode)).some(({ element }) => element.type?.name === 'OperationSchedule'), 'Show the schedule only on the signed-in examiner workspace.');
+}
+hookIndex = 0; hookOverrides = [new Date('2026-10-27T05:00:00Z')];
+const scheduleTree = OperationSchedule({ month: scheduleState.months[0] });
+const scheduleNodes = descendants(scheduleTree);
+assert.deepEqual(Array.from(scheduleNodes.filter(({ element }) => element.type === 'h3'), ({ element }) => element.props.children), ['대상 건 선정', 'AI 검색 결과 입력', '평가']);
+assert.deepEqual(Array.from(scheduleNodes.filter(({ element }) => element.type === 'time'), ({ element }) => element.props.dateTime), ['2026-10-24', '2026-10-27', '2026-10-30']);
+assert.deepEqual(Array.from(scheduleNodes.filter(({ element }) => element.type === 'span' && element.props['aria-label']), ({ element }) => element.props.children), ['D+3', 'D-day', 'D-3']);
+hookIndex = 0; hookOverrides = [new Date('2026-10-27T05:00:00Z')];
+const noSchedule = OperationSchedule({ month: domain.emptyMonth('2026-10') });
+assert.equal(descendants(noSchedule).filter(({ element }) => element.props.children === '기한 미설정').length, 3);
 hookIndex = 0; hookOverrides = [];
 const item = { id: 'case-2', applicationNumber: '10-2020-0093844', examinerName: '담당 심사관', groupName: '1그룹' };
 let selections = 0;
@@ -187,12 +219,13 @@ const aiTarget = aiDetailNodes.find(({ element }) => element.type === TargetStub
 assert.equal(aiTarget.props.applicationNumber, item.applicationNumber);
 assert.equal(aiTarget.props.context, 'detail');
 
-assert.deepEqual(Array.from(adminUI.ADMIN_NAV, entry => entry.id), ['overview', 'accounts', 'ai', 'groups', 'month', 'cases', 'notices']);
-assert.equal(adminUI.readAdminSection(null, '전기국', 'settings'), 'accounts');
+assert.deepEqual(Array.from(adminUI.ADMIN_NAV, entry => entry.id), ['overview', 'examiners', 'ai', 'groups', 'month', 'cases', 'notices']);
+assert.equal(adminUI.readAdminSection(null, '전기국', 'settings'), 'examiners');
 assert.equal(adminUI.readAdminSection(null, undefined, 'stats'), 'overview');
 assert.equal(adminUI.readAdminSection(JSON.stringify({ adminSection: 'ai' }), '전기국', 'settings'), 'ai');
 assert.equal(adminUI.readAdminSection(JSON.stringify({ adminSection: 'notices' }), '전기국', 'settings'), 'notices');
-assert.equal(adminUI.readAdminSection(JSON.stringify({ adminSection: 'unsupported' }), '전기국', 'settings'), 'accounts');
+assert.equal(adminUI.readAdminSection(JSON.stringify({ adminSection: 'unsupported' }), '전기국', 'settings'), 'examiners');
+assert.equal(adminUI.readAdminSection(JSON.stringify({ adminSection: 'accounts' }), '전기국', 'settings'), 'examiners', 'Previously saved account-menu sessions must open the unified examiner tab.');
 const emptyState = domain.createInitialState('2026-10');
 const managerProps = { state: { ...emptyState, methods: [] }, month: emptyState.months[0], busy: false, dirty() {}, save: async () => true, onNavigate() {}, hasUnsaved: false };
 for (const Manager of [adminUI.TestAccountManager, adminUI.TestMethodManager, adminUI.TestGroupManager]) {
@@ -327,12 +360,105 @@ assert.equal(adminUI.filterAdminUsers(people, '전기', 'ai', 'active')[0].id, '
 assert.equal(adminUI.filterAdminUsers(people, '담당', 'all', 'inactive')[0].id, 'two');
 assert.equal(adminUI.filterAdminUsers(people, '미등록', 'all', 'all').length, 0);
 const demo = domain.createDemoState('2026-10');
+let personnelAction;
+let personnelDirty;
+function renderPersonnel(draft = adminUI.personnelDraft(demo.months[0]), options = {}) {
+  hookIndex = 0; hookOverrides = ['', 'all', 'all', options.editing ?? null, 'all', draft, options.accountDirty ?? false];
+  hookEffects.length = 0;
+  const tree = adminUI.TestAccountManager({ ...managerProps, state: options.state || demo, month: options.month || demo.months[0], dirty(value) { personnelDirty = value; }, save: async action => { personnelAction = action; return true; } });
+  hookEffects[0]();
+  return tree;
+}
+let allocation = adminUI.personnelDraft(demo.months[0]);
+const originalPersonnel = renderPersonnel(allocation);
+assert.equal(personnelDirty, false);
+const participantSelect = descendants(originalPersonnel).find(({ element }) => element.props['aria-label'] === demo.users[0].name + ' 이달 참여 그룹');
+assert(participantSelect);
+assert(!participantSelect.ancestors.some(element => element.type === 'button'), 'Participation controls must not trigger the account editor.');
+hookWrites.length = 0;
+participantSelect.element.props.onChange({ target: { value: 'group-b' } });
+allocation = hookWrites.findLast(entry => entry.index === 5).value(allocation);
+assert.equal(allocation.participants.find(entry => entry.userId === demo.users[0].id).groupId, 'group-b');
+assert.equal(demo.months[0].participants[0].groupId, 'group-a', 'Draft changes must not mutate saved state.');
+const withGroupDraft = renderPersonnel(allocation);
+assert.equal(personnelDirty, true);
+const aiAssignee = descendants(withGroupDraft).find(({ element }) => element.props['aria-label'] === '가상 1그룹 ChatGPT 담당자').element;
+hookWrites.length = 0;
+aiAssignee.props.onChange({ target: { value: demo.users[1].id } });
+allocation = hookWrites.findLast(entry => entry.index === 5).value(allocation);
+const unifiedPersonnel = renderPersonnel(allocation);
+const assigneeRow = descendants(unifiedPersonnel).find(({ element }) => element.type === 'article' && JSON.stringify(element).includes(demo.users[1].name)).element;
+assert(descendants(assigneeRow).some(({ element }) => element.type === 'li' && Array.from(element.props.children).join('') === '가상 1그룹 · ChatGPT'), 'The user list must immediately reflect the group AI assignment draft.');
+const personnelSave = descendants(unifiedPersonnel).find(({ element }) => element.props.children === '심사관 관리 저장').element;
+assert.equal(personnelSave.props.disabled, false);
+personnelSave.props.onClick();
+assert.equal(personnelAction.type, 'saveMonth');
+assert.equal(personnelAction.month.participants.find(entry => entry.userId === demo.users[0].id).groupId, 'group-b');
+assert.equal(personnelAction.month.assignments.find(entry => entry.groupId === 'group-a' && entry.methodId === 'chatgpt').userId, demo.users[1].id);
+assert.doesNotThrow(() => domain.applyAction(demo, { admin: true }, personnelAction));
+assert.equal(domain.applyAction(demo, { admin: true }, personnelAction).cases[0].groupId, 'group-a', 'Historical confirmed cases must retain their original group.');
+renderPersonnel(allocation, { accountDirty: true });
+assert.equal(personnelDirty, true);
+const afterModal = renderPersonnel(allocation, { accountDirty: false, editing: demo.users[0].id });
+assert.equal(personnelDirty, true, 'Closing or saving an account modal must not clear an unsaved participation draft.');
+hookWrites.length = 0;
+descendants(afterModal).find(({ element }) => element.type === adminUI.AccountEditor).element.props.onClose();
+assert(!hookWrites.some(entry => entry.index === 5), 'Closing the account editor must not replace participation or assignment inputs.');
+hookWrites.length = 0;
+await descendants(afterModal).find(({ element }) => element.type === adminUI.AccountEditor).element.props.save({ type: 'saveUser', user: demo.users[0] });
+assert(!hookWrites.some(entry => entry.index === 5), 'Saving account metadata must preserve the personnel draft.');
+assert(hookWrites.some(entry => entry.index === 0 && entry.value === '') && hookWrites.some(entry => entry.index === 4 && entry.value === 'all'), 'Account saves clear search and participation filters so new accounts remain visible.');
+const latestMonth = { ...demo.months[0], caseLimit: 9, resultDeadline: '2026-11-15' };
+const scopedPersonnelSave = adminUI.mergePersonnelMonth(latestMonth, { ...allocation, caseLimit: 1, methodIds: [] });
+assert.equal(scopedPersonnelSave.caseLimit, 9);
+assert.equal(scopedPersonnelSave.resultDeadline, '2026-11-15');
+assert.deepEqual(Array.from(scopedPersonnelSave.methodIds), Array.from(latestMonth.methodIds));
+const settingsDraft = adminUI.operatingSettings(demo.months[0]); settingsDraft.caseLimit = 7;
+const latestPersonnelMonth = { ...demo.months[0], participants: allocation.participants, assignments: allocation.assignments };
+const scopedOperatingSave = adminUI.mergeOperatingMonth(latestPersonnelMonth, settingsDraft);
+assert.equal(scopedOperatingSave.caseLimit, 7);
+assert.deepEqual(scopedOperatingSave.participants, latestPersonnelMonth.participants);
+assert.deepEqual(scopedOperatingSave.assignments, latestPersonnelMonth.assignments);
+const droppedAI = adminUI.mergeOperatingMonth(latestPersonnelMonth, { ...settingsDraft, methodIds: ['chatgpt', 'baseline'] });
+assert(droppedAI.assignments.every(entry => entry.methodId === 'chatgpt'), 'Removing a comparison AI must remove only its own assignments.');
+const closedPersonnel = renderPersonnel(allocation, { month: { ...demo.months[0], closed: true } });
+assert(descendants(closedPersonnel).filter(({ element }) => element.type === 'select' && /이달 참여 그룹|담당자$/.test(element.props['aria-label'] || '')).every(({ element }) => element.props.disabled));
+assert.equal(descendants(closedPersonnel).find(({ element }) => element.props.children === '심사관 관리 저장').element.props.disabled, true);
+assert.equal(descendants(closedPersonnel).find(({ element }) => element.props.children === '신규 계정 등록').element.props.disabled, false, 'Global account management stays available when monthly assignments are closed.');
+const withoutExaminerRole = structuredClone(demo); withoutExaminerRole.users[0].roles = ['ai'];
+const roleRepair = renderPersonnel(adminUI.personnelDraft(demo.months[0]), { state: withoutExaminerRole });
+assert.equal(descendants(roleRepair).find(({ element }) => element.props['aria-label'] === demo.users[0].name + ' 이달 참여 그룹').element.props.disabled, false, 'An invalid existing participation must remain removable.');
 const mixedReferences = ['KR1020200000000A', 'Attention Is All You Need', '10.48550/arXiv.1706.03762', 'https://arxiv.org/abs/1706.03762'];
 const mixedState = domain.applyAction(demo, { userId: 'demo-user-1' }, { type: 'saveResult', caseId: demo.cases[0].id, methodId: 'chatgpt', documents: mixedReferences, publish: true });
 const mixedProps = { state: mixedState, item: mixedState.cases[0], month: mixedState.months[0], methodId: 'chatgpt', busy: false, dirty() {}, save: async () => true };
 hookIndex = 0; hookOverrides = [];
 const evaluationTree = ui.TestEvaluationEditor(mixedProps);
 const evaluationLinks = descendants(evaluationTree).filter(({ element }) => element.type?.name === 'LiteratureLink');
+const evaluationPanels = descendants(evaluationTree).filter(({ element }) => ['AI 문헌별 평가', '조사 방식별 품질 순위', '총평'].includes(element.props.title));
+assert.deepEqual(Array.from(evaluationPanels, ({ element }) => element.props.title), ['AI 문헌별 평가', '조사 방식별 품질 순위', '총평']);
+const commentField = tree => descendants(tree).find(({ element }) => element.type === 'textarea' && element.props.id?.startsWith('overall-comment-')).element;
+assert.equal(commentField(evaluationTree).props.value, '', 'Legacy records must start with an empty optional comment.');
+assert.equal(commentField(evaluationTree).props.required, undefined);
+assert.equal(commentField(evaluationTree).props.maxLength, domain.OVERALL_COMMENT_MAX_LENGTH);
+const restoredCommentState = structuredClone(mixedState);
+restoredCommentState.rankings.find(entry => entry.caseId === mixedProps.item.id).overallComment = '이전에 저장한 총평\n검색 결과 검토';
+const commentDirty = [];
+hookIndex = 0; hookOverrides = [];
+const restoredCommentTree = ui.TestEvaluationEditor({ ...mixedProps, state: restoredCommentState, dirty: value => commentDirty.push(value) });
+assert.equal(commentField(restoredCommentTree).props.value, '이전에 저장한 총평\n검색 결과 검토', 'Restore comments even when AI result versions changed.');
+commentField(restoredCommentTree).props.onChange({ target: { value: '수정한 총평' } });
+assert.equal(commentDirty.at(-1), true, 'Comment changes must trigger the existing unsaved-input protection.');
+let savedCommentAction;
+hookIndex = 0; hookOverrides = []; hookOverrides[2] = '작성 중인 총평'; hookWrites.length = 0;
+const commentSaveTree = ui.TestEvaluationEditor({ ...mixedProps, save: async action => { savedCommentAction = action; return false; } });
+descendants(commentSaveTree).find(({ element }) => element.type === 'button' && element.props.children === '평가 저장').element.props.onClick();
+assert.equal(savedCommentAction.overallComment, '작성 중인 총평');
+assert.equal(savedCommentAction.type, 'saveEvaluation');
+assert(!hookWrites.some(write => write.index === 2), 'A failed save must not reset the comment input.');
+for (const blocked of [{ busy: true }, { month: { ...mixedProps.month, closed: true } }]) {
+  hookIndex = 0; hookOverrides = [];
+  assert.equal(commentField(ui.TestEvaluationEditor({ ...mixedProps, ...blocked })).props.disabled, true);
+}
 for (const reference of mixedReferences) {
   const linkNode = evaluationLinks.find(({ element }) => element.props.reference === reference);
   assert(linkNode, 'Every mixed document must expose a literature link in the evaluation table.');
@@ -366,26 +492,27 @@ assert.equal(adminUI.filterTargetCases(demo, '2026-10', { status: 'complete' }).
 assert.equal(adminUI.filterTargetCases(demo, '2026-11').length, 0);
 assert.equal(adminUI.filterTargetCases(demo, '2026-10', { query: demo.cases[0].applicationNumber.replace(/\D/g, '') }).length, 1);
 assert.equal(adminUI.filterTargetCases(demo, '2026-10', { examinerId: demo.users[0].id }).length, 2);
-const changed = structuredClone(demo.months[0]); changed.caseLimit = 3; changed.assignments = [];
+const changed = adminUI.operatingSettings(demo.months[0]); changed.caseLimit = 3;
 hookIndex = 0; hookOverrides = [changed, ''];
 let monthAction;
 const monthForm = adminUI.MonthlyForm({ state: demo, month: demo.months[0], busy: false, dirty() {}, onNavigate() {}, save: async action => { monthAction = action; return true; } });
-const monthSave = descendants(monthForm).find(({ element }) => element.props.children === '월별 운영·배정 저장').element;
+assert(!descendants(monthForm).some(({ element }) => element.type === 'select' && /이달 참여 그룹|담당자$/.test(element.props['aria-label'] || '')), 'Personnel controls must appear only in the unified examiner tab.');
+const monthSave = descendants(monthForm).find(({ element }) => element.props.children === '월별 운영 저장').element;
 assert.equal(monthSave.props.disabled, false, 'Missing assignments are guidance; draft month settings remain saveable.');
 monthSave.props.onClick();
 assert.equal(monthAction.type, 'saveMonth');
-assert.equal(monthAction.month.assignments.length, 0);
+assert.equal(monthAction.month.assignments.length, demo.months[0].assignments.length, 'Operating settings must preserve personnel assignments.');
 const closedMonth = { ...demo.months[0], closed: true };
 hookIndex = 0; hookOverrides = [];
 const closedForm = adminUI.MonthlyForm({ state: demo, month: closedMonth, busy: false, dirty() {}, onNavigate() {}, save: async () => true });
 const modifyingInputs = descendants(closedForm).filter(({ element }) => element.type === 'input' && ['checkbox','date','number'].includes(element.props.type));
 assert(modifyingInputs.length > 4);
 assert(modifyingInputs.every(({ element }) => element.props.disabled === true));
-const closedSave = descendants(closedForm).find(({ element }) => element.props.children === '월별 운영·배정 저장').element;
+const closedSave = descendants(closedForm).find(({ element }) => element.props.children === '월별 운영 저장').element;
 assert.equal(closedSave.props.disabled, true);
 const monthParagraphs = descendants(closedForm).filter(({ element }) => element.type === 'p').map(({ element }) => element.props.children);
-assert(monthParagraphs.includes('기한을 비워두면 제한이 없습니다. 날짜를 정하면 그날이 끝날 때까지 입력할 수 있습니다.'));
-assert(monthParagraphs.includes('출원 건수 상한 0은 제한 없음입니다.'));
+assert(monthParagraphs.includes('빈 기한은 제한 없음 · 지정한 날짜까지 입력 가능'));
+assert(monthParagraphs.includes('상한 0은 제한 없음'));
 await adminUI.exportAdminStatistics(demo, '2026-10', 'group-a', '', '전기국');
 assert(exportedWorkbook.filename.includes('전기국'));
 assert.deepEqual(Array.from(exportedWorkbook.sheets, sheet => sheet.name), ['그룹별 통계','계정별 현황','출원별 현황','조사 방식별 통계','AI 검색 결과 평가','조회 기준']);

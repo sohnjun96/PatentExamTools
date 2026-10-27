@@ -8,11 +8,11 @@ export const metadata: Metadata = {
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000',
   ),
-  title: '선행기술 AI 검색 포털 | AI 검색 결과 평가',
+  title: 'AI 선행기술 검색 포털 | AI 검색 결과 평가',
   description: '월별 대상 선정, AI 검색 결과 평가와 KIPRIS Plus 전문 PDF를 연결하는 심사 업무 공간',
   openGraph: {
-    title: '선행기술 AI 검색 포털',
-    siteName: '선행기술 AI 검색 포털',
+    title: 'AI 선행기술 검색 포털',
+    siteName: 'AI 선행기술 검색 포털',
     description: 'AI 검색 결과 평가 · KIPRIS Plus 전문 PDF',
     type: 'website',
     images: [
@@ -20,13 +20,13 @@ export const metadata: Metadata = {
         url: '/og-portal.png',
         width: 1200,
         height: 630,
-        alt: '선행기술 AI 검색 포털 — AI 검색 결과 평가와 전문 PDF',
+        alt: 'AI 선행기술 검색 포털 — AI 검색 결과 평가와 전문 PDF',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: '선행기술 AI 검색 포털',
+    title: 'AI 선행기술 검색 포털',
     description: 'AI 검색 결과 평가 · KIPRIS Plus 전문 PDF',
     images: ['/og-portal.png'],
   },

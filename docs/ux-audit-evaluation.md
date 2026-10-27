@@ -97,7 +97,7 @@ AST로 JSX 본문, 제목·설명·라벨·placeholder·접근성 라벨 속성,
 | 공통·사용자 선택 | app/evaluation/workspace.tsx:81 · EvaluationWorkspace | 상태·조건 문구 | AI 검색 결과 입력 |
 | 공통·사용자 선택 | app/evaluation/workspace.tsx:81 · EvaluationWorkspace | 상태·조건 문구 | 내 심사 업무 |
 | 공통·사용자 선택 | app/evaluation/workspace.tsx:84 · EvaluationWorkspace | 본문 | S |
-| 공통·사용자 선택 | app/evaluation/workspace.tsx:84,90 · EvaluationWorkspace | 본문 | 선행기술 AI 검색 포털 |
+| 공통·사용자 선택 | app/evaluation/workspace.tsx:84,90 · EvaluationWorkspace | 본문 | AI 선행기술 검색 포털 |
 | 공통·사용자 선택 | app/evaluation/workspace.tsx:84 · EvaluationWorkspace | 본문 | PRIOR ART REVIEW WORKSPACE |
 | 공통·사용자 선택 | app/evaluation/workspace.tsx:85 · EvaluationWorkspace | 본문 | WORKSPACE |
 | 공통·사용자 선택 | app/evaluation/workspace.tsx:85 · EvaluationWorkspace | 속성 aria-label | 주요 메뉴 |
@@ -300,7 +300,7 @@ AST로 JSX 본문, 제목·설명·라벨·placeholder·접근성 라벨 속성,
 | AI 검색 결과 입력 | app/evaluation/workspace.tsx:157 · AIResultEditor | 본문 | 검색 문헌 PDF 모으기 ↗ |
 | AI 검색 결과 입력 | app/evaluation/workspace.tsx:157 · AIResultEditor | 속성 title | 아직 공개한 결과가 없습니다. |
 | AI 검색 결과 입력 | app/evaluation/workspace.tsx:157 · AIResultEditor | 본문 | 한 문헌 이상 입력한 뒤 ‘AI 검색 결과 입력 완료’를 누르세요. |
-| 개인 엑셀 머리글 | app/evaluation/workspace.tsx:162 · exportPersonal | 동적 문구 | \`선행기술 AI 검색 포털_업무자료_${monthId}.xlsx\` |
+| 개인 엑셀 머리글 | app/evaluation/workspace.tsx:162 · exportPersonal | 동적 문구 | \`AI 선행기술 검색 포털_업무자료_${monthId}.xlsx\` |
 | 개인 엑셀 머리글 | app/evaluation/workspace.tsx:163 · exportPersonal | 상태·조건 문구 | 출원별 현황 |
 | 개인 엑셀 머리글 | app/evaluation/workspace.tsx:163,164,165,166 · exportPersonal | 상태·조건 문구 | 출원번호 |
 | 개인 엑셀 머리글 | app/evaluation/workspace.tsx:163 · exportPersonal | 상태·조건 문구 | CPC |
@@ -330,7 +330,7 @@ AST로 JSX 본문, 제목·설명·라벨·placeholder·접근성 라벨 속성,
 | 순위 표시 | app/evaluation/workspace.tsx:169 · rankLabel | 상태·조건 문구 | 비교 불가 |
 | 관리자 통계·현황 | app/evaluation/workspace.tsx:175 · AdminStats | 상태·조건 문구 | 전체 그룹 |
 | 관리자 통계·현황 | app/evaluation/workspace.tsx:175 · AdminStats | 상태·조건 문구 | 전체 심사관 |
-| exportStats | app/evaluation/workspace.tsx:176 · exportStats | 동적 문구 | \`선행기술 AI 검색 포털_관리자통계_${month.id}.xlsx\` |
+| exportStats | app/evaluation/workspace.tsx:176 · exportStats | 동적 문구 | \`AI 선행기술 검색 포털_관리자통계_${month.id}.xlsx\` |
 | exportStats | app/evaluation/workspace.tsx:177 · exportStats | 상태·조건 문구 | 그룹별 통계 |
 | exportStats | app/evaluation/workspace.tsx:177,179,182 · exportStats | 상태·조건 문구 | 그룹 |
 | exportStats | app/evaluation/workspace.tsx:177 · exportStats | 상태·조건 문구 | 참여자 |

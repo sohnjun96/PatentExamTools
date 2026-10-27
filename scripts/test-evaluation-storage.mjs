@@ -138,6 +138,24 @@ try {
   assert.equal(scopedDemo.state.users.every((user) => user.bureau === '화학국'), true);
   assert.equal(scopedDemo.state.cases.every((item) => item.bureau === '화학국'), true);
   assert.deepEqual(await store.readEvaluationState(), mainBefore);
+  const commentCase = scopedDemo.state.cases[0];
+  const commentRanking = scopedDemo.state.rankings.find(entry => entry.caseId === commentCase.id);
+  const commentAction = { type: 'saveEvaluation', caseId: commentCase.id, evaluations: [], rankings: commentRanking.values, versions: commentRanking.versions, overallComment: '화학국 출원 총평\n관련성 검토 완료' };
+  const commentRequest = revision => request('?bureau=화학국', { revision, actor: { userId: commentCase.examinerId }, action: commentAction });
+  const commentResponse = await api.POST(commentRequest(scopedDemo.revision));
+  assert.equal(commentResponse.status, 200);
+  const savedComment = await commentResponse.json();
+  assert.equal(savedComment.state.rankings.find(entry => entry.caseId === commentCase.id).overallComment, commentAction.overallComment);
+  const persistedComment = await store.readEvaluationState('화학국');
+  assert.equal(persistedComment.state.rankings.find(entry => entry.caseId === commentCase.id).overallComment, commentAction.overallComment, 'Read the comment back from isolated D1.');
+  assert(!(await store.readEvaluationState('전기국')).state.rankings.some(entry => entry.overallComment === commentAction.overallComment));
+  const otherExaminer = await api.GET(request('?bureau=화학국&userId=demo-user-2'));
+  assert(!(await otherExaminer.json()).state.rankings.some(entry => entry.caseId === commentCase.id));
+  assert.equal((await api.POST(commentRequest(scopedDemo.revision))).status, 409, 'A stale save must not overwrite the comment.');
+  commentAction.overallComment = '';
+  const clearedComment = await api.POST(commentRequest(persistedComment.revision));
+  assert.equal(clearedComment.status, 200);
+  assert.equal((await store.readEvaluationState('화학국')).state.rankings.find(entry => entry.caseId === commentCase.id).overallComment, '');
   console.log('Evaluation storage: isolated D1 persistence/CAS; bureau-specific accounts, methods, data and revisions; cross-bureau read/write rejection; selective legacy import; untouched main; scoped demo; URL-only scope and concurrent independent writes verified.');
 } finally {
   await mf.dispose();
