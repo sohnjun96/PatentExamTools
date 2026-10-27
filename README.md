@@ -83,6 +83,8 @@ OpenAI 요청에는 `store: false`를 사용합니다. AI 결과는 심사 결�
 
 ## 로컬 실행
 
+`npm run build`는 먼저 잠금파일의 의존성 참조를 검사합니다. `npm run check:lockfile`로 별도 실행할 수도 있습니다. Cloudflare의 npm 10.9.2와 로컬 npm 버전이 다르면 설치된 `node_modules`를 바탕으로 갱신한 잠금파일에서 다른 플랫폼의 선택 의존성이 누락될 수 있습니다. 의존성을 변경할 때는 별도 빈 폴더에서 `package.json`과 `package-lock.json`만 복사해 CI와 같은 npm 버전으로 `npm install --package-lock-only`를 실행하고, `npm ci`로 확인한 잠금파일을 반영하세요.
+
 Node.js 22 LTS 또는 24.19 이상을 권장합니다.
 
 1. `.env.example`을 프로젝트 루트의 `.env`로 복사합니다.
