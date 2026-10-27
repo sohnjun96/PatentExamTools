@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
-import { getAdminReadiness } from '../app/lib/admin-guidance.ts';
-import { applyAction, createDemoState, createInitialState } from '../app/lib/evaluation.ts';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
+import * as domain from '../app/lib/evaluation.ts';
 
+const module = { exports: {} };
+const source = fs.readFileSync(new URL('../app/lib/admin-guidance.ts', import.meta.url), 'utf8');
+vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, {
+  module, exports: module.exports, require(id) { assert.equal(id, '@/app/lib/evaluation'); return domain; },
+});
+const { getAdminReadiness } = module.exports;
+const { applyAction, createDemoState, createInitialState } = domain;
 const state = createDemoState('2026-10');
 const snapshot = JSON.stringify(state);
 const month = state.months[0];
@@ -11,47 +20,45 @@ assert.equal(ready.confirmedUserCount, 10);
 assert.equal(ready.confirmedParticipantCount, 10);
 assert.equal(ready.groupCount, 2);
 assert.equal(ready.selectedAiCount, 2);
-assert.equal(ready.assignmentTargetCount, 4); // Baseline never needs an AI owner.
+assert.equal(ready.assignmentTargetCount, 4);
 assert.equal(ready.assignmentReadyCount, 4);
 assert.equal(ready.canStart, true);
 assert.equal(JSON.stringify(state), snapshot);
 
-const missing = structuredClone(month);
-missing.assignments.pop();
-const missingReady = getAdminReadiness(state, missing);
+const missing = structuredClone(state);
+missing.personnel.assignments.pop();
+const missingReady = getAdminReadiness(missing, month);
 assert.equal(missingReady.missingAssignments.length, 1);
 assert.equal(missingReady.assignmentReadyCount, 3);
 assert.equal(missingReady.canStart, false);
-// The helper supplies guidance; it must not quietly add a backend save rule.
-assert.doesNotThrow(() => applyAction(state, { admin: true }, { type: 'saveMonth', month: missing }));
+assert.doesNotThrow(() => applyAction(state, { admin: true }, { type: 'savePersonnel', personnel: missing.personnel }));
 
 const inactive = structuredClone(state);
 inactive.users[0].active = false;
-const inactiveReady = getAdminReadiness(inactive, inactive.months[0]);
-assert.equal(inactiveReady.inactiveParticipants.length, 1);
-assert.equal(inactiveReady.unavailableAssignments.some((assignment) => assignment.reason === 'user_inactive'), true);
+const inactiveReady = getAdminReadiness(inactive, month);
+assert.equal(inactiveReady.participantCount, 9, 'Inactive examiners are not monthly participation targets.');
+assert.equal(inactiveReady.unavailableAssignments.some(entry => entry.reason === 'user_inactive'), true);
 assert.equal(inactiveReady.assignmentReadyCount, 3);
 assert.equal(inactiveReady.canStart, false);
 
 const removedRole = structuredClone(state);
 removedRole.users[0].roles = ['admin'];
-const roleReady = getAdminReadiness(removedRole, removedRole.months[0]);
-assert.equal(roleReady.invalidParticipants.some((participant) => participant.reason === 'examiner_role_missing'), true);
-assert.equal(roleReady.unavailableAssignments.some((assignment) => assignment.reason === 'ai_role_missing'), true);
+const roleReady = getAdminReadiness(removedRole, month);
+assert.equal(roleReady.participantCount, 9);
+assert.equal(roleReady.unavailableAssignments.some(entry => entry.reason === 'ai_role_missing'), true);
 
-const duplicates = structuredClone(month);
-duplicates.assignments.push({ ...duplicates.assignments[0] });
-duplicates.participants.push({ ...duplicates.participants[0] });
-const duplicateReady = getAdminReadiness(state, duplicates);
+const duplicates = structuredClone(state);
+duplicates.personnel.assignments.push({ ...duplicates.personnel.assignments[0] });
+duplicates.personnel.memberships.push({ ...duplicates.personnel.memberships[0] });
+const duplicateReady = getAdminReadiness(duplicates, month);
 assert.equal(duplicateReady.participantCount, 10);
-assert.equal(duplicateReady.unavailableAssignments.filter((assignment) => assignment.reason === 'duplicate_assignment').length, 2);
-assert.equal(duplicateReady.invalidParticipants.filter((participant) => participant.reason === 'duplicate_participant').length, 2);
+assert.equal(duplicateReady.unavailableAssignments.filter(entry => entry.reason === 'duplicate_assignment').length, 2);
+assert.equal(duplicateReady.invalidParticipants.filter(entry => entry.reason === 'duplicate_participant').length, 2);
 assert.equal(duplicateReady.assignmentReadyCount, 3);
 
-// Moving today's participants does not remove yesterday's confirmed-case group.
-const historicalGroups = structuredClone(month);
-historicalGroups.participants = historicalGroups.participants.filter((participant) => participant.groupId === 'group-a');
-const historicReady = getAdminReadiness(state, historicalGroups);
+const historical = structuredClone(state);
+historical.personnel.memberships = historical.personnel.memberships.filter(entry => entry.groupId === 'group-a');
+const historicReady = getAdminReadiness(historical, month);
 assert.equal(historicReady.participantGroupCount, 1);
 assert.equal(historicReady.groupCount, 2);
 assert.equal(historicReady.assignmentTargetCount, 4);
@@ -59,30 +66,27 @@ assert.equal(historicReady.confirmedUserCount, 10);
 assert.equal(historicReady.confirmedParticipantCount, 5);
 assert.equal(getAdminReadiness(state, { ...month, closed: true }).canStart, false);
 
-// Global inactive status does not unselect a method from an existing month.
 const inactiveMethod = structuredClone(state);
-inactiveMethod.methods.find((method) => method.id === 'chatgpt').active = false;
+inactiveMethod.methods.find(entry => entry.id === 'chatgpt').active = false;
 assert.equal(getAdminReadiness(inactiveMethod, month).selectedInactiveMethods.length, 1);
 assert.equal(getAdminReadiness(inactiveMethod, month).canStart, true);
-const sameNames = structuredClone(state);
-sameNames.groups[1].name = sameNames.groups[0].name;
-sameNames.methods.find((method) => method.id === 'claude').name = 'ChatGPT';
-assert.equal(getAdminReadiness(sameNames, month).assignmentTargetCount, 4);
-assert.equal(getAdminReadiness(sameNames, month).assignmentReadyCount, 4);
+assert.equal(getAdminReadiness(inactiveMethod).unavailableAssignments.length, 0, 'An inactive registered AI remains a valid global allocation.');
 
-const invalid = structuredClone(month);
-invalid.participants.push({ userId: 'unknown-user', groupId: 'unknown-group' });
-invalid.assignments.push({ userId: 'unknown-user', groupId: 'group-a', methodId: 'chatgpt' });
-invalid.methodIds.push('unknown-method', 'chatgpt');
-const invalidReady = getAdminReadiness(state, invalid);
-assert.equal(invalidReady.invalidParticipants.some((participant) => participant.reason === 'user_missing'), true);
-assert.deepEqual(invalidReady.invalidMethodIds, ['unknown-method']);
-assert.deepEqual(invalidReady.duplicateMethodIds, ['chatgpt']);
+const invalid = structuredClone(state);
+invalid.personnel.memberships.push({ userId: 'unknown-user', groupId: 'unknown-group' });
+invalid.personnel.assignments.push({ userId: 'unknown-user', groupId: 'group-a', methodId: 'chatgpt' });
+const invalidMonth = { ...month, methodIds: [...month.methodIds, 'unknown-method', 'chatgpt'] };
+const invalidReady = getAdminReadiness(invalid, invalidMonth);
+assert.equal(invalidReady.invalidParticipants.some(entry => entry.reason === 'user_missing'), true);
+assert.equal(JSON.stringify(invalidReady.invalidMethodIds), JSON.stringify(['unknown-method']));
+assert.equal(JSON.stringify(invalidReady.duplicateMethodIds), JSON.stringify(['chatgpt']));
 assert.equal(invalidReady.canStart, false);
 
+const chatgptOnly = { ...month, methodIds: ['chatgpt', 'baseline'] };
+assert.equal(getAdminReadiness(state, chatgptOnly).unavailableAssignments.length, 0);
+assert.equal(getAdminReadiness(state, chatgptOnly).assignmentTargetCount, 2);
+assert.equal(getAdminReadiness(state).assignmentTargetCount, 4);
 const empty = createInitialState('2026-10');
-const emptyReady = getAdminReadiness(empty, empty.months[0]);
-assert.equal(emptyReady.participantCount, 0);
-assert.equal(emptyReady.assignmentTargetCount, 0);
-assert.equal(emptyReady.canStart, false);
-console.log('Admin readiness: participation, historical groups, missing/inactive/duplicate assignments, changed roles, baseline exemption, method status and non-mutating draft guidance verified.');
+assert.equal(getAdminReadiness(empty, empty.months[0]).canStart, false);
+assert.equal(getAdminReadiness({ ...state, months: [] }).assignmentReadyCount, 4);
+console.log('Shared personnel/monthly readiness: historical groups, roles, missing/duplicate/inactive assignments, distinct monthly AI selections and independent global configuration passed.');

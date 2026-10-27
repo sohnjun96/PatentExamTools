@@ -19,6 +19,7 @@ assert.equal(stats.methods.find((entry) => entry.id === 'baseline').pending, 0);
 assert.equal(getStatistics(state, monthId, 'group-a').rows.length, 140);
 assert.equal(getStatistics(state, monthId, '', 'demo-user-1').rows.length, 28);
 assert.equal(getStatistics(state, '2026-11').summary.inputRate, null);
+assert.equal(getStatistics(state, '2026-11').summary.participants, 0);
 assert.equal(getStatistics(state, '2026-11').rows.length, 0);
 
 const item = state.cases[0];
@@ -71,15 +72,15 @@ assert.equal(rankingComplete(state, item, { chatgpt: 1, claude: 3, baseline: 'ex
 assert.equal(rankingComplete(state, item, { chatgpt: 'incomparable', claude: 'excluded', baseline: 'excluded' }), true);
 
 // Assignment changes affect current workload, while past attribution is a snapshot.
-const month = structuredClone(state.months[0]);
-month.assignments.find((entry) => entry.groupId === 'group-a' && entry.methodId === 'chatgpt').userId = 'demo-user-2';
-state = applyAction(state, { admin: true }, { type: 'saveMonth', month });
+const personnel = structuredClone(state.personnel);
+personnel.assignments.find((entry) => entry.groupId === 'group-a' && entry.methodId === 'chatgpt').userId = 'demo-user-2';
+state = applyAction(state, { admin: true }, { type: 'savePersonnel', personnel });
 assert.equal(resultFor(state, item.id, 'chatgpt').publishedBy.id, 'demo-user-1');
 assert.equal(getStatistics(state, monthId).accounts.find((entry) => entry.id === 'demo-user-1').aiTarget, 0);
 assert.equal(getStatistics(state, monthId).accounts.find((entry) => entry.id === 'demo-user-2').aiTarget, 20);
-const reassignedMonth = structuredClone(state.months[0]);
-reassignedMonth.participants = reassignedMonth.participants.filter((participant) => participant.userId !== 'demo-user-1');
-state = applyAction(state, { admin: true }, { type: 'saveMonth', month: reassignedMonth });
+const reassignedPersonnel = structuredClone(state.personnel);
+reassignedPersonnel.memberships = reassignedPersonnel.memberships.filter((participant) => participant.userId !== 'demo-user-1');
+state = applyAction(state, { admin: true }, { type: 'savePersonnel', personnel: reassignedPersonnel });
 const historicalAccount = getStatistics(state, monthId).accounts.find((entry) => entry.id === 'demo-user-1');
 assert.equal(historicalAccount.cases, 2);
 assert.equal(historicalAccount.aiTarget, 0);
@@ -92,8 +93,7 @@ state = applyAction(state, { admin: true }, { type: 'setMonthClosed', monthId, c
 
 // New-month draft selection is excluded until its whole list is confirmed.
 const november = emptyMonth('2026-11');
-november.participants = [{ userId: 'demo-user-1', groupId: 'group-a' }];
-november.assignments = [{ userId: 'demo-user-1', groupId: 'group-a', methodId: 'chatgpt' }];
+state = applyAction(state, { admin: true }, { type: 'savePersonnel', personnel: { ...state.personnel, memberships: [...state.personnel.memberships, { userId: 'demo-user-1', groupId: 'group-a' }] } });
 state = applyAction(state, { admin: true }, { type: 'saveMonth', month: november });
 const rows = [{ applicationNumber: '10-2020-0093844', cpc: '' }, { applicationNumber: '10-2021-0093844', cpc: 'G06N' }];
 assert.throws(() => applyAction(state, { userId: 'demo-user-1' }, { type: 'saveSelection', monthId: november.id, rows: [{ applicationNumber: 'ABC1020200093844', cpc: '' }], confirm: false }), /숫자·공백·하이픈/);
@@ -102,13 +102,13 @@ const spaced = applyAction(state, { userId: 'demo-user-1' }, { type: 'saveSelect
 assert.equal(spaced.cases.find((entry) => entry.monthId === november.id && entry.status === 'draft').applicationNumber, '10 2020 0093844');
 state = applyAction(state, { userId: 'demo-user-1' }, { type: 'saveSelection', monthId: november.id, rows, confirm: false });
 assert.equal(getStatistics(state, november.id).summary.cases, 0);
-assert.equal(getStatistics(state, november.id).summary.unselected, 1);
+assert.equal(getStatistics(state, november.id).summary.unselected, 10);
 state = applyAction(state, { userId: 'demo-user-1' }, { type: 'saveSelection', monthId: november.id, rows, confirm: true });
 assert.equal(getStatistics(state, november.id).summary.cases, 2);
-assert.equal(getStatistics(state, november.id).summary.unselected, 0);
+assert.equal(getStatistics(state, november.id).summary.unselected, 9);
 assert.throws(() => applyAction(state, { userId: 'demo-user-1' }, { type: 'saveSelection', monthId: november.id, rows: [], confirm: false }), /선정 확정/);
-const invalidMonth = { ...november, participants: [...november.participants, ...november.participants] };
-assert.throws(() => applyAction(state, { admin: true }, { type: 'saveMonth', month: invalidMonth }), /한 그룹/);
+const invalidPersonnel = { ...state.personnel, memberships: [...state.personnel.memberships, state.personnel.memberships[0]] };
+assert.throws(() => applyAction(state, { admin: true }, { type: 'savePersonnel', personnel: invalidPersonnel }), /한 개/);
 
 // Date-only deadlines include the full calendar day in Korea.
 let deadlineState = createDemoState(monthId);

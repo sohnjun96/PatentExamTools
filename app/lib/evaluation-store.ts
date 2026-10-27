@@ -1,5 +1,5 @@
 import { appDatabase } from '@/app/lib/db';
-import { applyAction, createInitialState, EvaluationError, type EvaluationAction, type EvaluationActor, type EvaluationState } from '@/app/lib/evaluation';
+import { applyAction, createInitialState, normalizeEvaluationState, EvaluationError, type EvaluationAction, type EvaluationActor, type EvaluationState } from '@/app/lib/evaluation';
 import { parseBureau, type Bureau } from '@/app/lib/bureaus';
 import { demoForBureau, migrateEvaluationBureau } from '@/app/lib/evaluation-bureau';
 
@@ -43,7 +43,7 @@ export async function readEvaluationState(bureau?: Bureau) {
       .bind(id).first<{ revision: number; payload_json: string }>();
   }
   if (!row) throw new EvaluationError('평가 업무 저장소를 초기화하지 못했습니다.', 500);
-  return { revision: row.revision, state: JSON.parse(row.payload_json) as EvaluationState };
+  return { revision: row.revision, state: normalizeEvaluationState(JSON.parse(row.payload_json) as EvaluationState) };
 }
 
 export async function mutateEvaluationState(revision: number, actor: EvaluationActor, action: EvaluationAction, bureau?: Bureau) {

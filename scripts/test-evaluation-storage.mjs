@@ -53,6 +53,9 @@ try {
   // Simulate a pre-existing main workspace shared by two bureaus. Import is
   // selective and copy-once: it must neither mutate main nor reveal other users.
   const legacy = rules.createDemoState('2026-10');
+  legacy.months[0].participants = structuredClone(legacy.personnel.memberships);
+  legacy.months[0].assignments = structuredClone(legacy.personnel.assignments);
+  delete legacy.personnel; // Exercise a genuine pre-migration payload, not the new shared model.
   legacy.users.forEach((user, index) => { user.bureau = index < 5 ? '기획국' : '전기국'; });
   legacy.cases.forEach((item) => { item.bureau = legacy.users.find((user) => user.id === item.examinerId).bureau; });
   legacy.users.push({ id: 'legacy-unknown', name: '소속 불명', bureau: '', division: '', roles: ['examiner'], active: true });
@@ -84,6 +87,25 @@ try {
   assert.equal(planning.state.months.some((month) => month.id === '2026-09'), false);
   assert.equal(planning.state.months.every((month) => month.participants.every((participant) => planning.state.users.some((user) => user.id === participant.userId))), true);
   assert.equal(planning.state.months.every((month) => month.assignments.every((assignment) => planning.state.users.some((user) => user.id === assignment.userId))), true);
+  assert.equal(planning.state.personnel.memberships.length, 5);
+  assert.equal(planning.state.personnel.assignments.length, 2);
+  assert.equal(electric.state.personnel.assignments.length, 3);
+  assert(planning.state.personnel.assignments.every((entry) => planning.state.users.some((user) => user.id === entry.userId)));
+  assert(electric.state.personnel.memberships.every((entry) => electric.state.users.some((user) => user.id === entry.userId)));
+
+  // A period edit and a global personnel edit still share one CAS revision.
+  const semiconductor = await store.readEvaluationState('반도체단');
+  const independentActions = [{ type: 'saveMonth', month: rules.emptyMonth('2026-11') }, { type: 'savePersonnel', personnel: { memberships: [], assignments: [] } }];
+  const operationRace = await Promise.allSettled(independentActions.map((action) => store.mutateEvaluationState(semiconductor.revision, { admin: true }, action, '반도체단')));
+  assert.equal(operationRace.filter((entry) => entry.status === 'fulfilled').length, 1);
+  const losingIndex = operationRace.findIndex((entry) => entry.status === 'rejected');
+  assert.equal(operationRace[losingIndex].reason.status, 409);
+  const afterOperationRace = await store.readEvaluationState('반도체단');
+  await store.mutateEvaluationState(afterOperationRace.revision, { admin: true }, independentActions[losingIndex], '반도체단');
+  const independentSaved = await store.readEvaluationState('반도체단');
+  assert(independentSaved.state.months.some((month) => month.id === '2026-11' && !month.closed));
+  assert.equal(independentSaved.state.months.filter((month) => !month.closed).length, 2);
+  assert.deepEqual(independentSaved.state.personnel, { memberships: [], assignments: [] });
 
   planning = await store.mutateEvaluationState(0, { admin: true }, { type: 'saveMethod', method: { name: '기획국 신규 AI', kind: 'ai', active: true } }, '기획국');
   assert.equal(planning.revision, 1);

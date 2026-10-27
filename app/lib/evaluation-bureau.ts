@@ -1,4 +1,4 @@
-import { createInitialState, type EvaluationState } from '@/app/lib/evaluation';
+import { createInitialState, personnelOf, type EvaluationState } from '@/app/lib/evaluation';
 import type { Bureau } from '@/app/lib/bureaus';
 
 /** Copy only records with an unambiguous legacy bureau, leaving main untouched. */
@@ -8,9 +8,13 @@ export function migrateEvaluationBureau(legacy: EvaluationState, bureau: Bureau)
   const userIds = new Set(users.map((user) => user.id));
   const cases = legacy.cases.filter((item) => item.bureau === bureau && userIds.has(item.examinerId));
   const caseIds = new Set(cases.map((item) => item.id));
-  const relevantMonths = legacy.months.filter((month) => month.participants.some((participant) => userIds.has(participant.userId)) || cases.some((item) => item.monthId === month.id));
+  const personnel = personnelOf(legacy);
+  const memberships = personnel.memberships.filter((entry) => userIds.has(entry.userId));
+  const relevantMonths = legacy.months.filter((month) => month.participants.some((participant) => userIds.has(participant.userId)) || month.assignments.some((assignment) => userIds.has(assignment.userId)) || cases.some((item) => item.monthId === month.id) || (!month.participants.length && !month.assignments.length && memberships.length > 0));
   const groupIds = new Set([
     ...cases.map((item) => item.groupId),
+    ...memberships.map((entry) => entry.groupId),
+    ...personnel.assignments.filter((entry) => userIds.has(entry.userId)).map((entry) => entry.groupId),
     ...relevantMonths.flatMap((month) => month.participants.filter((participant) => userIds.has(participant.userId)).map((participant) => participant.groupId)),
   ]);
   const months = relevantMonths.map((month) => ({
@@ -20,6 +24,7 @@ export function migrateEvaluationBureau(legacy: EvaluationState, bureau: Bureau)
     confirmedUserIds: month.confirmedUserIds.filter((id) => userIds.has(id)),
   }));
   const methodIds = new Set([
+    ...personnel.assignments.filter((entry) => userIds.has(entry.userId) && groupIds.has(entry.groupId)).map((entry) => entry.methodId),
     ...months.flatMap((month) => month.methodIds),
     ...legacy.results.filter((result) => caseIds.has(result.caseId)).map((result) => result.methodId),
   ]);
@@ -29,6 +34,7 @@ export function migrateEvaluationBureau(legacy: EvaluationState, bureau: Bureau)
   ];
   const state: EvaluationState = {
     schemaVersion: 1,
+    personnel: { memberships, assignments: personnel.assignments.filter((entry) => userIds.has(entry.userId) && groupIds.has(entry.groupId)) },
     users,
     groups: legacy.groups.filter((group) => groupIds.has(group.id)),
     methods,

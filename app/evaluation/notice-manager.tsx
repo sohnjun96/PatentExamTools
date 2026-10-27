@@ -64,7 +64,7 @@ export default function NoticeManager({ state, bureau, busy, save, dirty }: Prop
       </section>
     </div>
     <div className="notice-manager-footer">
-      <div><p className={`adm-dirty ${changed ? 'is-dirty' : ''}`} role="status">{changed ? '저장하지 않은 변경 있음' : '저장됨'}</p>{state.notice?.updatedAt && <p className="adm-secondary">마지막 저장 <time dateTime={state.notice.updatedAt}>{new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(state.notice.updatedAt))}</time></p>}</div>
+      <div>{changed && <p className="adm-dirty is-dirty" role="status">미저장 변경 있음</p>}{state.notice?.updatedAt && <p className="adm-secondary">마지막 저장 <time dateTime={state.notice.updatedAt}>{new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(state.notice.updatedAt))}</time></p>}</div>
       <div className="notice-manager-actions">
         {saved && <button type="button" className="krds-btn medium ev-button danger" disabled={disabled} onClick={() => {
           if (window.confirm(`${scope} 공지사항을 내리시겠습니까? 메인 페이지에서 공지가 사라집니다.`)) void publish('');

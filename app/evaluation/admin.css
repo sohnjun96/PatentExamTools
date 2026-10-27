@@ -218,3 +218,10 @@
 }
 /* KRDS hides native controls for its own label markup; these forms use native labels. */
 .adm input[type=checkbox] { position:static!important; width:24px!important; height:24px!important; min-height:24px; margin:0!important; padding:0!important; overflow:visible!important; clip:auto!important; clip-path:none!important; white-space:normal!important; appearance:auto; accent-color:var(--krds-color-light-primary-50); flex:0 0 24px; }
+/* Independent operating periods can remain open together. */
+.adm-months { margin-bottom: 24px; }
+.adm-month-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 16px; }
+.adm-month-card { padding: 20px; border: 1px solid var(--krds-color-light-gray-20, #cdd1d5); border-radius: 12px; background: #fff; }
+.adm-month-card.is-selected { border: 2px solid var(--krds-color-light-primary-50, #256ef4); padding: 19px; }
+.adm-month-card h3 { margin: 0; font-size: 19px; }
+.adm-month-card .adm-actions { margin-top: 16px; flex-wrap: wrap; }
