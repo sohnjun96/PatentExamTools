@@ -36,6 +36,9 @@ export default defineConfig(async () => {
     plugins: [
       vinext(),
       cloudflare({
+        persistState: process.env.PATENT_DEV_STATE_PATH
+          ? { path: process.env.PATENT_DEV_STATE_PATH }
+          : true,
         viteEnvironment: { name: 'rsc', childEnvironments: ['ssr'] },
         config: localBindingConfig,
       }),

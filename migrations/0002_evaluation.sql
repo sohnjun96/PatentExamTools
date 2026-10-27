@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS evaluation_workspace (
+  id TEXT PRIMARY KEY,
+  revision INTEGER NOT NULL DEFAULT 0,
+  payload_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

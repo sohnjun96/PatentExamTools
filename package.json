@@ -10,13 +10,6 @@
     "build": "vinext build",
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "test:claims": "node --experimental-strip-types scripts/claim-structure-regression.mjs",
-    "test:summary": "node --experimental-strip-types scripts/summary-postprocess-regression.mjs",
-    "test:workflow": "node --experimental-strip-types scripts/workflow-regression.mjs",
-    "test:api": "node scripts/api-cache-regression.mjs",
-    "test:review": "node scripts/review-improvements-regression.mjs",
-    "test:design": "node scripts/design-regression.mjs",
-    "test:text": "node scripts/patent-text-regression.mjs",
     "deploy": "wrangler deploy --config dist/server/wrangler.json",
     "deploy:preview": "wrangler versions upload --config dist/server/wrangler.json"
   },

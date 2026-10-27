@@ -1,23 +1,15 @@
-import type { Metadata, Viewport } from 'next';
+import type { Metadata } from 'next';
 import './globals.css';
-import './workspace-evidence.css';
-import './workspace-design.css';
-
-export const viewport: Viewport = {
-  width: 'device-width',
-  initialScale: 1,
-  viewportFit: 'cover',
-};
 
 export const metadata: Metadata = {
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000',
   ),
-  title: '특허심사 지원서비스 | 심사데스크',
-  description: 'KIPRIS Plus 데이터를 심사 흐름에 맞춰 정리하는 특허 사건 대시보드',
+  title: '심사데스크 | AI 검색 결과 평가',
+  description: '월별 대상 선정, AI 검색 결과 평가와 KIPRIS Plus 전문 PDF를 연결하는 심사 업무 공간',
   openGraph: {
-    title: '특허심사 지원서비스 | 심사데스크',
-    description: 'KIPRIS Plus 특허 사건 검토 대시보드',
+    title: '심사데스크',
+    description: 'AI 검색 결과 평가 · KIPRIS Plus 전문 PDF',
     type: 'website',
     images: [
       {
@@ -30,8 +22,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: '특허심사 지원서비스 | 심사데스크',
-    description: 'KIPRIS Plus 특허 사건 검토 대시보드',
+    title: '심사데스크',
+    description: 'AI 검색 결과 평가 · KIPRIS Plus 전문 PDF',
     images: ['/og.png'],
   },
 };

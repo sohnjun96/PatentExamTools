@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { reserveProviderCall } from '@/app/lib/api-protection';
 import { XMLParser } from 'fast-xml-parser';
 import { recordKiprisApiCall } from '@/app/lib/kipris-usage';
 import {
@@ -11,7 +10,6 @@ import {
 } from '@/app/lib/db';
 import { errorResponse } from '@/app/lib/http';
 import { envValue } from '@/app/lib/runtime-env';
-import { syncCaseReviewFoundation, type CaseFoundation } from '@/app/lib/review-store';
 import { getKiprisKey } from '@/app/lib/secrets';
 
 const parser = new XMLParser({
@@ -106,8 +104,6 @@ async function fetchEndpoint(
   const url = new URL(definition.path, BASE_URL);
   url.searchParams.set('applicationNumber', applicationNumber);
   url.searchParams.set(definition.keyParameter, apiKey);
-  await reserveProviderCall('kipris');
-  await recordApiUsage(WORKSPACE_USER_ID, 'kipris', [definition.operation], applicationNumber);
   recordKiprisApiCall(definition.operation);
   const response = await fetch(url, {
     cache: 'no-store',
@@ -153,18 +149,7 @@ function normalizeBibliography(payload: unknown) {
     asRecord(item.claimInfoArray).claimInfo ?? item.claimInfo,
   ).map((entry, index) => {
     const record = asRecord(entry);
-    return {
-      number:
-        Number(
-          text(
-            record.claimNumber ??
-              record.claimNo ??
-              record.claimSequence ??
-              record['@_num'],
-          ),
-        ) || index + 1,
-      text: text(record.claim ?? record.claimText ?? entry),
-    };
+    return { number: index + 1, text: text(record.claim ?? entry) };
   });
   const applicants = asArray(
     asRecord(item.applicantInfoArray).applicantInfo ?? item.applicantInfo,
@@ -293,11 +278,6 @@ export async function GET(request: NextRequest) {
         applicationNumber,
       );
       if (stored) {
-        await syncCaseReviewFoundation(
-          WORKSPACE_USER_ID,
-          applicationNumber,
-          stored.payload as CaseFoundation,
-        );
         return NextResponse.json(
           {
             ...stored.payload,
@@ -373,16 +353,17 @@ export async function GET(request: NextRequest) {
     cached: false,
   };
 
+    await recordApiUsage(
+      WORKSPACE_USER_ID,
+      'kipris',
+      names.map((name) => endpoints[name].operation),
+      applicationNumber,
+    );
     await savePatentCase(
       WORKSPACE_USER_ID,
       applicationNumber,
       response,
       fetchedAt,
-    );
-    await syncCaseReviewFoundation(
-      WORKSPACE_USER_ID,
-      applicationNumber,
-      response,
     );
 
     return NextResponse.json(

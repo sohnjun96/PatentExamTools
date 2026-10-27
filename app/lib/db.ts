@@ -1,7 +1,4 @@
 import { database } from '@/app/lib/runtime-env';
-import { REVIEW_SCHEMA_STATEMENTS } from '@/app/lib/review-schema';
-import { DOCUMENT_SCHEMA_STATEMENTS } from '@/app/lib/document-schema';
-import { WORKFLOW_SCHEMA_STATEMENTS } from '@/app/lib/workflow-schema';
 
 export const WORKSPACE_USER_ID = 'single-workspace';
 
@@ -30,18 +27,6 @@ const SCHEMA_STATEMENTS = [
     UNIQUE (user_id, application_number, summary_type, source_hash),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   )`,
-  `CREATE TABLE IF NOT EXISTS notice_analyses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL, application_number TEXT NOT NULL,
-    send_number TEXT NOT NULL, parser TEXT NOT NULL, model TEXT NOT NULL,
-    source_hash TEXT NOT NULL, markdown_text TEXT NOT NULL,
-    summary_json TEXT NOT NULL, input_tokens INTEGER NOT NULL DEFAULT 0,
-    output_tokens INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (user_id, application_number, send_number, source_hash),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  )`,
   `CREATE TABLE IF NOT EXISTS api_usage_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL, provider TEXT NOT NULL, operation TEXT NOT NULL,
@@ -50,11 +35,7 @@ const SCHEMA_STATEMENTS = [
   )`,
   'CREATE INDEX IF NOT EXISTS patent_cases_user_updated_idx ON patent_cases(user_id, updated_at DESC)',
   'CREATE INDEX IF NOT EXISTS patent_summaries_lookup_idx ON patent_summaries(user_id, application_number, updated_at DESC)',
-  'CREATE INDEX IF NOT EXISTS notice_analyses_lookup_idx ON notice_analyses(user_id, application_number, send_number, updated_at DESC)',
   'CREATE INDEX IF NOT EXISTS api_usage_user_provider_idx ON api_usage_events(user_id, provider, created_at DESC)',
-  ...REVIEW_SCHEMA_STATEMENTS,
-  ...DOCUMENT_SCHEMA_STATEMENTS,
-  ...WORKFLOW_SCHEMA_STATEMENTS,
 ];
 
 let schemaReady: Promise<void> | null = null;
@@ -114,47 +95,6 @@ export async function getPatentCase<T>(userId: string, applicationNumber: string
     .first<{ payload_json: string; fetched_at: string }>();
   if (!row) return null;
   return { payload: JSON.parse(row.payload_json) as T, fetchedAt: row.fetched_at };
-}
-
-export async function saveClaimChangeHistory(
-  userId: string,
-  applicationNumber: string,
-  sourceHash: string,
-  payload: unknown,
-  fetchedAt: string,
-) {
-  const db = await appDatabase();
-  await db
-    .prepare(
-      `INSERT INTO claim_change_histories (
-         user_id, application_number, source_hash, payload_json, fetched_at
-       ) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(user_id, application_number) DO UPDATE SET
-         source_hash = excluded.source_hash,
-         payload_json = excluded.payload_json,
-         fetched_at = excluded.fetched_at,
-         updated_at = CURRENT_TIMESTAMP`,
-    )
-    .bind(userId, applicationNumber, sourceHash, JSON.stringify(payload), fetchedAt)
-    .run();
-}
-
-export async function getClaimChangeHistory<T>(userId: string, applicationNumber: string) {
-  const db = await appDatabase();
-  const row = await db
-    .prepare(
-      `SELECT source_hash, payload_json, fetched_at
-       FROM claim_change_histories
-       WHERE user_id = ? AND application_number = ?`,
-    )
-    .bind(userId, applicationNumber)
-    .first<{ source_hash: string; payload_json: string; fetched_at: string }>();
-  if (!row) return null;
-  return {
-    sourceHash: row.source_hash,
-    payload: JSON.parse(row.payload_json) as T,
-    fetchedAt: row.fetched_at,
-  };
 }
 
 export async function recordApiUsage(
