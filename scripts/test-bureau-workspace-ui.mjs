@@ -12,8 +12,11 @@ let hookOverrides = [];
 let hookIndex = 0;
 let downloads = 0;
 let exportedWorkbook;
+let allowDiscard = true;
+const confirmations = [];
+const hookWrites = [];
 const hooks = {
-  useState(initial) { const index = hookIndex++; return [index in hookOverrides ? hookOverrides[index] : typeof initial === 'function' ? initial() : initial, () => {}]; },
+  useState(initial) { const index = hookIndex++; return [index in hookOverrides ? hookOverrides[index] : typeof initial === 'function' ? initial() : initial, value => hookWrites.push({ index, value })]; },
   useEffect() {}, useCallback: value => value, useMemo: callback => callback(), useRef: value => ({ current: value }),
 };
 function PdfStub(props) {
@@ -34,6 +37,7 @@ function loadModule(relative, append = '') {
     if (id === 'react/jsx-runtime') return require(id);
     if (id.endsWith('/pdf-download')) return PdfStub;
     if (id.endsWith('/target-publication-download')) return TargetStub;
+    if (id.endsWith('/accessible-dialog')) return loadModule('app/components/accessible-dialog.tsx');
     if (id === './admin-workspace') return loadModule('app/evaluation/admin-workspace.tsx');
     if (id === './notice-manager') return NoticeManagerStub;
     if (id.endsWith('/bureau-notice')) return loadModule('app/components/bureau-notice.tsx');
@@ -49,7 +53,7 @@ function loadModule(relative, append = '') {
     if (id.startsWith('@/app/') || id.endsWith('.css')) return {};
     return require(id);
   };
-  vm.runInNewContext(outputText, { module, exports: module.exports, require: localRequire, URL, URLSearchParams, console, structuredClone, crypto: webcrypto }, { filename });
+  vm.runInNewContext(outputText, { module, exports: module.exports, require: localRequire, URL, URLSearchParams, console, structuredClone, crypto: webcrypto, window: { confirm(message) { confirmations.push(message); return allowDiscard; } } }, { filename });
   return module.exports;
 }
 const ui = loadModule('app/evaluation/workspace.tsx', '\nexport { CaseResource as TestCaseResource, EvaluationEditor as TestEvaluationEditor, AIResultEditor as TestAIResultEditor };');
@@ -113,7 +117,7 @@ const noticeTime = noticeNodes.find(({ element }) => element.type === 'time').el
 assert.equal(noticeTime.props.dateTime, publicNotice.updatedAt);
 assert(JSON.stringify(noticeTime).includes('19:00'), 'Notice dates must use Asia/Seoul time.');
 
-function renderWorkspaceWithNotice(bureau, { admin = false, selected = false, closed = false } = {}) {
+function renderWorkspaceWithNotice(bureau, { admin = false, selected = false, closed = false, error = '', conflict = false } = {}) {
   const state = domain.createInitialState('2026-10');
   state.notice = publicNotice;
   state.users = [{ id: 'notice-reader', name: '공지 확인자', bureau, division: '시험과', roles: ['examiner'], active: true }];
@@ -122,6 +126,7 @@ function renderWorkspaceWithNotice(bureau, { admin = false, selected = false, cl
   hookIndex = 0; hookOverrides = [];
   hookOverrides[0] = state; hookOverrides[1] = scope; hookOverrides[3] = selected ? 'notice-reader' : '';
   hookOverrides[5] = '2026-10'; hookOverrides[7] = 'notices'; hookOverrides[8] = false; hookOverrides[14] = scope;
+  hookOverrides[11] = error; hookOverrides[15] = conflict;
   return ui.default({ bureau, admin });
 }
 for (const bureau of BUREAUS) {
@@ -134,6 +139,10 @@ for (const bureau of BUREAUS) {
   }
 }
 const noticeAdminTree = renderWorkspaceWithNotice('기획국', { admin: true, closed: true });
+const failedSaveTree = renderWorkspaceWithNotice('기획국', { admin: true, error: '저장 충돌', conflict: true });
+const recoveryButtons = descendants(failedSaveTree).filter(({ element }) => element.type === 'button' && ['현재 입력 보관 파일 저장', '입력 버리고 최신 자료 불러오기'].includes(element.props.children));
+assert.equal(recoveryButtons.length, 2);
+assert(recoveryButtons.every(({ element }) => element.props.type === 'button'), 'Recovery actions rendered inside an account form must not submit it.');
 assert(!descendants(noticeAdminTree).some(({ element }) => element.props['aria-label'] === '운영월'), 'Notices are independent of the selected month.');
 assert(!JSON.stringify(noticeAdminTree).includes('이 운영월은 마감되었습니다.'), 'A closed month must not prevent editing a notice.');
 hookIndex = 0; hookOverrides = [];
@@ -190,7 +199,7 @@ for (const Manager of [adminUI.TestAccountManager, adminUI.TestMethodManager, ad
   hookIndex = 0; hookOverrides = [];
   const tree = Manager(managerProps);
   const placeholders = descendants(tree).filter(({ element }) => element.type?.name === 'Empty');
-  assert.equal(placeholders.length, 2);
+  assert.equal(placeholders.length, Manager === adminUI.TestGroupManager ? 2 : 1);
   assert(placeholders.every(({ element }) => element.props.actions === undefined), 'Empty list and unselected editor must not repeat the toolbar registration action.');
 }
 hookIndex = 0; hookOverrides = [];
@@ -205,7 +214,111 @@ const form = descendants(userForm).find(({ element }) => element.type === 'form'
 await form.props.onSubmit({ preventDefault() {} });
 assert.equal(savedAction.type, 'saveUser');
 assert.equal(savedAction.user.bureau, '전기국');
+const modal = initialUserForm.type(initialUserForm.props);
+assert.equal(descendants(modal).find(({ element }) => element.props.role === 'dialog').element.props['aria-labelledby'], 'adm-account-dialog-title');
+assert(descendants(modal).some(({ element }) => element.props.id === 'adm-account-dialog-title'));
+let closedAccounts = 0;
+const enteredAccount = { name: '입력 보존 담당자', bureau: '전기국', division: '시험과', roles: ['examiner', 'ai'], active: true };
+function accountDialog(extra = {}, failed = false) {
+  hookIndex = 0; hookOverrides = [enteredAccount, failed];
+  return adminUI.AccountEditor({ bureau: '전기국', busy: false, dirty() {}, onClose() { closedAccounts++; }, save: async () => false, ...extra });
+}
+allowDiscard = false;
+const guardedDialog = accountDialog();
+guardedDialog.props.onClose();
+assert.equal(closedAccounts, 0, 'Escape/backdrop dismissal must preserve an unsaved account when discard is cancelled.');
+const cancelAccount = descendants(guardedDialog).find(({ element }) => element.props.children === '취소').element;
+cancelAccount.props.onClick();
+assert.equal(closedAccounts, 0, 'The cancel button must use the same unsaved guard.');
+allowDiscard = true;
+guardedDialog.props.onClose();
+assert.equal(closedAccounts, 1);
+accountDialog({ busy: true }).props.onClose();
+assert.equal(closedAccounts, 1, 'Saving must block Escape and backdrop dismissal.');
+hookWrites.length = 0;
+const failedAccount = accountDialog();
+await descendants(failedAccount).find(({ element }) => element.type === 'form').element.props.onSubmit({ preventDefault() {} });
+assert.equal(closedAccounts, 1, 'A rejected save must keep the account modal open.');
+assert.equal(hookWrites.findLast(entry => entry.index === 1).value, true);
+const visibleFailure = accountDialog({}, true);
+assert(descendants(visibleFailure).some(({ element }) => element.props.role === 'alert'));
+assert.equal(descendants(visibleFailure).find(({ element }) => element.type === 'input' && element.props.required).element.props.value, enteredAccount.name);
+const recoveryFeedback = require('react/jsx-runtime').jsx('div', { role: 'alert', children: '충돌 안내 및 입력 보관' });
+assert(descendants(accountDialog({ saveFeedback: recoveryFeedback }, true)).some(({ element }) => element === recoveryFeedback), 'Server guidance and input-recovery actions must remain available inside the modal.');
+await descendants(accountDialog({ save: async () => true })).find(({ element }) => element.type === 'form').element.props.onSubmit({ preventDefault() {} });
+assert.equal(closedAccounts, 2, 'A successful save must close the modal.');
+for (const editing of ['new', 'managed-user']) {
+  const managedUser = { ...enteredAccount, id: 'managed-user' };
+  hookIndex = 0; hookOverrides = ['', 'all', 'all', editing];
+  const manager = adminUI.TestAccountManager({ ...managerProps, state: { ...managerProps.state, users: [managedUser] } });
+  const editor = descendants(manager).find(({ element }) => element.type === adminUI.AccountEditor).element;
+  assert.equal(editor.props.user, editing === 'new' ? undefined : managedUser, 'New and existing accounts must both open the modal editor.');
+}
 const people = [{ id: 'one', name: '김담당', division: '전기1과', roles: ['examiner','ai'], active: true }, { id: 'two', name: '이담당', division: '화학과', roles: ['examiner'], active: false }];
+const methodManagerProps = { ...managerProps, state: emptyState };
+hookIndex = 0; hookOverrides = [];
+const catalog = adminUI.TestMethodManager(methodManagerProps);
+const aiCards = descendants(catalog).filter(({ element }) => element.type === 'button' && element.props.className?.startsWith('adm-ai-card '));
+assert.deepEqual(Array.from(aiCards, ({ element }) => element.props['aria-label']), ['AI 종류 ChatGPT 수정', 'AI 종류 클로드 수정']);
+assert(aiCards.every(({ element }) => element.props['aria-haspopup'] === 'dialog'));
+assert(!aiCards.some(({ element }) => JSON.stringify(element).includes('선행기술조사')), 'Rank-only comparison methods must be separate from the registered AI cards.');
+assert(!descendants(catalog).some(({ element }) => element.type === adminUI.MethodEditor), 'The catalog must not show an inline or initially open editor.');
+for (const editing of ['new', 'claude', 'baseline']) {
+  hookIndex = 0; hookOverrides = ['', 'all', editing];
+  const tree = adminUI.TestMethodManager(methodManagerProps);
+  const editor = descendants(tree).find(({ element }) => element.type === adminUI.MethodEditor).element;
+  assert.equal(editor.props.method?.id, editing === 'new' ? undefined : editing);
+}
+hookIndex = 0; hookOverrides = ['클로드', 'all', null];
+const filteredAI = descendants(adminUI.TestMethodManager(methodManagerProps)).filter(({ element }) => element.type === 'button' && element.props.className?.startsWith('adm-ai-card '));
+assert.equal(filteredAI.length, 1);
+assert.equal(filteredAI[0].element.props['aria-label'], 'AI 종류 클로드 수정');
+let closedMethods = 0;
+let savedMethodAction;
+const enteredMethod = { name: 'Gemini', kind: 'ai', active: true };
+function methodDialog(extra = {}, failed = false) {
+  hookIndex = 0; hookOverrides = [enteredMethod, failed];
+  return adminUI.MethodEditor({ busy: false, dirty() {}, onClose() { closedMethods++; }, save: async action => { savedMethodAction = action; return true; }, ...extra });
+}
+const newMethod = methodDialog();
+const methodShell = newMethod.type(newMethod.props);
+assert.equal(descendants(methodShell).find(({ element }) => element.props.role === 'dialog').element.props['aria-labelledby'], 'adm-method-dialog-title');
+await descendants(newMethod).find(({ element }) => element.type === 'form').element.props.onSubmit({ preventDefault() {} });
+assert.equal(savedMethodAction.type, 'saveMethod');
+assert.equal(savedMethodAction.method.kind, 'ai');
+assert.equal(savedMethodAction.method.name, 'Gemini');
+assert.equal(closedMethods, 1);
+const withNewAI = domain.applyAction(emptyState, { admin: true }, savedMethodAction);
+assert(withNewAI.methods.some(method => method.name === 'Gemini' && method.kind === 'ai'));
+const claude = emptyState.methods.find(method => method.id === 'claude');
+hookIndex = 0; hookOverrides = [{ ...claude, name: '클로드 공용', active: false }, false];
+const editMethod = adminUI.MethodEditor({ method: claude, busy: false, dirty() {}, onClose() {}, save: async action => { savedMethodAction = action; return true; } });
+await descendants(editMethod).find(({ element }) => element.type === 'form').element.props.onSubmit({ preventDefault() {} });
+assert.equal(savedMethodAction.method.id, 'claude');
+assert.equal(savedMethodAction.method.kind, 'ai');
+assert.equal(savedMethodAction.method.active, false);
+assert.equal(domain.applyAction(withNewAI, { admin: true }, savedMethodAction).methods.find(method => method.id === 'claude').name, '클로드 공용');
+assert.equal(withNewAI.methods.find(method => method.id === 'baseline').kind, 'baseline');
+allowDiscard = false;
+methodDialog().props.onClose();
+assert.equal(closedMethods, 1, 'Cancelling discard must keep the AI tool modal open.');
+allowDiscard = true;
+methodDialog({ busy: true }).props.onClose();
+assert.equal(closedMethods, 1, 'Saving must prevent closing the AI tool modal.');
+hookWrites.length = 0;
+await descendants(methodDialog({ save: async () => false })).find(({ element }) => element.type === 'form').element.props.onSubmit({ preventDefault() {} });
+assert.equal(closedMethods, 1);
+assert.equal(hookWrites.findLast(entry => entry.index === 1).value, true);
+const methodFailure = methodDialog({ saveFeedback: recoveryFeedback }, true);
+assert(descendants(methodFailure).some(({ element }) => element === recoveryFeedback));
+assert.equal(descendants(methodFailure).find(({ element }) => element.type === 'input').element.props.value, enteredMethod.name);
+hookIndex = 0; hookOverrides = ['클로드', 'inactive', 'new'];
+const searchedCatalog = adminUI.TestMethodManager(methodManagerProps);
+const searchedEditor = descendants(searchedCatalog).find(({ element }) => element.type === adminUI.MethodEditor).element;
+hookWrites.length = 0;
+await searchedEditor.props.save({ type: 'saveMethod', method: enteredMethod });
+assert(hookWrites.some(entry => entry.index === 0 && entry.value === ''));
+assert(hookWrites.some(entry => entry.index === 1 && entry.value === 'all'), 'Saving an AI tool must clear filters so the new or changed tool stays visible.');
 hookIndex = 0; hookOverrides = ['검색결과없음', 'all', 'all', null];
 const noMatchingAccount = adminUI.TestAccountManager({ ...managerProps, state: { ...emptyState, users: people } });
 const searchEmpty = descendants(noMatchingAccount).find(({ element }) => element.props?.title === '검색 조건에 맞는 계정이 없습니다.');
