@@ -5,6 +5,7 @@ import { recordKiprisApiCall } from '@/app/lib/kipris-usage';
 import { getApiUsage, recordApiUsage, WORKSPACE_USER_ID } from '@/app/lib/db';
 import { errorResponse } from '@/app/lib/http';
 import { getKiprisKey } from '@/app/lib/secrets';
+import { normalizeApplicationNumber } from '@/app/lib/patent-number';
 
 const BASE_URL = 'https://plus.kipris.or.kr';
 const METADATA_PATH =
@@ -247,16 +248,16 @@ async function fetchFullTextMetadata(applicationNumber: string, accessKey: strin
 
 export async function GET(request: NextRequest) {
   const rawNumber = request.nextUrl.searchParams.get('applicationNumber') ?? '';
-  const applicationNumber = rawNumber.replace(/\D/g, '');
+  const applicationNumber = normalizeApplicationNumber(rawNumber);
 
-  if (!/^(10|20)\d{11}$/.test(applicationNumber)) {
+  if (!applicationNumber) {
     return NextResponse.json(
       { error: '특허·실용신안 출원번호 13자리를 입력해 주세요.' },
       { status: 400 },
     );
   }
 
-  if (applicationNumber === demoFullText.applicationNumber) {
+  if (request.nextUrl.searchParams.get('demo') === '1' && applicationNumber === demoFullText.applicationNumber) {
     return NextResponse.json(demoFullText, {
       headers: { 'Cache-Control': 'private, max-age=300' },
     });

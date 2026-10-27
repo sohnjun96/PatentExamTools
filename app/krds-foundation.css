@@ -1,0 +1,117 @@
+/* Official KRDS Component Kit 1.1.0 supplies the tokens and component styles.
+   These aliases connect retained application classes to the same design scale. */
+@font-face { font-family:'Pretendard GOV'; src:url('krds-uiux/resources/fonts/PretendardGOV-Regular.subset.woff2') format('woff2'); font-style:normal; font-weight:400; font-display:swap; }
+@font-face { font-family:'Pretendard GOV'; src:url('krds-uiux/resources/fonts/PretendardGOV-Medium.subset.woff2') format('woff2'); font-style:normal; font-weight:500 600; font-display:swap; }
+@font-face { font-family:'Pretendard GOV'; src:url('krds-uiux/resources/fonts/PretendardGOV-Bold.subset.woff2') format('woff2'); font-style:normal; font-weight:700 900; font-display:swap; }
+
+:root {
+  --krds-primary-5:var(--krds-color-light-primary-5);
+  --krds-primary-10:var(--krds-color-light-primary-10);
+  --krds-primary-20:var(--krds-color-light-primary-20);
+  --krds-primary-50:var(--krds-color-light-primary-50);
+  --krds-primary-60:var(--krds-color-light-primary-60);
+  --krds-primary-70:var(--krds-color-light-primary-70);
+  --krds-gray-0:var(--krds-color-light-gray-0);
+  --krds-gray-5:var(--krds-color-light-gray-5);
+  --krds-gray-10:var(--krds-color-light-gray-10);
+  --krds-gray-20:var(--krds-color-light-gray-20);
+  --krds-gray-40:var(--krds-color-light-gray-40);
+  --krds-gray-50:var(--krds-color-light-gray-50);
+  --krds-gray-60:var(--krds-color-light-gray-60);
+  --krds-gray-70:var(--krds-color-light-gray-70);
+  --krds-gray-80:var(--krds-color-light-gray-80);
+  --krds-gray-90:var(--krds-color-light-gray-90);
+  --krds-danger-5:var(--krds-color-light-danger-5);
+  --krds-danger-10:var(--krds-color-light-danger-10);
+  --krds-danger-50:var(--krds-color-light-danger-50);
+  --krds-danger-60:var(--krds-color-light-danger-60);
+  --krds-success-5:var(--krds-color-light-success-5);
+  --krds-success-50:var(--krds-color-light-success-50);
+  --ink:var(--krds-gray-90);
+  --muted:var(--krds-gray-60);
+  --line:var(--krds-gray-20);
+  --paper:var(--krds-gray-5);
+  --accent:var(--krds-primary-50);
+  --accent-soft:var(--krds-primary-5);
+  --ui-control-height:48px;
+  --ui-control-radius:var(--krds-radius-medium1,8px);
+}
+
+html { font-size:62.5%; scroll-padding-top:24px; }
+body { font-family:'Pretendard GOV','Noto Sans KR','맑은 고딕',sans-serif; font-size:17px; line-height:1.5; color:var(--krds-gray-90); background:var(--krds-gray-5); word-break:keep-all; overflow-wrap:break-word; }
+button,input,select,textarea { font-family:inherit; }
+button,a,input,select,textarea { -webkit-tap-highlight-color:transparent; }
+:where(button,a,input,select,textarea,[tabindex]):focus-visible { outline:3px solid var(--krds-primary-60); outline-offset:3px; }
+button:disabled { cursor:not-allowed; }
+input:disabled,select:disabled,textarea:disabled { color:var(--krds-gray-60); background:var(--krds-gray-5); }
+::selection { background:var(--krds-primary-10); color:var(--krds-primary-70); }
+.skip-link { position:fixed; left:16px; top:-100px; z-index:1000; padding:14px 24px; background:var(--krds-primary-70); color:white; border-radius:8px; font-size:17px; }
+.skip-link:focus { top:12px; }
+.ui-sr-only { position:absolute!important; width:1px!important; height:1px!important; margin:-1px!important; padding:0!important; clip:rect(0,0,0,0)!important; overflow:hidden!important; border:0!important; white-space:nowrap!important; }
+
+/* Retained case and XML reading surfaces share KRDS type and control sizes. */
+.app-shell,.fulltext-main,.fulltext-site-header,.krds-footer { font-size:17px; }
+.sidebar { background:var(--krds-gray-0); color:var(--krds-gray-90); border-right:1px solid var(--krds-gray-20); }
+.sidebar .brand,.sidebar .brand strong { color:var(--krds-gray-90); }
+.sidebar .brand small,.sidebar .nav-label { color:var(--krds-gray-60); font-size:13px; letter-spacing:0; }
+.sidebar .brand-mark { color:var(--krds-primary-70); background:var(--krds-primary-5); border-color:var(--krds-primary-20); }
+.sidebar .nav-item { color:var(--krds-gray-80); min-height:48px; font-size:16px; }
+.sidebar .nav-item:hover { color:var(--krds-primary-70); background:var(--krds-primary-5); }
+.sidebar .nav-item.active { color:var(--krds-primary-70); background:var(--krds-primary-5); font-weight:700; }
+.sidebar .nav-item span,.sidebar .nav-item.active span { color:var(--krds-primary-60); font-family:inherit; font-size:15px; }
+.sidebar .nav-item.active:before { background:var(--krds-primary-50); }
+.sidebar .source-status { background:var(--krds-gray-5); border-color:var(--krds-gray-20); }
+.sidebar .source-status strong { color:var(--krds-gray-80); font-size:14px; }
+.sidebar .source-status small { color:var(--krds-gray-60); font-size:13px; }
+.topbar { align-items:flex-start; gap:20px; }
+.search-box label { font-size:15px; font-weight:700; color:var(--krds-gray-80); }
+.search-box>div { min-height:56px; }
+.search-box input { font-size:17px; min-height:48px; }
+.search-submit,.export-button,.outline-button,.krds-button,.plain-link,.text-button,.segmented button,.krds-segmented button { min-height:48px; font-size:15px; }
+.search-submit { height:48px; }
+.export-button,.outline-button,.krds-button { padding:10px 20px; border-radius:var(--ui-control-radius); }
+.api-usage-pill,.demo-pill { font-family:inherit; font-size:13px; }
+.api-usage-pill small,.case-status,.case-updated { font-size:13px; }
+.breadcrumb,.view-header p,.applicant-block small,.applicant-block span { font-size:15px; }
+.case-heading h1,.view-header h1 { font-weight:700; }
+.case-heading p { font-size:15px; letter-spacing:0; }
+.fact-card span,.fact-card small,.fact-card-cpc>button { font-size:15px; }
+.fact-card-cpc>button { min-height:44px; }
+.fact-card strong { font-size:24px; }
+.panel-heading h2,.detail-panel h2,.abstract-panel h2 { font-size:22px; font-weight:700; }
+.notice-card strong,.review-list strong,.abstract-preview p,.view-header p,.data-list dd,.mini-list dd { font-size:16px; }
+.notice-card p,.review-list small,.data-list dt,.mini-list dt { font-size:15px; }
+.notice-card button { min-height:48px; padding:10px 14px; font-size:15px; }
+.timeline-row { min-height:56px; grid-template-columns:12px 92px minmax(0,1fr); }
+.timeline-row time,.timeline-row strong,.timeline-row small { font-size:14px; }
+.source-chip strong { font-size:14px; }
+.source-chip small { font-size:13px; }
+.history-table-head,.history-table-row time,.history-table-row code,.history-table-row strong,.family-table-head,.family-table-row,.status-label { font-size:15px; }
+.history-table-row small { font-size:14px; }
+.history-table-row>div:last-child button,.document-card button { min-height:48px; padding:10px 16px; font-size:15px; }
+.claim-card p,.abstract-panel p,.fulltext-prose>p,.fulltext-claims article p { font-size:17px; line-height:1.8; }
+.document-card h2 { font-size:20px; }
+.document-card p,.document-card small { font-size:15px; }
+.fulltext-search-field input { min-height:48px; font-size:17px; }
+.fulltext-hero h1 { font-weight:700; }
+.fulltext-facts dt,.fulltext-facts dd,.fulltext-toc a { font-size:15px; }
+.fulltext-toc a { min-height:44px; }
+.modal header button,.dialog-close { min-width:48px; min-height:48px; }
+.modal { max-width:calc(100vw - 32px); max-height:calc(100dvh - 32px); }
+
+@media(max-width:760px) {
+  .top-actions { gap:8px; }
+  .content { width:calc(100% - 32px); }
+  .search-box { width:100%; }
+  .sidebar .side-nav { overflow:auto; }
+  .fact-card { padding:16px; }
+  .fact-card strong { font-size:21px; }
+  .case-heading { flex-wrap:wrap; }
+  .applicant-block { border:0; padding:0; }
+  .fulltext-actions { flex-wrap:wrap; }
+  .fulltext-hero h1 { font-size:32px; }
+  .fulltext-prose>p { font-size:17px; word-break:keep-all; }
+  .timeline-row { grid-template-columns:10px 85px minmax(0,1fr); }
+}
+@media(prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } *,*:before,*:after { animation-duration:.01ms!important; transition-duration:.01ms!important; } }
+@media print { html { font-size:62.5%; } body { background:white; } .skip-link { display:none; } }

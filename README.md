@@ -1,5 +1,7 @@
 # 심사데스크 · AI 검색 결과 평가
 
+UI·UX는 공식 `krds-uiux@1.1.0` 컴포넌트·토큰과 Pretendard GOV를 적용했습니다. PDF 중복·해외 혼합 처리, 오류 복구, 역할별 진입, 작업 위치 복원과 키보드 조작을 보완했습니다. 요청한 Toss UX 라이팅 점검안도 모두 반영했습니다. 최신 문구·동작·검증 결과는 [UX 라이팅 적용 결과](docs/UX_WRITING_APPLIED.md), 앞선 디자인 변경은 [KRDS UI·UX 수정 결과](docs/KRDS_UI_UX_IMPLEMENTATION.md)에 있습니다. 이전 [UI·UX 점검 기록](docs/UI_UX_REVIEW.md)은 수정 전 상태를 기록한 문서입니다.
+
 `AI 평가 시스템 설계`의 업무 규칙을 바탕으로 월별 평가 업무를 첫 화면에 추가했습니다. 기존 KIPRIS Plus 사건 조회·명세서·청구항·행정이력·패밀리·AI 요약은 `/patent`에 보존했습니다.
 
 ## 개편한 화면

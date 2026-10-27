@@ -2,6 +2,9 @@
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import PdfDownloadButton from '../components/pdf-download';
+import { applicationNumberLabel, normalizeApplicationNumber, SAMPLE_APPLICATION_NUMBER } from '../lib/patent-number';
+import { patentFeedback } from '../lib/patent-feedback';
 
 type FullTextParagraph = {
   number: string | null;
@@ -30,13 +33,6 @@ type FullTextPayload = {
   isDemo: boolean;
   fetchedAt?: string | null;
 };
-
-function formatApplicationNumber(value: string) {
-  const digits = value.replace(/\D/g, '');
-  return digits.length === 13
-    ? `${digits.slice(0, 2)}-${digits.slice(2, 6)}-${digits.slice(6)}`
-    : value;
-}
 
 function isIndependentClaim(claim: FullTextClaim) {
   return !claim.text.trim().startsWith('제');
@@ -67,38 +63,41 @@ function Highlight({ text, query }: { text: string; query: string }) {
 
 export default function FullTextViewer({
   initialApplicationNumber,
+  explicitDemo = false,
 }: {
   initialApplicationNumber: string;
+  explicitDemo?: boolean;
 }) {
-  const applicationNumber = /^(10|20)\d{11}$/.test(initialApplicationNumber)
-    ? initialApplicationNumber
-    : '1020200093844';
+  const applicationNumber = normalizeApplicationNumber(initialApplicationNumber);
   const [payload, setPayload] = useState<FullTextPayload | null>(null);
   const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
   const [query, setQuery] = useState('');
   const [claimMode, setClaimMode] = useState<'all' | 'independent'>('all');
 
   useEffect(() => {
+    if (!applicationNumber) return;
+    const requestedNumber = applicationNumber;
     const controller = new AbortController();
+    setError(''); setPayload(null);
     async function load() {
       try {
         const response = await fetch(
-          `/api/patent/fulltext?applicationNumber=${encodeURIComponent(applicationNumber)}`,
+          `/api/patent/fulltext?applicationNumber=${encodeURIComponent(requestedNumber)}${explicitDemo ? '&demo=1' : ''}`,
           { signal: controller.signal },
         );
         const result = (await response.json()) as FullTextPayload & { error?: string };
         if (!response.ok) throw new Error(result.error || '전문파일을 불러오지 못했습니다.');
+        if (result.applicationNumber !== requestedNumber) throw new Error('응답의 출원번호가 요청과 다릅니다. 출원번호를 다시 확인해 주세요.');
         setPayload(result);
       } catch (caught) {
         if (caught instanceof DOMException && caught.name === 'AbortError') return;
-        setError(
-          caught instanceof Error ? caught.message : '전문파일을 불러오지 못했습니다.',
-        );
+        setError(patentFeedback(caught, 'fulltext'));
       }
     }
     load();
     return () => controller.abort();
-  }, [applicationNumber]);
+  }, [applicationNumber, explicitDemo, retry]);
 
   const visibleClaims = useMemo(() => {
     if (!payload) return [];
@@ -126,13 +125,14 @@ export default function FullTextViewer({
       payload.sections.reduce((sum, section) => sum + section.paragraphs.length, 0)
     : 0;
   const title = splitTitle(payload?.title || '전문 명세서');
-  const formattedNumber = formatApplicationNumber(applicationNumber);
+  const formattedNumber = applicationNumberLabel(initialApplicationNumber);
+  const caseUrl = `/patent?applicationNumber=${encodeURIComponent(initialApplicationNumber)}${explicitDemo ? '&demo=1' : ''}`;
 
   return (
     <>
       <a className="skip-link" href="#fulltext-main">본문 바로가기</a>
       <div className="krds-masthead">
-        <div><span className="krds-flag" aria-hidden="true" />이 누리집은 대한민국 공식 전자정부 누리집의 디자인 원칙을 참고한 MVP입니다.</div>
+        <div><span className="krds-flag" aria-hidden="true" />특허 사건과 AI 검색 결과를 검토하는 업무 공간입니다.</div>
       </div>
       <header className="fulltext-site-header">
         <div className="fulltext-site-header-inner">
@@ -141,37 +141,45 @@ export default function FullTextViewer({
             <span><strong>심사데스크</strong><small>특허 사건 검토 지원</small></span>
           </Link>
           <nav aria-label="주요 메뉴">
-            <Link href={`/patent?applicationNumber=${applicationNumber}`}>사건 대시보드</Link>
-            <Link className="active" href={`/fulltext?applicationNumber=${applicationNumber}`} aria-current="page">전문 명세서</Link>
+            <Link href={caseUrl}>사건 조회</Link>
+            <Link href="/documents">전문 PDF 내려받기</Link>
           </nav>
         </div>
       </header>
 
       <main id="fulltext-main" className="fulltext-main" tabIndex={-1}>
         <nav className="breadcrumb fulltext-breadcrumb" aria-label="현재 위치">
-          <Link href="/">홈</Link><span>›</span><Link href={`/patent?applicationNumber=${applicationNumber}`}>심사 사건</Link><span>›</span><strong>전문 명세서</strong>
+          <Link href="/">AI 평가 업무</Link><span>›</span><Link href={caseUrl}>사건 조회</Link><span>›</span><strong>전문 명세서</strong>
         </nav>
 
-        {error ? (
+        {!applicationNumber ? (
+          <section className="fulltext-error" role={initialApplicationNumber ? 'alert' : undefined}>
+            <h1>{initialApplicationNumber ? '출원번호를 확인해 주세요.' : '출원번호로 전문을 조회하세요.'}</h1>
+            {initialApplicationNumber && <p>입력한 번호: <strong>{initialApplicationNumber}</strong></p>}
+            <p>특허·실용신안 출원번호 13자리를 입력하면 명세서와 청구항을 볼 수 있습니다.</p>
+            <div className="fulltext-actions"><Link className="krds-button primary" href={caseUrl}>출원번호 다시 조회</Link>{!initialApplicationNumber && <Link className="krds-button secondary" href={`/fulltext?applicationNumber=${SAMPLE_APPLICATION_NUMBER}&demo=1`}>샘플 전문 보기</Link>}</div>
+          </section>
+        ) : error ? (
           <section className="fulltext-error" role="alert">
-            <span>전문파일정보</span>
-            <h1>전문을 표시할 수 없습니다</h1>
+            <span>출원번호 {formattedNumber}</span>
+            <h1>전문을 불러오지 못했습니다.</h1>
             <p>{error}</p>
-            <Link className="krds-button primary" href={`/patent?applicationNumber=${applicationNumber}`}>사건 대시보드로 돌아가기</Link>
+            <p>잠시 후 다시 불러오거나 사건 조회에서 출원번호를 확인해 주세요.</p>
+            <div className="fulltext-actions"><button className="krds-button primary" type="button" onClick={() => setRetry(value => value + 1)}>전문 다시 불러오기</button><Link className="krds-button secondary" href={caseUrl}>출원번호 다시 조회</Link></div>
           </section>
         ) : !payload ? (
           <section className="fulltext-loading" role="status" aria-live="polite">
             <div className="loader-ring" />
-            <strong>전문 XML을 읽고 있습니다</strong>
-            <span>명세서의 장·문단과 전체 청구항을 구성하는 중입니다.</span>
+            <strong>명세서와 청구항을 불러오는 중입니다.</strong>
+            <span>출원번호 {formattedNumber}</span>
           </section>
         ) : (
           <>
             <section className="fulltext-hero">
               <div className="fulltext-hero-copy">
                 <div className="fulltext-badges">
-                  <span className="krds-tag primary">전문파일정보</span>
-                  <span className="krds-tag neutral">{payload.isDemo ? '샘플 사건' : 'KIPRIS Plus 실시간'}</span>
+                  <span className="krds-tag primary">전문 읽기</span>
+                  <span className="krds-tag neutral">{payload.isDemo ? '샘플 사건' : 'KIPRIS Plus 제공 자료'}</span>
                 </div>
                 <p className="fulltext-number">출원번호 {formattedNumber}</p>
                 <h1>{title.korean}</h1>
@@ -184,16 +192,21 @@ export default function FullTextViewer({
                 </dl>
               </div>
               <div className="fulltext-actions">
-                <Link className="krds-button secondary" href={`/patent?applicationNumber=${applicationNumber}`}>사건 개요</Link>
-                <button className="krds-button primary" type="button" onClick={() => window.print()}>인쇄·PDF 저장</button>
+                <Link className="krds-button secondary" href={caseUrl}>사건 조회</Link>
+                <button className="krds-button primary" type="button" onClick={() => window.print()}>읽기 화면 인쇄·PDF 저장</button>
               </div>
+            </section>
+
+            <section className="panel detail-panel" aria-label="공보 원문 PDF 안내" style={{ marginTop: 24 }}>
+              <h2>공보 원문 PDF 내려받기</h2><p>이 화면은 명세서와 청구항을 읽기 쉽게 정리한 자료입니다. 원문 공보가 필요하면 아래 PDF를 내려받으세요.</p>
+              <div className="fulltext-actions" style={{ marginTop: 16, flexWrap: 'wrap' }}><PdfDownloadButton applicationNumber={applicationNumber} label="공개공보 PDF 내려받기" /><PdfDownloadButton applicationNumber={applicationNumber} kind="registration" label="등록공보 PDF 내려받기" /></div>
             </section>
 
             <section className="fulltext-toolbar" aria-label="전문 내 검색">
               <label htmlFor="fulltext-search">전문 내 검색</label>
               <div>
                 <input id="fulltext-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="구성요소, 도면부호, 용어 검색" />
-                <span aria-live="polite">{query.trim() ? `${matchCount}개 문단에서 일치` : '명세서와 청구항 전체 검색'}</span>
+                <span aria-live="polite">{query.trim() ? `초록·명세서·청구항 전체에서 ${matchCount}개 항목 일치` : '초록·명세서·청구항 전체에서 찾습니다.'}<br />청구항 필터와 관계없이 전체 문단과 청구항을 각각 한 항목으로 셉니다.{query.trim() && matchCount === 0 && ' 다른 용어나 짧은 단어로 검색해 주세요.'}</span>
               </div>
             </section>
 
@@ -205,12 +218,12 @@ export default function FullTextViewer({
                   <a key={section.id} href={`#${section.id}`}>{section.title}<span>{section.paragraphs.length}</span></a>
                 ))}
                 <a href="#claims">청구범위<span>{payload.claims.length}</span></a>
-                <div className="fulltext-source-note"><strong>데이터 출처</strong><p>KIPRIS Plus 전문파일정보 XML을 읽기 화면으로 가공했습니다.</p></div>
+                <div className="fulltext-source-note"><strong>자료 출처</strong><p>KIPRIS Plus에서 제공한 명세서와 청구항을 읽기 쉽게 정리했습니다.</p></div>
               </aside>
 
               <article className="fulltext-document">
                 <section id="abstract" className="fulltext-section abstract-section">
-                  <header><span>01</span><div><p>ABSTRACT</p><h2>초록</h2></div></header>
+                  <header><span>01</span><div><h2>초록</h2></div></header>
                   <div className="fulltext-prose">
                     {payload.abstract.map((paragraph, index) => <p key={paragraph.number ?? index}><Highlight text={paragraph.text} query={query} /></p>)}
                   </div>
@@ -218,7 +231,7 @@ export default function FullTextViewer({
 
                 {payload.sections.map((section, sectionIndex) => (
                   <section id={section.id} className="fulltext-section" key={section.id}>
-                    <header><span>{String(sectionIndex + 2).padStart(2, '0')}</span><div><p>DESCRIPTION</p><h2>{section.title}</h2></div></header>
+                    <header><span>{String(sectionIndex + 2).padStart(2, '0')}</span><div><h2>{section.title}</h2></div></header>
                     <div className="fulltext-prose numbered">
                       {section.paragraphs.map((paragraph, index) => (
                         <p key={paragraph.number ?? index}><span>{paragraph.number ? `[${paragraph.number}]` : ''}</span><span><Highlight text={paragraph.text} query={query} /></span></p>
@@ -230,7 +243,7 @@ export default function FullTextViewer({
                 <section id="claims" className="fulltext-section claims-section">
                   <header className="claims-section-header">
                     <span>{String(payload.sections.length + 2).padStart(2, '0')}</span>
-                    <div><p>CLAIMS</p><h2>청구범위</h2></div>
+                    <div><h2>청구범위</h2></div>
                     <div className="krds-segmented" role="group" aria-label="청구항 필터">
                       <button className={claimMode === 'all' ? 'active' : ''} type="button" onClick={() => setClaimMode('all')}>전체 {payload.claims.length}</button>
                       <button className={claimMode === 'independent' ? 'active' : ''} type="button" onClick={() => setClaimMode('independent')}>독립항 {payload.claims.filter(isIndependentClaim).length}</button>
@@ -252,8 +265,8 @@ export default function FullTextViewer({
       </main>
 
       <footer className="krds-footer">
-        <div><strong>심사데스크</strong><p>KIPRIS Plus 데이터를 심사 흐름에 맞게 정리하는 검토용 MVP</p></div>
-        <span>전문 원문은 KIPRIS Plus API 응답을 기준으로 표시합니다.</span>
+        <div><strong>심사데스크</strong><p>특허 사건 검토</p></div>
+        <span>명세서와 청구항은 KIPRIS Plus에서 제공한 자료입니다.</span>
       </footer>
     </>
   );

@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
+import 'krds-uiux/resources/css/component/output.css';
 import './globals.css';
+import './krds-foundation.css';
 
 export const metadata: Metadata = {
   metadataBase: new URL(
@@ -34,7 +36,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko">
+    <html lang="ko" data-krds-mode="light">
       <body>{children}</body>
     </html>
   );

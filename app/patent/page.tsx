@@ -1,8 +1,11 @@
 'use client';
 /* eslint-disable @next/next/no-img-element */
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import PdfDownloadButton from '../components/pdf-download';
+import AccessibleDialog from '../components/accessible-dialog';
+import { normalizeApplicationNumber } from '../lib/patent-number';
+import { patentFeedback } from '../lib/patent-feedback';
 
 type ViewName =
   | 'overview'
@@ -172,7 +175,7 @@ const demoHistory: HistoryItem[] = [
 
 const demoNotices: NoticeItem[] = demoHistory
   .filter((item) => item.title === '의견제출통지서')
-  .map((item) => ({ ...item, pdf: null, pdfError: 'API 키 연결 후 PDF_V2로 자동 조회' }));
+  .map((item) => ({ ...item, pdf: null, pdfError: '통지서를 선택하면 PDF를 불러옵니다.' }));
 
 const demoCase: PatentCase = {
   applicationNumber: '10-2020-0093844',
@@ -190,7 +193,7 @@ const demoCase: PatentCase = {
   registrationDate: '',
   registrationStatus: '심사 진행',
   examinationRequestDate: '2023.06.09',
-  examinerName: 'API 연동 후 표시',
+  examinerName: '샘플에서 제공하지 않는 정보',
   claimCount: 20,
   inventorCount: 10,
   abstract: '의류처리장치가 개시된다. 본 발명의 사상에 따른 의류처리장치는 캐비닛과, 상기 캐비닛을 개폐하는 도어와, 상기 캐비닛 내부에 배치되고 의류가 수용되는 드럼과, 상기 드럼 내의 온도 또는 습도를 측정하도록 센서를 포함하는 센싱장치 및 상기 센싱장치가 분리 가능하게 장착되도록 상기 도어 또는 드럼 중 적어도 하나에 마련되는 홀더를 포함할 수 있다.',
@@ -212,7 +215,7 @@ const demoCase: PatentCase = {
     { name: 'bibliography', ok: true, message: '서지·행정처리 반영' },
     { name: 'cpc', ok: true, message: 'CPC정보 반영' },
     { name: 'drawing', ok: true, message: '대표도면 링크 확인' },
-    { name: 'family', ok: false, message: 'API 키 연결 후 조회' },
+    { name: 'family', ok: false, message: '샘플에서 제공하지 않는 정보' },
   ],
   isDemo: true,
 };
@@ -265,7 +268,7 @@ function downloadBlob(blob: Blob, fileName: string) {
 
 async function fetchApiUsage() {
   const response = await fetch('/api/patent/usage', { cache: 'no-store' });
-  if (!response.ok) throw new Error('API 사용량을 불러오지 못했습니다.');
+  if (!response.ok) throw new Error('데이터 요청 횟수를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.');
   return (await response.json()) as ApiUsage;
 }
 
@@ -311,7 +314,13 @@ function mapLiveCase(payload: LivePayload): PatentCase {
 export default function Home() {
   const [activeView, setActiveView] = useState<ViewName>('overview');
   const [caseData, setCaseData] = useState<PatentCase>(demoCase);
-  const [searchValue, setSearchValue] = useState(demoCase.applicationNumber);
+  const [searchValue, setSearchValue] = useState('');
+  const [caseVisible, setCaseVisible] = useState(false);
+  const [queryError, setQueryError] = useState('');
+  const [packageError, setPackageError] = useState('');
+  const queryGeneration = useRef(0);
+  const summaryGeneration = useRef(0);
+  const activeApplication = useRef<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState('');
   const [historyFilter, setHistoryFilter] = useState<'all' | 'notice'>('all');
@@ -334,27 +343,18 @@ export default function Home() {
   });
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setSelectedNotice(null);
-        setPackageOpen(false);
-        setDrawingOpen(false);
-        setCpcOpen(false);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
-
-  useEffect(() => {
     void fetchApiUsage().then(setApiUsage).catch(() => undefined);
   }, []);
 
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get('applicationNumber');
-    if (requested) {
+    const parameters = new URLSearchParams(window.location.search);
+    const requested = parameters.get('applicationNumber');
+    if (requested !== null) {
       setSearchValue(requested);
-      void loadCase(requested.replace(/\D/g, ''));
+      void loadCase(requested, parameters.get('demo') === '1');
+    } else if (parameters.get('demo') === '1') {
+      setSearchValue(demoCase.applicationNumber);
+      void loadCase(demoCase.applicationNumber, true);
     }
     // This is the initial URL selection; later searches use the form.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -388,20 +388,27 @@ export default function Home() {
 
   async function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await loadCase(searchValue.replace(/\D/g, ''));
+    await loadCase(searchValue);
   }
 
-  async function loadCase(normalized: string) {
-    if (!/^(10|20)\d{11}$/.test(normalized)) {
-      setToast('특허·실용신안 출원번호 13자리를 확인해 주세요.');
+  async function loadCase(requested: string, useDemo = false) {
+    const requestId = ++queryGeneration.current;
+    const normalized = normalizeApplicationNumber(requested);
+    setQueryError(''); setCaseVisible(false); setSummaryPayload(null); setSummaryError('');
+    setSelectedNotice(null); setPackageOpen(false); setDrawingOpen(false); setCpcOpen(false); setPackageError('');
+    activeApplication.current = null;
+    if (!normalized) {
+      setLoading(false);
+      setQueryError('출원번호 형식을 확인해 주세요. 숫자 13자리를 입력하며, 공백과 붙임표(-)도 사용할 수 있습니다. 예: 10-2020-0093844');
       return;
     }
 
     setLoading(true);
     try {
-      if (normalized === demoCase.applicationNumberRaw) {
-        await new Promise((resolve) => window.setTimeout(resolve, 550));
+      if (useDemo && normalized === demoCase.applicationNumberRaw) {
         setCaseData(demoCase);
+        activeApplication.current = normalized;
+        setCaseVisible(true);
         setSummaryPayload(null);
         setSummaryError('');
         setActiveView('overview');
@@ -414,22 +421,28 @@ export default function Home() {
       );
       const payload = (await response.json()) as LivePayload & { error?: string };
       if (!response.ok) throw new Error(payload.error || '사건 조회에 실패했습니다.');
+      if (requestId !== queryGeneration.current) return;
+      if (payload.applicationNumber !== normalized || (payload.bibliography?.applicationNumber && normalizeApplicationNumber(payload.bibliography.applicationNumber) !== normalized)) throw new Error('응답의 출원번호가 요청과 다릅니다. 출원번호를 확인한 뒤 다시 조회해 주세요.');
+      if (!payload.bibliography?.applicationNumber) throw new Error('입력한 번호의 출원 정보를 확인하지 못했습니다. 출원번호를 확인한 뒤 다시 조회해 주세요.');
       const loadedCase = mapLiveCase(payload as LivePayload);
       setCaseData(loadedCase);
+      activeApplication.current = normalized;
+      setCaseVisible(true);
       setApiUsage(payload.usage);
       setSummaryPayload(null);
       setSummaryError('');
       void loadSummary(normalized, false);
       setActiveView('overview');
-      setToast(payload.cached ? 'D1에 저장된 사건 데이터를 불러왔습니다.' : 'KIPRIS Plus 최신 데이터를 불러왔습니다.');
+      setToast(payload.cached ? '저장된 사건 정보를 불러왔습니다.' : 'KIPRIS Plus에서 사건 정보를 불러왔습니다.');
     } catch (error) {
-      setToast(error instanceof Error ? error.message : '사건 조회에 실패했습니다.');
+      if (requestId === queryGeneration.current) setQueryError(patentFeedback(error, 'case'));
     } finally {
-      setLoading(false);
+      if (requestId === queryGeneration.current) setLoading(false);
     }
   }
 
   async function loadSummary(applicationNumber: string, generate: boolean, force = false) {
+    const requestId = ++summaryGeneration.current;
     setSummaryBusy(generate);
     setSummaryError('');
     try {
@@ -440,25 +453,23 @@ export default function Home() {
         headers: generate ? { 'Content-Type': 'application/json' } : undefined,
       });
       const payload = (await response.json()) as SummaryPayload & { error?: string };
+      if (activeApplication.current !== applicationNumber || requestId !== summaryGeneration.current) return;
       if (!response.ok) {
         if (!generate && response.status === 404) return;
         throw new Error(payload.error || 'AI 요약을 불러오지 못했습니다.');
       }
       setSummaryPayload(payload);
-      if (!generate && !payload.summary) {
-        void loadSummary(applicationNumber, true);
-        return;
-      }
-      if (generate) setToast(payload.cached ? '저장된 AI 요약을 불러왔습니다.' : 'AI 심사요약을 생성했습니다.');
+      if (generate) setToast(payload.cached ? '저장된 AI 요약을 불러왔습니다.' : 'AI 요약을 만들었습니다.');
     } catch (error) {
-      setSummaryError(error instanceof Error ? error.message : 'AI 요약을 불러오지 못했습니다.');
+      if (activeApplication.current === applicationNumber && requestId === summaryGeneration.current) setSummaryError(patentFeedback(error, generate ? 'summary' : 'summary-read'));
     } finally {
-      setSummaryBusy(false);
+      if (requestId === summaryGeneration.current) setSummaryBusy(false);
     }
   }
 
   async function buildPackage() {
     setPackageBusy(true);
+    setPackageError('');
     try {
       const { default: JSZip } = await import('jszip');
       const zip = new JSZip();
@@ -466,7 +477,7 @@ export default function Home() {
 
       zip.file(
         'README.txt',
-        `심사데스크 MVP 자료 묶음\n출원번호: ${caseData.applicationNumber}\n생성일: ${new Date().toLocaleString('ko-KR')}\n\n이 묶음은 MVP에서 가공한 검토용 데이터입니다. 원문 전문·대표도면·의견제출통지서 PDF는 KIPRIS Plus API 키 연결 후 서버에서 내려받아 포함하는 구조입니다.`,
+        `심사데스크 검토자료\n출원번호: ${caseData.applicationNumber}\n생성일: ${new Date().toLocaleString('ko-KR')}\n\n이 ZIP에는 선택한 요약·청구항·이력·패밀리 정보와 원문 파일 목록이 들어갑니다. 공보 원문 PDF는 사이트의 전문 PDF 모으기에서 따로 내려받으세요.`,
       );
       if (packageOptions.summary) {
         zip.file(
@@ -528,7 +539,7 @@ export default function Home() {
                 sendNumber: notice.documentNumber,
                 date: formatDate(notice.date),
                 file: notice.pdf ?? null,
-                note: '문서를 열 때 PDF_V2에서 조회',
+                note: '사이트에서 통지서를 선택하면 PDF를 불러옵니다.',
               })),
             },
             null,
@@ -538,24 +549,25 @@ export default function Home() {
       }
 
       const blob = await zip.generateAsync({ type: 'blob' });
-      downloadBlob(blob, `심사자료_${prefix}_MVP.zip`);
+      downloadBlob(blob, `심사자료_${prefix}.zip`);
       setPackageOpen(false);
-      setToast('검토용 ZIP 묶음을 만들었습니다.');
+      setToast('검토자료 ZIP 다운로드를 요청했습니다. 저장 위치는 브라우저 다운로드 목록에서 확인해 주세요.');
     } catch {
-      setToast('ZIP 묶음을 만드는 중 오류가 발생했습니다.');
+      setPackageError('검토자료 ZIP을 만들지 못했습니다. 선택 항목을 확인한 뒤 다시 내려받아 주세요.');
     } finally {
       setPackageBusy(false);
     }
   }
 
   function goTo(view: ViewName) {
+    if (!caseVisible) { document.getElementById('application-search')?.focus(); return; }
     setActiveView(view);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function openFullText() {
     window.location.assign(
-      `/fulltext?applicationNumber=${encodeURIComponent(caseData.applicationNumberRaw)}`,
+      `/fulltext?applicationNumber=${encodeURIComponent(caseData.applicationNumberRaw)}${caseData.isDemo ? '&demo=1' : ''}`,
     );
   }
 
@@ -572,7 +584,7 @@ export default function Home() {
     { label: '출원일', value: caseData.applicationDate || '—', detail: `공개 ${caseData.publicationDate || '—'}` },
     { label: '청구항', value: `${caseData.claimCount}항`, detail: `독립항 ${caseData.claims.filter((claim) => !claim.text.trim().startsWith('제')).length} · 전체 ${caseData.claimCount}` },
     { label: '주 CPC', value: caseData.cpc[0]?.number || '—', detail: caseData.cpc.length ? `전체 ${caseData.cpc.length}개 보기 ↗` : 'CPC 정보 없음', cpc: true },
-    { label: '패밀리', value: familyCountryCount ? `${familyCountryCount}개 관할청` : '패밀리 없음', detail: familyCountryCount ? `${caseData.family.length}개 문헌` : '조회된 패밀리 문헌 없음' },
+    { label: '패밀리', value: familyCountryCount ? `${familyCountryCount}개 관할청` : '조회된 문헌 없음', detail: familyCountryCount ? `${caseData.family.length}개 문헌` : '다른 출원의 조회 결과도 확인할 수 있습니다.' },
   ];
 
   const selectedPdfUrl = pdfViewerUrl(selectedNotice);
@@ -586,29 +598,30 @@ export default function Home() {
     <>
       <a className="skip-link" href="#main-content">본문 바로가기</a>
       <div className="krds-masthead">
-        <div><span className="krds-flag" aria-hidden="true" />이 누리집은 대한민국 공식 전자정부 누리집의 디자인 원칙을 참고한 MVP입니다.</div>
+        <div><span className="krds-flag" aria-hidden="true" />특허 사건과 AI 검색 결과를 검토하는 업무 공간입니다.</div>
       </div>
       <main className="app-shell">
       <aside className="sidebar">
-        <button className="brand brand-button" type="button" onClick={() => goTo('overview')} aria-label="심사데스크 홈">
+        <a className="brand brand-button" href="/" aria-label="심사데스크 AI 평가 업무">
           <span className="brand-mark">특허</span>
           <span><strong>심사데스크</strong><small>특허 사건 검토 지원</small></span>
-        </button>
+        </a>
 
         <nav className="side-nav" aria-label="사건 메뉴">
           <a className="nav-item" href="/"><span>←</span> AI 평가 업무</a>
           <a className="nav-item" href="/documents"><span>↓</span> 전문 PDF 모으기</a>
-          <p className="nav-label">WORKSPACE</p>
+          <p className="nav-label">사건 검토</p>
           {navigation.map((item) => (
             <button
               className={`nav-item ${activeView === item.id ? 'active' : ''}`}
               type="button"
+              disabled={!caseVisible}
               key={item.id}
               onClick={() => item.id === 'specification' ? openFullText() : goTo(item.id)}
             >
               <span>{item.index}</span> {item.label}
-              {item.id === 'history' && <em>{caseData.history.length}</em>}
-              {item.id === 'documents' && <em>{caseData.notices.length + 2}</em>}
+              {caseVisible && item.id === 'history' && <em>{caseData.history.length}</em>}
+              {caseVisible && item.id === 'documents' && <em>{caseData.notices.length + 2}</em>}
             </button>
           ))}
         </nav>
@@ -616,8 +629,8 @@ export default function Home() {
         <div className="source-status">
           <span className={`status-dot ${caseData.isDemo ? 'demo' : ''}`} />
           <div>
-            <strong>{caseData.isDemo ? 'MVP 샘플 데이터' : 'KIPRIS Plus 연결됨'}</strong>
-            <small>{caseData.isDemo ? '실제 응답 구조 기반' : `${sourceOkCount}/${caseData.sources.length}개 API 정상`}</small>
+            <strong>{!caseVisible ? '출원을 조회해 주세요.' : caseData.isDemo ? '샘플 사건' : 'KIPRIS Plus 조회 자료'}</strong>
+            <small>{caseVisible ? caseData.isDemo ? '실제 업무 자료와 구분해 사용하세요.' : `${sourceOkCount}/${caseData.sources.length}개 항목 조회 완료` : '출원번호로 사건 정보를 확인합니다.'}</small>
           </div>
         </div>
       </aside>
@@ -635,24 +648,27 @@ export default function Home() {
                 aria-label="출원번호"
                 inputMode="numeric"
                 placeholder="예: 10-2020-0093844"
+                aria-invalid={Boolean(queryError)}
+                aria-describedby={queryError ? 'patent-query-error' : undefined}
               />
-              <button className="search-submit" type="submit">조회</button>
+              <button className="search-submit krds-btn medium" type="submit" disabled={loading}>{loading ? '조회 중…' : '사건 조회'}</button>
             </div>
           </form>
           <div className="top-actions">
-            <span className="demo-pill">{caseData.isDemo ? 'DEMO' : 'LIVE'}</span>
-            <span className="api-usage-pill" title={usageDetails} aria-label={`KIPRIS Plus API D1 누적 호출 ${apiUsage?.total ?? 0}회`}>
-              API 호출 <strong>{apiUsage?.total ?? '—'}</strong>회 <small>D1 누적</small>
+            {caseVisible && <span className="demo-pill">{caseData.isDemo ? '샘플 사건' : '조회한 사건'}</span>}
+            <span className="api-usage-pill" title={usageDetails} aria-label={`KIPRIS Plus 데이터 누적 요청 ${apiUsage?.total ?? 0}회`}>
+              데이터 요청 누적 <strong>{apiUsage?.total ?? '—'}</strong>회
             </span>
-            <span className="secret-pill">Worker Secret 연동</span>
-            <button className="export-button" type="button" onClick={() => setPackageOpen(true)}>
-              심사자료 묶음 만들기 <span>↓</span>
+            <button className="export-button krds-btn medium secondary" type="button" disabled={!caseVisible} onClick={() => { setPackageError(''); setPackageOpen(true); }}>
+              심사자료 묶음 만들기
             </button>
           </div>
         </header>
 
         <div className="content" id="main-content" tabIndex={-1}>
-          {activeView === 'overview' && (
+          {queryError && <section className="panel detail-panel" id="patent-query-error" role="alert" style={{ marginBottom: 24, borderColor: 'var(--krds-color-light-danger-50, #de3412)' }}><h2>사건 정보를 불러오지 못했습니다.</h2><p>{queryError}</p><button type="button" className="krds-button secondary" onClick={() => void loadCase(searchValue)} disabled={loading}>같은 번호로 다시 조회</button><button type="button" className="krds-button secondary" onClick={() => document.getElementById('application-search')?.focus()} style={{ marginLeft: 8 }}>출원번호 수정</button></section>}
+          {!caseVisible && !loading && !queryError && <section className="panel detail-panel"><h1>출원번호로 사건을 조회하세요.</h1><p>서지정보·명세서·행정처리 이력을 확인하고 공보 원문 PDF를 내려받을 수 있습니다.</p><p>출원번호는 숫자 13자리입니다. 예: 10-2020-0093844</p><button type="button" className="krds-button secondary" onClick={() => { setSearchValue(demoCase.applicationNumber); void loadCase(demoCase.applicationNumber, true); }}>샘플 사건 보기</button></section>}
+          {caseVisible && activeView === 'overview' && (
             <>
               <div className="breadcrumb">심사 사건 <span>/</span> 국내 특허 <span>/</span> 개요</div>
               <CaseHeading data={caseData} />
@@ -678,41 +694,42 @@ export default function Home() {
 
               <section className="dashboard-grid">
                 <article className="panel review-panel">
-                  <PanelHeading eyebrow="REVIEW SNAPSHOT" title="심사 포인트" action={<span className="attention-badge">확인 필요 {caseData.notices.length}</span>} />
+                  <PanelHeading title="심사 포인트" action={<span className="attention-badge">의견제출통지서 {caseData.notices.length}건</span>} />
                   {latestNotice ? (
                     <div className="notice-card">
                       <span className="notice-index">01</span>
                       <div><strong>최근 의견제출통지서가 있습니다</strong><p>{formatDate(latestNotice.date)} 발송 · {latestNotice.documentNumber}</p></div>
-                      <button type="button" onClick={() => setSelectedNotice(latestNotice)}>PDF 보기 <span>↗</span></button>
+                      <button type="button" onClick={() => setSelectedNotice(latestNotice)}>PDF 보기</button>
                     </div>
                   ) : (
-                    <div className="clear-card"><strong>의견제출통지서 없음</strong><span>서지상세 행정처리 기준으로 확인된 통지서가 없습니다.</span></div>
+                    <div className="clear-card"><strong>조회된 의견제출통지서가 없습니다.</strong><span>명세서와 행정처리 이력에서 사건 정보를 확인하세요.</span></div>
                   )}
                   <div className="review-list">
                     <button type="button" onClick={openFullText}>
-                      <span className="review-icon">A</span>
-                      <p><strong>전체 명세서 · 청구항 검토</strong><small>전문파일정보의 전체 본문과 청구항 {caseData.claimCount}개를 읽기 화면에서 확인</small></p>
+                      <span className="review-icon" aria-hidden="true">1</span>
+                      <p><strong>전체 명세서 · 청구항 검토</strong><small>명세서 본문과 청구항 {caseData.claimCount}개를 읽기 화면에서 확인하세요.</small></p>
                       <em>→</em>
                     </button>
                     <button type="button" onClick={() => goTo('family')}>
-                      <span className="review-icon muted">F</span>
-                      <p><strong>해외 패밀리 대조</strong><small>{familyCountryCount ? `${familyCountryCount}개 관할청 · ${caseData.family.length}개 문헌` : '패밀리 없음'}</small></p>
+                      <span className="review-icon muted" aria-hidden="true">2</span>
+                      <p><strong>패밀리 문헌 비교</strong><small>{familyCountryCount ? `${familyCountryCount}개 관할청 · ${caseData.family.length}개 문헌` : '조회된 패밀리 문헌이 없습니다.'}</small></p>
                       <em>→</em>
                     </button>
                   </div>
                   <div className="ai-summary-card">
                     <div className="ai-summary-head">
-                      <div><span>AI EXAMINATION BRIEF</span><strong>발명 요약</strong></div>
+                      <div><strong>발명 요약</strong></div>
                       {!caseData.isDemo && (
                         <button
                           type="button"
                           disabled={summaryBusy}
                           onClick={() => void loadSummary(caseData.applicationNumberRaw, true, Boolean(summaryPayload?.summary))}
                         >
-                          {summaryBusy ? '분석 중…' : summaryPayload?.summary ? '다시 생성' : 'AI 요약 생성'}
+                          {summaryBusy ? 'AI 요약을 만드는 중…' : summaryPayload?.summary ? 'AI 요약 다시 만들기' : 'AI 요약 만들기'}
                         </button>
                       )}
                     </div>
+                    {summaryError && <div className="ai-summary-content ai-fallback" role="alert"><em>{summaryError}</em></div>}
                     {summaryPayload?.summary ? (
                       <div className="ai-summary-content">
                         <p className="ai-one-line">{summaryPayload.summary.oneLine}</p>
@@ -726,31 +743,30 @@ export default function Home() {
                           <div><strong>심사 확인 포인트</strong><ul>{summaryPayload.summary.examinationPoints.map((item) => <li key={item}>{item}</li>)}</ul></div>
                         </div>
                         <div className="keyword-row">{summaryPayload.summary.searchKeywords.map((keyword) => <span key={keyword}>{keyword}</span>)}</div>
-                        <small>{summaryPayload.model} · {summaryPayload.cached ? 'D1 저장 요약' : '새로 생성'} · AI 결과는 원문 확인이 필요합니다.</small>
+                        <small>{summaryPayload.cached ? '저장된 요약' : '새로 생성한 요약'} · AI 요약은 원문과 함께 확인하세요.</small>
                       </div>
                     ) : (
                       <div className="abstract-preview ai-fallback">
                         <span>{caseData.isDemo ? '초록 기반 미리보기' : '원문 초록'}</span>
                         <p>{caseData.abstract}</p>
-                        {summaryError && <em>{summaryError}</em>}
-                        {!caseData.isDemo && !summaryError && <small>저장된 요약이 없으면 버튼을 눌러 최초 1회 생성합니다.</small>}
+                        {!caseData.isDemo && !summaryError && <small>{summaryBusy ? '요약이 준비되면 여기에 표시됩니다.' : '출원 내용의 요약이 필요하면 AI 요약 만들기를 눌러 주세요.'}</small>}
                       </div>
                     )}
                   </div>
                 </article>
 
                 <article className="panel drawing-panel">
-                  <PanelHeading eyebrow="REPRESENTATIVE DRAWING" title="대표도면" action={<button className="plain-link" type="button" onClick={() => setDrawingOpen(true)}>크게 보기 ↗</button>} />
+                  <PanelHeading title="대표도면" action={<button className="plain-link" type="button" onClick={() => setDrawingOpen(true)} disabled={!caseData.drawing}>대표도면 크게 보기</button>} />
                   <button className="drawing-frame" type="button" onClick={() => setDrawingOpen(true)}>
                     {caseData.drawing?.largeUrl ? (
                       <img src={caseData.drawing.largeUrl} alt={`${caseData.title} 대표도면`} />
                     ) : <span className="drawing-empty">대표도면 없음</span>}
-                    <span className="figure-label">FIG. 1</span>
+                    <span className="figure-label">대표도면</span>
                   </button>
                 </article>
 
                 <article className="panel timeline-panel">
-                  <PanelHeading eyebrow="LATEST ACTIVITY" title="최근 행정처리" action={<button className="plain-link" type="button" onClick={() => goTo('history')}>전체 {caseData.history.length}건 →</button>} />
+                  <PanelHeading title="최근 행정처리" action={<button className="plain-link" type="button" onClick={() => goTo('history')}>행정처리 전체 {caseData.history.length}건 보기</button>} />
                   <div className="timeline">
                     {caseData.history.slice(0, 4).map((event) => (
                       <button className="timeline-row" type="button" key={event.documentNumber} onClick={() => event.title.includes('의견제출통지서') ? setSelectedNotice(caseData.notices.find((notice) => notice.documentNumber === event.documentNumber) ?? { ...event }) : goTo('history')}>
@@ -764,17 +780,17 @@ export default function Home() {
               </section>
 
               <section className="source-strip" aria-label="데이터 수집 상태">
-                <div><span className="eyebrow">DATA SOURCES</span><strong>수집 상태</strong></div>
+                <div><strong>조회 상태</strong></div>
                 {caseData.sources.map((source) => (
-                  <div className="source-chip" key={source.name}><span className={source.ok ? 'ok' : 'wait'} /> <strong>{sourceLabels[source.name] || source.name}</strong><small>{source.message}</small></div>
+                  <div className="source-chip" key={source.name}><span className={source.ok ? 'ok' : 'wait'} /> <strong>{sourceLabels[source.name] || '추가 정보'}</strong><small>{source.ok ? caseData.isDemo ? '샘플 자료' : '조회 완료' : '불러오지 못했습니다. 다시 조회해 주세요.'}</small></div>
                 ))}
               </section>
             </>
           )}
 
-          {activeView === 'bibliography' && (
+          {caseVisible && activeView === 'bibliography' && (
             <section className="detail-view">
-              <ViewHeader eyebrow="BIBLIOGRAPHY" title="서지정보" description="서지상세정보 API에서 심사에 필요한 핵심 필드만 선별합니다." action={<button className="outline-button" type="button" onClick={() => setPackageOpen(true)}>이 정보 담기 ↓</button>} />
+              <ViewHeader title="서지정보" description="출원·공개·심사 상태와 출원인 정보를 확인하세요." action={<button className="outline-button" type="button" onClick={() => setPackageOpen(true)}>검토자료에 담기</button>} />
               <div className="detail-grid bibliographic-grid">
                 <article className="panel detail-panel wide">
                   <h2>출원 · 공개 · 심사</h2>
@@ -790,7 +806,7 @@ export default function Home() {
                 </article>
                 <article className="panel detail-panel">
                   <h2>출원인</h2>
-                  <div className="entity-card"><span>APPLICANT</span><strong>{caseData.applicant}</strong><p>{caseData.applicantEnglish || caseData.applicantCountry}</p></div>
+                  <div className="entity-card"><strong>{caseData.applicant}</strong><p>{caseData.applicantEnglish || caseData.applicantCountry}</p></div>
                   <dl className="mini-list"><DataRow label="국가" value={caseData.applicantCountry || '—'} /><DataRow label="발명자" value={`${caseData.inventorCount}명`} /></dl>
                 </article>
                 <article className="panel detail-panel">
@@ -802,16 +818,16 @@ export default function Home() {
                   </div>
                 </article>
                 <article className="panel detail-panel wide invention-title-card">
-                  <span className="eyebrow">INVENTION TITLE</span><h2>{caseData.title}</h2><p>{caseData.titleEnglish || '영문 명칭 없음'}</p>
+                  <h2>{caseData.title}</h2><p>{caseData.titleEnglish || '영문 명칭 없음'}</p>
                 </article>
               </div>
             </section>
           )}
 
-          {activeView === 'specification' && (
+          {caseVisible && activeView === 'specification' && (
             <section className="detail-view">
-              <ViewHeader eyebrow="FULL TEXT" title="명세서 · 청구항" description="전문파일의 전체 명세서와 청구항을 별도 읽기 화면으로 확인합니다." action={<button className="export-button" type="button" onClick={openFullText}>전체 전문 보기 →</button>} />
-              <article className="panel abstract-panel"><span className="section-number">A</span><div><span className="eyebrow">ABSTRACT</span><h2>초록</h2><p>{caseData.abstract}</p></div></article>
+              <ViewHeader title="명세서 · 청구항" description="읽기 화면에서 명세서와 청구항 전체를 확인하세요." action={<button className="export-button" type="button" onClick={openFullText}>전문 읽기 화면 열기</button>} />
+              <article className="panel abstract-panel"><span className="section-number">01</span><div><h2>초록</h2><p>{caseData.abstract}</p></div></article>
               <div className="claims-header"><div><h2>청구항</h2><span>{caseData.claimCount}개 항목</span></div><div className="segmented"><button className={claimFilter === 'all' ? 'active' : ''} type="button" onClick={() => setClaimFilter('all')}>전체</button><button className={claimFilter === 'independent' ? 'active' : ''} type="button" onClick={() => setClaimFilter('independent')}>독립항</button></div></div>
               <div className="claims-list">
                 {visibleClaims.map((claim) => <article className={`claim-card ${!claim.text.trim().startsWith('제') ? 'independent' : ''}`} key={claim.number}><span>{String(claim.number).padStart(2, '0')}</span><div><strong>청구항 {claim.number}{!claim.text.trim().startsWith('제') && <em>독립항</em>}</strong><p>{claim.text}</p></div></article>)}
@@ -819,71 +835,68 @@ export default function Home() {
             </section>
           )}
 
-          {activeView === 'history' && (
+          {caseVisible && activeView === 'history' && (
             <section className="detail-view">
-              <ViewHeader eyebrow="PROSECUTION HISTORY" title="행정처리 이력" description="서지상세정보의 행정처리 항목을 시간순으로 정리하고 의견제출통지서를 표시합니다." action={<span className="count-badge">총 {caseData.history.length}건</span>} />
-              <div className="history-toolbar"><div className="segmented"><button className={historyFilter === 'all' ? 'active' : ''} type="button" onClick={() => setHistoryFilter('all')}>전체 이력</button><button className={historyFilter === 'notice' ? 'active' : ''} type="button" onClick={() => setHistoryFilter('notice')}>의견제출통지서 {caseData.notices.length}</button></div><p><span /> 의견제출통지서는 PDF_V2 자동조회 대상입니다.</p></div>
+              <ViewHeader title="행정처리 이력" description="처리 이력을 날짜순으로 확인하고 의견제출통지서 PDF를 열어보세요." action={<span className="count-badge">총 {caseData.history.length}건</span>} />
+              <div className="history-toolbar"><div className="segmented"><button className={historyFilter === 'all' ? 'active' : ''} type="button" onClick={() => setHistoryFilter('all')} aria-pressed={historyFilter === 'all'}>전체 이력</button><button className={historyFilter === 'notice' ? 'active' : ''} type="button" onClick={() => setHistoryFilter('notice')} aria-pressed={historyFilter === 'notice'}>의견제출통지서 {caseData.notices.length}</button></div><p>의견제출통지서를 선택하면 PDF를 볼 수 있습니다.</p></div>
               <article className="panel history-table">
                 <div className="history-table-head"><span>일자</span><span>문서명</span><span>처리상태</span><span>접수·발송번호</span><span>원문</span></div>
                 {visibleHistory.map((item) => {
                   const isNotice = item.title.includes('의견제출통지서');
                   const notice = caseData.notices.find((entry) => entry.documentNumber === item.documentNumber);
-                  return <div className={`history-table-row ${isNotice ? 'notice' : ''}`} key={item.documentNumber}><time>{formatDate(item.date)}</time><div><strong>{item.title}</strong><small>{item.titleEnglish || item.step || ''}</small></div><span className="status-label">{item.status}</span><code>{item.documentNumber}</code><div>{isNotice ? <button type="button" onClick={() => setSelectedNotice(notice ?? { ...item })}>PDF 열기 ↗</button> : <span>—</span>}</div></div>;
+                  return <div className={`history-table-row ${isNotice ? 'notice' : ''}`} key={item.documentNumber}><time>{formatDate(item.date)}</time><div><strong>{item.title}</strong><small>{item.titleEnglish || item.step || ''}</small></div><span className="status-label">{item.status}</span><code>{item.documentNumber}</code><div>{isNotice ? <button type="button" onClick={() => setSelectedNotice(notice ?? { ...item })}>PDF 열기</button> : <span>—</span>}</div></div>;
                 })}
               </article>
             </section>
           )}
 
-          {activeView === 'family' && (
+          {caseVisible && activeView === 'family' && (
             <section className="detail-view">
-              <ViewHeader eyebrow="PATENT FAMILY" title="패밀리 상태" description="패밀리 종류와 관할청별 문헌을 한 화면에서 대조합니다." action={<span className="count-badge">{familyCountryCount ? `${familyCountryCount}개 관할청` : '패밀리 없음'}</span>} />
+              <ViewHeader title="패밀리 상태" description="패밀리 종류와 관할청별 문헌을 비교하세요." action={<span className="count-badge">{familyCountryCount ? `${familyCountryCount}개 관할청` : '조회된 문헌 없음'}</span>} />
               {caseData.family.length ? (
                 <article className="panel family-table"><div className="family-table-head"><span>관할청</span><span>출원번호</span><span>패밀리 종류</span><span>문헌번호</span><span>공개번호</span></div>{caseData.family.map((item, index) => <div className="family-table-row" key={`${item.countryCode}-${item.familyNumber}-${index}`}><div><span className="country-code">{item.countryCode}</span><strong>{item.countryName}</strong></div><code>{item.applicationNumber}</code><span>{item.familyKind}</span><code>{item.literatureNumber}</code><span>{item.publicationNumber}</span></div>)}</article>
               ) : (
-                <article className="panel empty-family"><div className="family-orbit empty" aria-hidden="true"><span>KR</span></div><div><span className="eyebrow">PATENT FAMILY</span><h2>패밀리 없음</h2><p><code>patentFamilyInfo</code> 응답에서 확인되는 패밀리 문헌이 없습니다. 응답이 비어 있거나 조회 결과가 없는 경우 임의 데이터를 만들지 않고 ‘패밀리 없음’으로 표시합니다.</p></div></article>
+                <article className="panel empty-family"><div className="family-orbit empty" aria-hidden="true"><span>KR</span></div><div><h2>조회된 패밀리 문헌이 없습니다.</h2><p>출원번호를 확인하거나 다른 출원을 조회해 주세요. 패밀리가 없는 출원도 명세서와 공보 원문을 확인할 수 있습니다.</p><button className="krds-button secondary" type="button" onClick={() => document.getElementById('application-search')?.focus()}>출원번호 확인</button></div></article>
               )}
             </section>
           )}
 
-          {activeView === 'documents' && (
+          {caseVisible && activeView === 'documents' && (
             <section className="detail-view">
-              <ViewHeader eyebrow="DOCUMENTS" title="문서함" description="원문과 가공 데이터를 용도별로 확인하고 검토 묶음으로 내보냅니다." action={<button className="export-button" type="button" onClick={() => setPackageOpen(true)}>심사자료 묶음 만들기 ↓</button>} />
+              <ViewHeader title="문서함" description="공보 원문 PDF를 내려받거나 사건 정보를 검토자료 ZIP으로 저장하세요." action={<button className="export-button" type="button" onClick={() => setPackageOpen(true)}>심사자료 묶음 만들기</button>} />
               <div className="document-grid">
-                <article className="document-card"><span className="document-type">PDF</span><div><h2>공개·등록공보 전문</h2><p>AI 검색을 위한 전체 원문 PDF</p></div><PdfDownloadButton applicationNumber={caseData.applicationNumberRaw} label="공개 전문 PDF ↓" /><PdfDownloadButton applicationNumber={caseData.applicationNumberRaw} kind="registration" label="등록 전문 PDF ↓" /></article>
-                <DocumentCard type="XML" title="출원 전문" description="전체 명세서·초록·청구항 읽기 화면" meta={caseData.fullText?.fileName || '열 때 전문파일정보 조회'} state="ready" onOpen={openFullText} action="전체 전문 보기 →" />
-                <DocumentCard type="IMG" title="대표도면" description="공보의 대표 이미지" meta={caseData.drawing?.fileName || '대표도면 없음'} state={caseData.drawing ? 'ready' : 'wait'} onOpen={() => setDrawingOpen(true)} action="미리보기 ↗" />
-                {caseData.notices.map((notice) => <DocumentCard key={notice.documentNumber} type="PDF" title="의견제출통지서" description={`${formatDate(notice.date)} 발송`} meta={`발송번호 ${notice.documentNumber}`} state="ready" onOpen={() => setSelectedNotice(notice)} action="PDF 열기 ↗" />)}
-                <article className="document-card package-card"><span className="document-type">ZIP</span><div><h2>심사자료 묶음</h2><p>요약·청구항·이력·패밀리·원문 목록</p></div><button type="button" onClick={() => setPackageOpen(true)}>구성하기 ↓</button></article>
+                <article className="document-card"><span className="document-type">PDF</span><div><h2>공개·등록공보 전문</h2><p>AI 검색을 위한 전체 원문 PDF</p></div><PdfDownloadButton applicationNumber={caseData.applicationNumberRaw} label="공개 전문 PDF" /><PdfDownloadButton applicationNumber={caseData.applicationNumberRaw} kind="registration" label="등록 전문 PDF" /></article>
+                <DocumentCard type="XML" title="출원 전문" description="전체 명세서·초록·청구항 읽기 화면" meta={caseData.fullText?.fileName || '열면 명세서와 청구항을 불러옵니다.'} state="ready" onOpen={openFullText} action="전문 읽기 화면 열기" />
+                <DocumentCard type="IMG" title="대표도면" description="공보의 대표 이미지" meta={caseData.drawing?.fileName || '대표도면 없음'} state={caseData.drawing ? 'ready' : 'wait'} onOpen={() => setDrawingOpen(true)} action="미리보기" />
+                {caseData.notices.map((notice) => <DocumentCard key={notice.documentNumber} type="PDF" title="의견제출통지서" description={`${formatDate(notice.date)} 발송`} meta={`발송번호 ${notice.documentNumber}`} state="ready" onOpen={() => setSelectedNotice(notice)} action="PDF 열기" />)}
+                <article className="document-card package-card"><span className="document-type">ZIP</span><div><h2>심사자료 묶음</h2><p>요약·청구항·이력·패밀리·원문 목록</p></div><button type="button" onClick={() => setPackageOpen(true)}>구성하기</button></article>
               </div>
             </section>
           )}
         </div>
         <footer className="dashboard-footer">
-          <div><strong>심사데스크</strong><span>KIPRIS Plus 특허 사건 검토 지원 MVP</span></div>
-          <p>전문·도면·행정처리·패밀리 데이터는 원 API 응답을 기준으로 표시합니다.</p>
+          <div><strong>심사데스크</strong><span>특허 사건 검토</span></div>
+          <p>사건 정보는 KIPRIS Plus에서 제공한 자료입니다.</p>
         </footer>
       </section>
 
-      {loading && <div className="loading-overlay" role="status" aria-live="polite"><div className="loader-ring" /><strong>KIPRIS Plus 조회 중</strong><span>서지·전문·도면·패밀리·이력을 함께 가져오고 있습니다.</span></div>}
+      {loading && <div className="loading-overlay" role="status" aria-live="polite"><div className="loader-ring" /><strong>출원 정보를 불러오는 중입니다.</strong><span>서지정보와 대표도면, 패밀리를 확인하고 있습니다.</span></div>}
       {toast && <div className="toast" role="status" aria-live="polite">{toast}</div>}
 
       {selectedNotice && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSelectedNotice(null)}>
-          <section className="modal pdf-modal" role="dialog" aria-modal="true" aria-labelledby="pdf-title">
-            <header><div><span className="eyebrow">OFFICE ACTION · PDF_V2</span><h2 id="pdf-title">의견제출통지서</h2><p>{formatDate(selectedNotice.date)} · {selectedNotice.documentNumber}</p></div><button type="button" onClick={() => setSelectedNotice(null)} aria-label="닫기">×</button></header>
+        <AccessibleDialog className="pdf-modal" labelledBy="pdf-title" onClose={() => setSelectedNotice(null)}>
+            <header><div><h2 id="pdf-title">의견제출통지서</h2><p>{formatDate(selectedNotice.date)} · {selectedNotice.documentNumber}</p></div><button type="button" onClick={() => setSelectedNotice(null)} aria-label="의견제출통지서 닫기">×</button></header>
             {selectedPdfUrl ? (
-              <><iframe src={selectedPdfUrl} title={`${formatDate(selectedNotice.date)} 의견제출통지서 PDF`} onLoad={() => void fetchApiUsage().then(setApiUsage).catch(() => undefined)} /><footer><span>{selectedNotice.pdf?.fileName || '의견제출통지서.pdf'}</span><a href={selectedPdfUrl} target="_blank" rel="noreferrer">새 창에서 열기 ↗</a></footer></>
+              <NoticePdfViewer key={selectedPdfUrl} url={selectedPdfUrl} title={`${formatDate(selectedNotice.date)} 의견제출통지서 PDF`} fileName={selectedNotice.pdf?.fileName || '의견제출통지서.pdf'} onLoaded={() => void fetchApiUsage().then(setApiUsage).catch(() => undefined)} />
             ) : (
-              <div className="pdf-placeholder"><div className="paper-preview"><span>특허청</span><h3>의견제출통지서</h3><i>PDF V2</i><dl><dt>출원번호</dt><dd>{caseData.applicationNumber}</dd><dt>발송일자</dt><dd>{formatDate(selectedNotice.date)}</dd><dt>발송번호</dt><dd>{selectedNotice.documentNumber}</dd></dl><p>원문 영역</p></div><div className="integration-note"><span className="eyebrow">API CONNECTION</span><h3>PDF 자동조회 위치</h3><p>서지상세 행정처리의 접수·발송번호를 <code>sendNumber</code>로 전달해 PDF_V2 원문을 이 창에 표시합니다.</p><ul><li>문서명에서 의견제출통지서 감지</li><li>출원번호 + 발송번호로 PDF_V2 호출</li><li>반환된 filePath를 인라인 미리보기</li></ul></div></div>
+              <div className="pdf-placeholder" role="alert"><div className="integration-note"><h3>통지서의 발송번호를 확인할 수 없습니다.</h3><p>사건을 다시 조회한 뒤 해당 의견제출통지서를 선택해 주세요.</p><button type="button" className="krds-button secondary" onClick={() => setSelectedNotice(null)}>사건 화면으로 돌아가기</button></div></div>
             )}
-          </section>
-        </div>
+        </AccessibleDialog>
       )}
 
       {cpcOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setCpcOpen(false)}>
-          <section className="modal cpc-modal" role="dialog" aria-modal="true" aria-labelledby="cpc-title">
-            <header><div><span className="eyebrow">COOPERATIVE PATENT CLASSIFICATION</span><h2 id="cpc-title">전체 CPC</h2><p>{caseData.applicationNumber} · 총 {caseData.cpc.length}개</p></div><button type="button" onClick={() => setCpcOpen(false)} aria-label="닫기">×</button></header>
+        <AccessibleDialog className="cpc-modal" labelledBy="cpc-title" onClose={() => setCpcOpen(false)}>
+            <header><div><h2 id="cpc-title">전체 CPC</h2><p>{caseData.applicationNumber} · 총 {caseData.cpc.length}개</p></div><button type="button" onClick={() => setCpcOpen(false)} aria-label="전체 CPC 닫기">×</button></header>
             <div className="cpc-modal-body">
               {caseData.cpc.length ? caseData.cpc.map((cpc, index) => (
                 <a className="cpc-row" href={cpcSearchUrl(cpc.number)} target="_blank" rel="noreferrer" aria-label={`${cpc.number} CPC 분류 검색, 새 창`} key={`${cpc.number}-${index}`}>
@@ -893,26 +906,21 @@ export default function Home() {
                 </a>
               )) : <p className="cpc-empty">조회된 CPC 정보가 없습니다.</p>}
             </div>
-          </section>
-        </div>
+        </AccessibleDialog>
       )}
 
       {drawingOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setDrawingOpen(false)}>
-          <section className="modal drawing-modal" role="dialog" aria-modal="true" aria-labelledby="drawing-title"><header><div><span className="eyebrow">REPRESENTATIVE DRAWING</span><h2 id="drawing-title">{caseData.title} · 대표도면</h2></div><button type="button" onClick={() => setDrawingOpen(false)} aria-label="닫기">×</button></header><div>{caseData.drawing?.largeUrl ? <img src={caseData.drawing.largeUrl} alt={`${caseData.title} 대표도면 확대`} /> : <p>대표도면이 없습니다.</p>}</div></section>
-        </div>
+        <AccessibleDialog className="drawing-modal" labelledBy="drawing-title" onClose={() => setDrawingOpen(false)}><header><div><h2 id="drawing-title">{caseData.title} · 대표도면</h2></div><button type="button" onClick={() => setDrawingOpen(false)} aria-label="대표도면 닫기">×</button></header><div>{caseData.drawing?.largeUrl ? <img src={caseData.drawing.largeUrl} alt={`${caseData.title} 대표도면 확대`} /> : <p>제공된 대표도면이 없습니다. 명세서에서 도면 설명을 확인해 주세요.</p>}</div></AccessibleDialog>
       )}
 
       {packageOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setPackageOpen(false)}>
-          <section className="modal package-modal" role="dialog" aria-modal="true" aria-labelledby="package-title"><header><div><span className="eyebrow">EXPORT PACKAGE</span><h2 id="package-title">심사자료 묶음 만들기</h2><p>{caseData.applicationNumber} · {caseData.title}</p></div><button type="button" onClick={() => setPackageOpen(false)} aria-label="닫기">×</button></header><div className="package-body"><div className="package-options">{([
+        <AccessibleDialog className="package-modal" labelledBy="package-title" onClose={() => setPackageOpen(false)}><header><div><h2 id="package-title">심사자료 묶음 만들기</h2><p>{caseData.applicationNumber} · {caseData.title}</p></div><button type="button" onClick={() => setPackageOpen(false)} aria-label="심사자료 묶음 만들기 닫기">×</button></header>{packageError && <div className="panel detail-panel" role="alert">{packageError}</div>}<div className="package-body"><div className="package-options">{([
             ['summary', '사건 요약', '서지·상태·초록 JSON'],
             ['claims', '청구항', `${caseData.claimCount}개 청구항 JSON`],
             ['history', '행정처리 이력', `${caseData.history.length}건 CSV`],
             ['family', '패밀리 정보', `${caseData.family.length}개 문헌 JSON`],
             ['documentLinks', '원문파일 목록', '전문·도면·PDF 조회정보 JSON'],
-          ] as const).map(([key, title, description]) => <label key={key}><input type="checkbox" checked={packageOptions[key]} onChange={(event) => setPackageOptions((current) => ({ ...current, [key]: event.target.checked }))} /><span><strong>{title}</strong><small>{description}</small></span></label>)}</div><aside><span className="package-icon">ZIP</span><strong>검토용 데이터 패키지</strong><p>MVP에서는 가공 데이터와 원문 파일 목록을 묶습니다. 실제 원문 바이너리는 API 키 연결 및 접근정책 확정 후 포함합니다.</p></aside></div><footer><button className="text-button" type="button" onClick={() => setPackageOpen(false)}>취소</button><button className="export-button" type="button" onClick={buildPackage} disabled={packageBusy}>{packageBusy ? '묶음 생성 중…' : 'ZIP 다운로드 ↓'}</button></footer></section>
-        </div>
+          ] as const).map(([key, title, description]) => <label key={key}><input type="checkbox" checked={packageOptions[key]} onChange={(event) => setPackageOptions((current) => ({ ...current, [key]: event.target.checked }))} /><span><strong>{title}</strong><small>{description}</small></span></label>)}</div><aside><span className="package-icon">ZIP</span><strong>검토자료 ZIP</strong><p>선택한 정보와 원문 파일 목록을 저장합니다. 공보 원문 PDF는 ‘전문 PDF 모으기’에서 따로 내려받으세요.</p><a href="/documents">전문 PDF 모으기</a></aside></div><footer><button className="text-button" type="button" onClick={() => setPackageOpen(false)}>취소</button><button className="export-button" type="button" onClick={buildPackage} disabled={packageBusy || !Object.values(packageOptions).some(Boolean)}>{packageBusy ? '검토자료 ZIP을 만드는 중…' : '선택한 자료 ZIP 내려받기'}</button></footer></AccessibleDialog>
       )}
       </main>
     </>
@@ -923,12 +931,12 @@ function CaseHeading({ data }: { data: PatentCase }) {
   return <section className="case-heading"><div><div className="case-number-row"><span className="case-number">{data.applicationNumber}</span><span className="case-status">{data.status}</span><span className="case-updated">{data.isDemo ? '샘플 사건' : `${data.updatedAt} 갱신`}</span></div><h1>{data.title}</h1><p>{data.titleEnglish}</p></div><div className="applicant-block"><small>출원인</small><strong>{data.applicant}</strong><span>{data.applicantCountry || '국가정보 없음'}</span></div></section>;
 }
 
-function PanelHeading({ eyebrow, title, action }: { eyebrow: string; title: string; action?: React.ReactNode }) {
-  return <div className="panel-heading"><div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2></div>{action}</div>;
+function PanelHeading({ title, action }: { title: string; action?: React.ReactNode }) {
+  return <div className="panel-heading"><div><h2>{title}</h2></div>{action}</div>;
 }
 
-function ViewHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: React.ReactNode }) {
-  return <header className="view-header"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{description}</p></div>{action}</header>;
+function ViewHeader({ title, description, action }: { title: string; description: string; action?: React.ReactNode }) {
+  return <header className="view-header"><div><h1>{title}</h1><p>{description}</p></div>{action}</header>;
 }
 
 function DataRow({ label, value, tone }: { label: string; value: string; tone?: 'accent' }) {
@@ -936,5 +944,38 @@ function DataRow({ label, value, tone }: { label: string; value: string; tone?: 
 }
 
 function DocumentCard({ type, title, description, meta, state, onOpen, action }: { type: string; title: string; description: string; meta: string; state: 'ready' | 'wait'; onOpen: () => void; action: string }) {
-  return <article className="document-card"><div className="document-card-top"><span className={`document-type ${type.toLowerCase()}`}>{type}</span><span className={`document-state ${state}`}>{state === 'ready' ? '준비됨' : '연동 대기'}</span></div><div><h2>{title}</h2><p>{description}</p><code>{meta}</code></div><button type="button" onClick={onOpen}>{action}</button></article>;
+  return <article className="document-card"><div className="document-card-top"><span className={`document-type ${type.toLowerCase()}`}>{type}</span><span className={`document-state ${state}`}>{state === 'ready' ? '조회 가능' : '제공된 자료 없음'}</span></div><div><h2>{title}</h2><p>{description}</p><code>{meta}</code></div><button type="button" onClick={onOpen} disabled={state === 'wait'}>{action}</button></article>;
+}
+
+function NoticePdfViewer({ url, title, fileName, onLoaded }: { url: string; title: string; fileName: string; onLoaded: () => void }) {
+  const [source, setSource] = useState('');
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  const loaded = useRef(onLoaded);
+  useEffect(() => { loaded.current = onLoaded; }, [onLoaded]);
+  useEffect(() => {
+    const controller = new AbortController();
+    let objectUrl = '';
+    setSource(''); setError('');
+    void (async () => {
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) {
+          const result = await response.json().catch(() => null) as { error?: string } | null;
+          throw new Error(result?.error || '통지서 PDF를 불러오지 못했습니다.');
+        }
+        const blob = await response.blob();
+        if (new TextDecoder().decode(await blob.slice(0, 5).arrayBuffer()) !== '%PDF-') throw new Error('올바른 통지서 PDF가 반환되지 않았습니다.');
+        if (controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(blob); setSource(objectUrl); loaded.current();
+      } catch (reason) {
+        if (controller.signal.aborted) return;
+        setError(patentFeedback(reason, 'notice'));
+      }
+    })();
+    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [url, attempt]);
+  if (error) return <div className="pdf-placeholder" role="alert"><div className="integration-note"><h3>의견제출통지서를 불러오지 못했습니다.</h3><p>{error}</p><p>잠시 후 다시 불러오세요. 문제가 계속되면 관리자에게 출원번호와 발송번호를 알려주세요.</p><button className="krds-button secondary" type="button" onClick={() => setAttempt(value => value + 1)}>통지서 다시 불러오기</button></div></div>;
+  if (!source) return <div className="pdf-placeholder" role="status" aria-live="polite"><div className="integration-note"><h3>의견제출통지서를 불러오는 중입니다.</h3><p>PDF가 준비되면 이 창에 표시됩니다.</p></div></div>;
+  return <><iframe src={source} title={title} /><footer><span>{fileName}</span><a href={source} download={fileName}>통지서 PDF 내려받기</a><a href={source} target="_blank" rel="noreferrer">새 창에서 열기</a></footer></>;
 }
