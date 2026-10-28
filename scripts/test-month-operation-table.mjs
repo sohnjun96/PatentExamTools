@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { applyAction, createInitialState, defaultOperationDeadlines, emptyMonth, isOperationStageOpen, OPERATION_STAGES, withDefaultOperationMonths } from '../app/lib/evaluation.ts';
+import { applyAction, createInitialState, defaultOperationDeadlines, emptyMonth, isOperationStageOpen, operationMonthStatus, OPERATION_STAGES, preferredOperationMonth, withDefaultOperationMonths } from '../app/lib/evaluation.ts';
 
 for (const [month, expected] of [
   ['2026-10', ['2026-10-02', '2026-10-09', '2026-10-16']],
@@ -40,4 +40,15 @@ for (const stage of OPERATION_STAGES) {
 }
 assert.deepEqual(Object.values(defaultOperationDeadlines('invalid')), ['', '', '']);
 assert.doesNotThrow(() => applyAction(createInitialState(), { admin: true }, { type: 'saveMonth', month: { ...emptyMonth('2027-02'), stages: { selection: 'pending', result: 'pending', evaluation: 'pending' } } }));
+const beforeStart = { ...emptyMonth('2026-10'), stages: { selection: 'pending', result: 'pending', evaluation: 'pending' } };
+const finished = { ...beforeStart, stages: { selection: 'closed', result: 'closed', evaluation: 'closed' } };
+assert.equal(operationMonthStatus(beforeStart), 'pending');
+assert.equal(operationMonthStatus(finished), 'closed');
+assert.equal(operationMonthStatus({ ...beforeStart, stages: { selection: 'stopped', result: 'closed', evaluation: 'pending' } }), 'pending');
+for (const stage of OPERATION_STAGES) assert.equal(operationMonthStatus({ ...finished, stages: { ...finished.stages, [stage.id]: 'running' } }), 'running', 'Any single running phase makes the month operational.');
+assert.equal(operationMonthStatus({ ...emptyMonth('2026-10'), closed: true }), 'closed', 'A legacy whole-month closure overrides stored phase states.');
+assert.equal(operationMonthStatus({ ...emptyMonth('2026-10'), stages: undefined }), 'running');
+const activeNovember = { ...emptyMonth('2026-11'), stages: { selection: 'closed', result: 'running', evaluation: 'pending' } };
+assert.equal(preferredOperationMonth([finished, activeNovember], '2026-10'), '2026-11');
+assert.equal(preferredOperationMonth([beforeStart, activeNovember], '2026-10'), '2026-11', 'Prefer a truly running month over a month waiting to start.');
 console.log('Monthly operation table: four default months, first/second/third Fridays across years, additive deadline migration, explicit clearing and pending/running gates passed.');

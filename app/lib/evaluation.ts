@@ -173,9 +173,13 @@ export function operationGroups(state: EvaluationState, monthId: string) {
 
 export function preferredOperationMonth(months: OperationMonth[], current = currentOperationMonth()): string {
   const sorted = [...months].sort((a, b) => b.id.localeCompare(a.id));
-  return sorted.find((month) => month.id === current && !month.closed)?.id
-    ?? sorted.find((month) => month.id < current && !month.closed)?.id
-    ?? [...sorted].reverse().find((month) => !month.closed)?.id ?? sorted[0]?.id ?? '';
+  const running = sorted.filter(month => operationMonthStatus(month) === 'running');
+  return running.find(month => month.id === current)?.id
+    ?? running.find(month => month.id < current)?.id
+    ?? [...running].reverse()[0]?.id
+    ?? sorted.find(month => month.id === current && operationMonthStatus(month) === 'pending')?.id
+    ?? [...sorted].reverse().find(month => month.id > current && operationMonthStatus(month) === 'pending')?.id
+    ?? sorted.find(month => operationMonthStatus(month) === 'pending')?.id ?? sorted[0]?.id ?? '';
 }
 
 function monthOf(state: EvaluationState, monthId: string) {
@@ -193,6 +197,13 @@ export function operationStageStatus(month: OperationMonth, stage: OperationStag
 
 export function isOperationStageOpen(month: OperationMonth, stage: OperationStage) {
   return !month.closed && operationStageStatus(month, stage) === 'running';
+}
+
+export const OPERATION_MONTH_STATUS_LABELS = { pending: '운영 전', running: '운영 중', closed: '운영 종료' } as const;
+export function operationMonthStatus(month: OperationMonth): keyof typeof OPERATION_MONTH_STATUS_LABELS {
+  if (month.closed) return 'closed';
+  if (OPERATION_STAGES.some(stage => isOperationStageOpen(month, stage.id))) return 'running';
+  return OPERATION_STAGES.every(stage => operationStageStatus(month, stage.id) === 'closed') ? 'closed' : 'pending';
 }
 
 export function operationStageBlockReason(month: OperationMonth, stage: OperationStage) {

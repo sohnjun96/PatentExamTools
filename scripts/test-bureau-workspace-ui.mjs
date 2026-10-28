@@ -123,13 +123,14 @@ const noticeTime = noticeNodes.find(({ element }) => element.type === 'time').el
 assert.equal(noticeTime.props.dateTime, publicNotice.updatedAt);
 assert(JSON.stringify(noticeTime).includes('19:00'), 'Notice dates must use Asia/Seoul time.');
 
-function renderWorkspaceWithNotice(bureau, { admin = false, selected = false, closed = false, error = '', conflict = false, users, groups = [], memberships = [], view = 'review' } = {}) {
+function renderWorkspaceWithNotice(bureau, { admin = false, selected = false, closed = false, error = '', conflict = false, users, groups = [], memberships = [], view = 'review', stages } = {}) {
   const state = domain.createInitialState('2026-10');
   state.notice = publicNotice;
   state.users = users ?? [{ id: 'notice-reader', name: '공지 확인자', bureau, division: '시험과', roles: ['examiner'], active: true, groupId: '', responsibilities: [] }];
   state.groups = groups;
   state.personnel.memberships = memberships;
   state.months[0].closed = closed;
+  if (stages) state.months[0].stages = stages;
   const scope = ui.workspaceSessionKey(`simsadesk-workspace-${admin ? 'admin' : 'user'}`, bureau);
   hookIndex = 0; hookOverrides = [];
   hookOverrides[0] = state; hookOverrides[1] = scope; hookOverrides[3] = selected ? 'notice-reader' : '';
@@ -164,6 +165,16 @@ for (const bureau of BUREAUS) {
   }
   const aiWorkspaceWithNotice = renderWorkspaceWithNotice(bureau, { selected: true, view: 'ai', users: [{ id: 'notice-reader', name: 'AI 담당자', bureau, division: '시험과', roles: ['ai'], active: true }] });
   assert(!descendants(aiWorkspaceWithNotice).some(({ element }) => element.type?.name === 'BureauNotice'), 'AI-only accounts must not see the bureau notice inside their workspace.');
+}
+for (const [stages, label] of [
+  [{ selection: 'pending', result: 'pending', evaluation: 'pending' }, '운영 전'],
+  [{ selection: 'closed', result: 'running', evaluation: 'pending' }, '운영 중'],
+  [{ selection: 'closed', result: 'closed', evaluation: 'closed' }, '운영 종료'],
+]) {
+  const monthStateTree = renderWorkspaceWithNotice('기획국', { selected: true, stages });
+  const options = descendants(monthStateTree).filter(({ element }) => element.type === 'option' && element.props.value === '2026-10');
+  assert.equal(options[0].element.props.children.at(-1), label);
+  assert(descendants(monthStateTree).some(({ element }) => element.type?.name === 'Badge' && element.props.children === label), 'The selected-month badge must agree with its dropdown option.');
 }
 const directoryUsers = [
   { id: 'ai-reader', division: '가과', name: '나영', roles: ['ai'], active: true },
