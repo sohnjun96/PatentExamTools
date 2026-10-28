@@ -123,7 +123,7 @@ const noticeTime = noticeNodes.find(({ element }) => element.type === 'time').el
 assert.equal(noticeTime.props.dateTime, publicNotice.updatedAt);
 assert(JSON.stringify(noticeTime).includes('19:00'), 'Notice dates must use Asia/Seoul time.');
 
-function renderWorkspaceWithNotice(bureau, { admin = false, selected = false, closed = false, error = '', conflict = false, users, groups = [], memberships = [] } = {}) {
+function renderWorkspaceWithNotice(bureau, { admin = false, selected = false, closed = false, error = '', conflict = false, users, groups = [], memberships = [], view = 'review' } = {}) {
   const state = domain.createInitialState('2026-10');
   state.notice = publicNotice;
   state.users = users ?? [{ id: 'notice-reader', name: '공지 확인자', bureau, division: '시험과', roles: ['examiner'], active: true, groupId: '', responsibilities: [] }];
@@ -133,7 +133,7 @@ function renderWorkspaceWithNotice(bureau, { admin = false, selected = false, cl
   const scope = ui.workspaceSessionKey(`simsadesk-workspace-${admin ? 'admin' : 'user'}`, bureau);
   hookIndex = 0; hookOverrides = [];
   hookOverrides[0] = state; hookOverrides[1] = scope; hookOverrides[3] = selected ? 'notice-reader' : '';
-  hookOverrides[4] = '2026-10'; hookOverrides[6] = 'notices'; hookOverrides[7] = false; hookOverrides[13] = scope;
+  hookOverrides[4] = '2026-10'; hookOverrides[5] = view; hookOverrides[6] = 'notices'; hookOverrides[7] = false; hookOverrides[13] = scope;
   hookOverrides[10] = error; hookOverrides[14] = conflict;
   return ui.default({ bureau, admin });
 }
@@ -141,9 +141,11 @@ for (const bureau of BUREAUS) {
   for (const selected of [false, true]) {
     const mainTree = renderWorkspaceWithNotice(bureau, { selected });
     const mainNotice = descendants(mainTree).filter(({ element }) => element.type?.name === 'BureauNotice');
-    assert.equal(mainNotice.length, 1, 'Show one notice before and after user selection.');
-    assert.equal(mainNotice[0].element.props.bureau, bureau);
-    assert.equal(mainNotice[0].element.props.notice, publicNotice);
+    assert.equal(mainNotice.length, selected ? 0 : 1, 'Show bureau notices only on the initial user selection page.');
+    if (!selected) {
+      assert.equal(mainNotice[0].element.props.bureau, bureau);
+      assert.equal(mainNotice[0].element.props.notice, publicNotice);
+    }
     const mainNodes = descendants(mainTree);
     assert(!mainNodes.some(({ element }) => element.type === 'a' && /\/(?:rhksfl|admin)(?:[?#]|$)/.test(element.props.href || '')), 'General users must access administration by address only.');
     if (!selected) {
@@ -160,6 +162,8 @@ for (const bureau of BUREAUS) {
       assert(hookWrites.some(write => write.index === 5 && write.value === 'review'));
     }
   }
+  const aiWorkspaceWithNotice = renderWorkspaceWithNotice(bureau, { selected: true, view: 'ai', users: [{ id: 'notice-reader', name: 'AI 담당자', bureau, division: '시험과', roles: ['ai'], active: true }] });
+  assert(!descendants(aiWorkspaceWithNotice).some(({ element }) => element.type?.name === 'BureauNotice'), 'AI-only accounts must not see the bureau notice inside their workspace.');
 }
 const directoryUsers = [
   { id: 'ai-reader', division: '가과', name: '나영', roles: ['ai'], active: true },
