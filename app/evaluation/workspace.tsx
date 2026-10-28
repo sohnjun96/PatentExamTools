@@ -222,7 +222,7 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
             <div className="ev-panel-head"><h2 id="examiner-directory-title">심사관 선택</h2></div>
             {candidates.length ? <ul className="ev-examiner-list">{candidates.map((candidate) => <li key={candidate.id}>
               <button type="button" className="ev-examiner-choice" disabled={loading || busy} onClick={() => { setUserId(candidate.id); setView(viewForRoles(candidate.roles)); }}>
-                <span>{candidate.division || '소속 미지정'} - {candidate.name}</span><span aria-hidden="true">→</span>
+                <span>{candidate.division || '소속 미지정'} - {candidate.name}</span>{candidate.roles.includes('ai') && <span className="ev-examiner-role">AI 담당자</span>}<span aria-hidden="true">→</span>
               </button>
             </li>)}</ul> : <Empty title="선택할 수 있는 심사관이 없습니다.">관리자에게 심사관 등록을 요청해 주세요.</Empty>}
           </section>
