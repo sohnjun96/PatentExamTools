@@ -1,0 +1,173 @@
+{
+  "verifiedOn": "2026-10-28",
+  "divisionSourceUrl": "https://moip.go.kr/ko/introduce/dpetInfoMgmt.do?menuCd=SCD0201147&sysCd=SCD02&pgmId=PGM0000063",
+  "assignmentNote": "공식 조직의 실제 과 이름과 공개 특허의 출원번호를 사용한 업무 체험용 배치입니다. 각 출원의 실제 담당 과·심사관 또는 AI 검색 실적을 뜻하지 않습니다.",
+  "patents": [
+    {
+      "division": "생활용품심사과",
+      "applicationNumber": "10-2005-7003312",
+      "title": "칫솔",
+      "cpc": "A46B 9/04",
+      "publicationNumber": "KR20050058524A",
+      "sourceUrl": "https://patents.google.com/patent/KR101082686B1/en"
+    },
+    {
+      "division": "생활용품심사과",
+      "applicationNumber": "10-2021-0013789",
+      "title": "알루미늄 조립식 가구",
+      "cpc": "A47B 13/06",
+      "publicationNumber": "KR20220110642A",
+      "sourceUrl": "https://patents.google.com/patent/KR20220110642A/ko"
+    },
+    {
+      "division": "생활용품심사과",
+      "applicationNumber": "10-2024-0051316",
+      "title": "다용도 접이식 가구",
+      "cpc": "A47B 85/00",
+      "publicationNumber": "KR20250152861A",
+      "sourceUrl": "https://patents.google.com/patent/KR102963062B1/ko"
+    },
+    {
+      "division": "생활용품심사과",
+      "applicationNumber": "10-2022-0002155",
+      "title": "운동기구",
+      "cpc": "A63B 21/0004",
+      "publicationNumber": "KR20230106357A",
+      "sourceUrl": "https://patents.google.com/patent/KR102639648B1/ko"
+    },
+    {
+      "division": "생활용품심사과",
+      "applicationNumber": "10-2023-0128224",
+      "title": "노인건강 모니터링을 위한 스마트신발",
+      "cpc": "A43B 3/34",
+      "publicationNumber": "KR20250045212A",
+      "sourceUrl": "https://patents.google.com/patent/KR102808884B1/en"
+    },
+    {
+      "division": "가전제품심사과",
+      "applicationNumber": "10-2023-0179135",
+      "title": "식기 세척기",
+      "cpc": "A47L 15/48",
+      "publicationNumber": "KR20250089330A",
+      "sourceUrl": "https://patents.google.com/patent/KR20250089330A/ko"
+    },
+    {
+      "division": "가전제품심사과",
+      "applicationNumber": "10-2021-0094115",
+      "title": "스마트 냉장고",
+      "cpc": "F25D 29/00",
+      "publicationNumber": "KR20230013410A",
+      "sourceUrl": "https://patents.google.com/patent/KR20230013410A/ko"
+    },
+    {
+      "division": "가전제품심사과",
+      "applicationNumber": "10-2019-0138525",
+      "title": "지능형 세탁기",
+      "cpc": "D06F 33/32",
+      "publicationNumber": "KR20210052916A",
+      "sourceUrl": "https://patents.google.com/patent/KR20210052916A/fr"
+    },
+    {
+      "division": "가전제품심사과",
+      "applicationNumber": "10-2022-0023260",
+      "title": "세탁기 및 세탁기의 제어방법",
+      "cpc": "D06F 33/48",
+      "publicationNumber": "KR20230126131A",
+      "sourceUrl": "https://patents.google.com/patent/KR20230126131A/fr",
+      "classificationSourceUrl": "https://patents.google.com/patent/WO2023163329A1/en"
+    },
+    {
+      "division": "가전제품심사과",
+      "applicationNumber": "10-2023-7004340",
+      "title": "진공 청소기",
+      "cpc": "A47L 9/2805",
+      "publicationNumber": "KR20230062546A",
+      "sourceUrl": "https://patents.google.com/patent/KR20230062546A/en",
+      "classificationSourceUrl": "https://patents.google.com/patent/WO2022008867A1/en"
+    },
+    {
+      "division": "식품생물자원심사과",
+      "applicationNumber": "10-2016-7009350",
+      "title": "식품 조성물",
+      "cpc": "A23L 33/40",
+      "publicationNumber": "KR20160054574A",
+      "sourceUrl": "https://patents.google.com/patent/KR20160054574A/ko",
+      "note": "국제출원의 국내단계 출원번호. filingDate는 공개 원문 Filing date 필드(국제출원일)."
+    },
+    {
+      "division": "식품생물자원심사과",
+      "applicationNumber": "10-2014-0130159",
+      "title": "숙변 제거 효능이 있는 장 기능 개선 발효식품 및 그 제조방법",
+      "cpc": "A23B 7/155",
+      "publicationNumber": "KR20160037510A",
+      "sourceUrl": "https://patents.google.com/patent/KR20160037510A/ko"
+    },
+    {
+      "division": "식품생물자원심사과",
+      "applicationNumber": "10-2019-0092233",
+      "title": "식용곤충과 곡물의 병행발효를 통한 기능성 발효식품",
+      "cpc": "A23L 7/104",
+      "publicationNumber": "KR20200141366A",
+      "sourceUrl": "https://patents.google.com/patent/KR20200141366A/ko"
+    },
+    {
+      "division": "식품생물자원심사과",
+      "applicationNumber": "10-2022-0111049",
+      "title": "유산균의 생잔성 향상제 및 생잔성 향상 방법, 및 식품 조성물",
+      "cpc": "C12N 1/04",
+      "publicationNumber": "KR20240031807A",
+      "sourceUrl": "https://patents.google.com/patent/KR20240031807A/ko"
+    },
+    {
+      "division": "식품생물자원심사과",
+      "applicationNumber": "10-2026-7001503",
+      "title": "조성물 및 이의 용도",
+      "cpc": "A23B 2/742",
+      "publicationNumber": "KR20260020493A",
+      "sourceUrl": "https://patents.google.com/patent/KR20260020493A/ko",
+      "note": "국제출원의 국내단계 출원번호. filingDate는 공개 원문 Filing date 필드(국제출원일). 2026-02-11 공개."
+    },
+    {
+      "division": "주거기반심사과",
+      "applicationNumber": "10-2016-0096192",
+      "title": "차양효과를 가지는 이중창호",
+      "cpc": "E06B 3/4609",
+      "publicationNumber": "KR20180013069A",
+      "sourceUrl": "https://patents.google.com/patent/KR101855173B1/ko"
+    },
+    {
+      "division": "주거기반심사과",
+      "applicationNumber": "10-2024-0187874",
+      "title": "단열 창호 및 이의 제조방법",
+      "cpc": "E06B 3/263",
+      "publicationNumber": "KR20250005016A",
+      "sourceUrl": "https://patents.google.com/patent/KR20250005016A/ko"
+    },
+    {
+      "division": "주거기반심사과",
+      "applicationNumber": "10-2015-0124398",
+      "title": "단열 창호 프레임",
+      "cpc": "E06B 3/263",
+      "publicationNumber": "KR101632260B1",
+      "sourceUrl": "https://patents.google.com/patent/KR101632260B1/ko",
+      "note": "공개공보 A가 아닌 등록공보 B1. 등록공보 원문에서 출원번호 확인."
+    },
+    {
+      "division": "주거기반심사과",
+      "applicationNumber": "10-2023-0151706",
+      "title": "가변형 붙박이장",
+      "cpc": "A47B 45/00",
+      "publicationNumber": "KR20240084450A",
+      "sourceUrl": "https://patents.google.com/patent/KR20240084450A/ko",
+      "note": "우선권 출원 10-2022-0169123과 혼동 주의. 해당 공보 Application number는 KR1020230151706A."
+    },
+    {
+      "division": "주거기반심사과",
+      "applicationNumber": "10-2011-0083565",
+      "title": "붙박이장 환기구조",
+      "cpc": "A47B 61/00",
+      "publicationNumber": "KR20130021189A",
+      "sourceUrl": "https://patents.google.com/patent/KR101255727B1/ko"
+    }
+  ]
+}
