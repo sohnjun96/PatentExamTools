@@ -2,22 +2,23 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  caseStatus, emptyMonth, getStatistics, personnelOf,
-  type EvaluationAction, type EvaluationCase, type EvaluationGroup, type EvaluationState,
-  type EvaluationUser, type InvestigationMethod, type OperationMonth, type Personnel, type Role,
+  caseStatus, emptyMonth, getStatistics, personnelOf, operationGroups,
+  type EvaluationAction, type EvaluationState,
+  type InvestigationMethod, type OperationMonth,
 } from '@/app/lib/evaluation';
 import { getAdminReadiness } from '@/app/lib/admin-guidance';
 import { exportWorkbook } from '@/app/lib/export-workbook';
 import type { Bureau } from '@/app/lib/bureaus';
 import AccessibleDialog from '@/app/components/accessible-dialog';
 import NoticeManager from './notice-manager';
+import AccountManager, { AccountEditor, GroupEditor, GroupDeleteDialog, examinerForm, filterAdminUsers } from './examiner-manager';
+export { AccountEditor, GroupEditor, GroupDeleteDialog, examinerForm, filterAdminUsers };
 import './admin.css';
 
 export const ADMIN_NAV = [
   { id: 'overview', label: '운영 현황', icon: '▦', description: '월별 진행을 확인하고 후속 업무를 찾습니다.' },
   { id: 'examiners', label: '심사관 관리', icon: '▤', description: '사용자 계정과 소속 그룹·AI 담당 배정을 관리합니다.' },
   { id: 'ai', label: 'AI 종류', icon: '◇', description: '비교에 사용할 AI 종류를 등록하고 관리합니다.' },
-  { id: 'groups', label: '그룹', icon: '▥', description: '심사관와 AI 담당 업무를 묶는 그룹을 관리합니다.' },
   { id: 'month', label: '월별 운영', icon: '◷', description: '운영 기한과 선정 건수, 비교할 AI 종류를 설정합니다.' },
   { id: 'cases', label: '대상 출원', icon: '▧', description: '대상 출원을 찾고 운영상 필요한 등록과 취소를 처리합니다.' },
   { id: 'notices', label: '공지사항 관리', icon: '▣', description: '메인 페이지에 표시할 공지사항을 마크다운으로 작성하고 관리합니다.' },
@@ -33,7 +34,6 @@ export type AdminProps = {
 };
 type FormProps = Pick<AdminProps, 'state' | 'month' | 'bureau' | 'busy' | 'save' | 'dirty' | 'hasUnsaved' | 'onNavigate' | 'saveFeedback'>;
 type MonthFormProps = FormProps & { month: OperationMonth };
-const roles: { value: Role; label: string }[] = [{ value: 'examiner', label: '심사관' }, { value: 'ai', label: 'AI 담당자' }, { value: 'admin', label: '관리자' }];
 const percent = (value: number | null) => value === null ? '—' : `${(value * 100).toFixed(1)}%`;
 const monthLabel = (id: string) => `${id.slice(0, 4)}년 ${Number(id.slice(5))}월`;
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
@@ -42,7 +42,7 @@ const queryValue = (value: string) => value.trim().toLocaleLowerCase();
 export function readAdminSection(raw: string | null, bureau?: Bureau, legacyView?: string): AdminSection {
   try {
     const value = raw ? JSON.parse(raw) as { adminSection?: unknown } : null;
-    if (value?.adminSection === 'accounts') return 'examiners';
+    if (value?.adminSection === 'accounts' || value?.adminSection === 'groups') return 'examiners';
     if (ADMIN_NAV.some((entry) => entry.id === value?.adminSection)) return value!.adminSection as AdminSection;
   } catch { /* Invalid optional session data falls back to the entry page. */ }
   if (legacyView === 'stats') return 'overview';
@@ -66,7 +66,6 @@ export default function AdminWorkspace(props: AdminProps) {
     {section === 'overview' ? month ? <Overview {...props} month={month} navigateCases={navigateCases} /> : <Empty title="운영월을 등록하세요." actions={<Button onClick={() => onNavigate('month')}>월별 운영</Button>} />
       : section === 'examiners' ? <AccountManager {...props} />
       : section === 'ai' ? <MethodManager {...props} />
-      : section === 'groups' ? <GroupManager {...props} />
       : section === 'month' ? <MonthManager {...props} />
       : section === 'notices' ? <NoticeManager {...props} />
       : month ? <CaseManager key={caseFocus} {...props} month={month} initialStatus={caseFocus} /> : <Empty title="운영월을 등록하세요." actions={<Button onClick={() => onNavigate('month')}>월별 운영</Button>} />}
@@ -75,132 +74,6 @@ export default function AdminWorkspace(props: AdminProps) {
       <Button disabled={props.busy} onClick={() => { if (window.confirm('가상 검증 자료를 불러오시겠습니까? 실제 출원과 실적이 아닌 예시가 저장됩니다.')) void props.save({ type: 'loadDemo' }, '가상 검증 자료를 불러왔습니다.'); }}>가상 검증 자료 불러오기</Button>
     </section>}
   </div>;
-}
-
-export function filterAdminUsers(users: EvaluationUser[], query = '', role = 'all', status = 'all') {
-  const search = queryValue(query);
-  return users.filter((user) => (!search || `${user.name} ${user.division}`.toLocaleLowerCase().includes(search))
-    && (role === 'all' || user.roles.includes(role as Role))
-    && (status === 'all' || user.active === (status === 'active')));
-}
-
-export function personnelDraft(state: EvaluationState): Personnel {
-  return structuredClone(personnelOf(state));
-}
-
-function AccountManager(props: FormProps) {
-  const { state, busy, dirty, onNavigate } = props;
-  const [query, setQuery] = useState(''); const [role, setRole] = useState('all'); const [status, setStatus] = useState('all');
-  const [editing, setEditing] = useState<string | null>(null);
-  const [groupStatus, setGroupStatus] = useState('all');
-  const [allocation, setAllocation] = useState<Personnel>(() => personnelDraft(state));
-  const [accountDirty, setAccountDirty] = useState(false);
-  const changed = !same(allocation, personnelDraft(state));
-  useEffect(() => dirty(changed || accountDirty), [changed, accountDirty, dirty]);
-  const readiness = getAdminReadiness({ ...state, personnel: allocation });
-  const disabled = busy;
-  const selectedAI = state.methods.filter((method) => method.kind === 'ai');
-  const groups = state.groups;
-  const availableAI = state.users.filter((user) => user.active && user.roles.includes('ai'));
-  const visible = filterAdminUsers(state.users, query, role, status).filter((user) => groupStatus === 'all' || allocation.memberships.some((entry) => entry.userId === user.id) === (groupStatus === 'assigned'));
-  const selected = state.users.find((user) => user.id === editing);
-  function update(patch: Partial<Personnel>) { setAllocation((previous) => ({ ...previous, ...patch })); dirty(true); }
-  function open(id: string) { if (!busy) { setAccountDirty(false); setEditing(id); } }
-  const saveAccount: Save = async (action, message) => {
-    const saved = await props.save(action, message);
-    if (saved) { setQuery(''); setRole('all'); setStatus('all'); setGroupStatus('all'); }
-    return saved;
-  };
-  function setGroup(userId: string, groupId: string) {
-    const exists = allocation.memberships.some((entry) => entry.userId === userId);
-    update({ memberships: !groupId ? allocation.memberships.filter((entry) => entry.userId !== userId) : exists ? allocation.memberships.map((entry) => entry.userId === userId ? { userId, groupId } : entry) : [...allocation.memberships, { userId, groupId }] });
-  }
-  function setAssignee(groupId: string, methodId: string, userId: string) {
-    const matching = (entry: Personnel['assignments'][number]) => entry.groupId === groupId && entry.methodId === methodId;
-    update({ assignments: !userId ? allocation.assignments.filter((entry) => !matching(entry)) : allocation.assignments.some(matching) ? allocation.assignments.map((entry) => matching(entry) ? { groupId, methodId, userId } : entry) : [...allocation.assignments, { groupId, methodId, userId }] });
-  }
-  async function savePersonnel() {
-    if (disabled || !changed) return;
-    if (await props.save({ type: 'savePersonnel', personnel: allocation }, '심사관과 AI 담당 배정을 저장했습니다.')) dirty(accountDirty);
-  }
-  return <>
-    <div className="adm-metrics"><Metric label="등록된 사용자" value={state.users.length + '명'} /><Metric label="그룹 배정 계정" value={allocation.memberships.length + '명'} /><Metric label="활성 AI 담당자" value={availableAI.length + '명'} /><Metric label="활성 AI 배정" value={readiness.assignmentReadyCount + ' / ' + readiness.assignmentTargetCount} hint={'미배정 ' + readiness.missingAssignments.length + '건'} /></div>
-
-    <nav className="adm-steps-nav" aria-label="심사관 관리 영역"><a href="#adm-examiner-list">계정·소속 그룹</a><a href="#adm-examiner-ai">그룹별 AI 담당 배정</a></nav>
-    <div className="adm-toolbar">
-      <div className="adm-search"><label className="sr-only" htmlFor="adm-account-search">이름 또는 심사과 검색</label><input id="adm-account-search" className="krds-input" placeholder="이름 또는 심사과 검색" value={query} onChange={(event) => setQuery(event.target.value)} /></div>
-      <select className="krds-form-select adm-filter" aria-label="계정 역할 필터" value={role} onChange={(event) => setRole(event.target.value)}><option value="all">전체 역할</option>{roles.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}</select>
-      <select className="krds-form-select adm-filter" aria-label="계정 활성 상태 필터" value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">전체 상태</option><option value="active">활성</option><option value="inactive">비활성</option></select>
-      <select className="krds-form-select adm-filter" aria-label="소속 그룹 배정 필터" value={groupStatus} onChange={(event) => setGroupStatus(event.target.value)}><option value="all">전체 그룹 배정</option><option value="assigned">그룹 배정</option><option value="unassigned">그룹 미배정</option></select>
-      <Button primary disabled={busy} aria-haspopup="dialog" onClick={() => open('new')}>신규 계정 등록</Button>
-    </div>
-    <section className="adm-list adm-examiner-list" id="adm-examiner-list" aria-labelledby="adm-examiner-list-title">
-      <div className="adm-list-head"><h2 id="adm-examiner-list-title">계정·소속 그룹</h2><span className="adm-secondary">{visible.length} / {state.users.length}명</span></div>
-      {visible.length ? visible.map((user) => {
-        const participant = allocation.memberships.find((entry) => entry.userId === user.id);
-        const responsibilities = allocation.assignments.filter((entry) => entry.userId === user.id);
-        return <article className="adm-examiner-row" key={user.id}>
-          <div className="adm-examiner-profile"><div className="adm-examiner-name"><strong>{user.name}</strong><Button disabled={busy} aria-haspopup="dialog" aria-label={user.name + ' 계정 수정'} onClick={() => open(user.id)}>계정 수정</Button></div><span className="adm-secondary">{user.division || '심사과 미입력'}</span><div className="adm-personnel-tags"><Pill tone={user.active ? 'is-active' : 'is-inactive'}>{user.active ? '활성' : '비활성'}</Pill>{user.roles.map((value) => <Pill key={value}>{roles.find((entry) => entry.value === value)?.label}</Pill>)}</div></div>
-          <div><label className="adm-field">소속 그룹<select className="krds-form-select" aria-label={user.name + ' 소속 그룹'} disabled={disabled} value={participant?.groupId || ''} onChange={(event) => setGroup(user.id, event.target.value)}><option value="">그룹 미배정</option>{participant && !state.groups.some((group) => group.id === participant.groupId) && <option value={participant.groupId}>등록되지 않은 그룹 · 확인 필요</option>}{state.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label></div>
-          <div><span className="adm-label">AI 담당 업무</span>{responsibilities.length ? <ul className="adm-responsibilities">{responsibilities.map((entry) => <li key={entry.groupId + ':' + entry.methodId}>{state.groups.find((group) => group.id === entry.groupId)?.name || '그룹 확인 필요'} · {state.methods.find((method) => method.id === entry.methodId)?.name || 'AI 확인 필요'}</li>)}</ul> : <p className="adm-secondary">{user.roles.includes('ai') ? '담당 업무 없음' : 'AI 담당자 역할 없음'}</p>}</div>
-        </article>;
-      }) : <Empty title={state.users.length ? '검색 조건에 맞는 계정이 없습니다.' : '등록된 계정이 없습니다.'} actions={state.users.length ? <Button onClick={() => { setQuery(''); setRole('all'); setStatus('all'); setGroupStatus('all'); }}>검색 조건 초기화</Button> : undefined} />}
-    </section>
-    {!state.groups.length && <div className="ev-notice">그룹을 먼저 등록하세요. <Button onClick={() => onNavigate('groups')}>그룹 관리</Button></div>}
-    <section className="adm-personnel-ai" id="adm-examiner-ai" aria-labelledby="adm-examiner-ai-title">
-      <div className="adm-list-head"><div><h2 id="adm-examiner-ai-title">그룹별 AI 담당자 배정</h2></div><Pill tone={readiness.missingAssignments.length || readiness.unavailableAssignments.length ? 'is-warning' : 'is-active'}>{readiness.assignmentReadyCount} / {readiness.assignmentTargetCount}건 배정</Pill></div>
-      {groups.length && selectedAI.length ? <div className="adm-table-wrap"><table className="adm-table"><caption className="sr-only">그룹과 AI 종류별 검색 결과 입력 담당자</caption><thead><tr><th scope="col">대상 그룹</th>{selectedAI.map((method) => <th key={method.id} scope="col">{method.name}{!method.active && <Pill tone="is-inactive">비활성</Pill>}</th>)}</tr></thead><tbody>{groups.map((group) => <tr key={group.id}><th scope="row">{group.name}</th>{selectedAI.map((method) => {
-        const assignment = allocation.assignments.find((entry) => entry.groupId === group.id && entry.methodId === method.id);
-        const current = state.users.find((user) => user.id === assignment?.userId);
-        return <td key={method.id}><select className="krds-form-select" aria-label={group.name + ' ' + method.name + ' 담당자'} disabled={disabled} value={assignment?.userId || ''} onChange={(event) => setAssignee(group.id, method.id, event.target.value)}><option value="">담당자 미배정</option>{assignment && !availableAI.some((user) => user.id === assignment.userId) && <option value={assignment.userId}>{current?.name || '계정 없음'} · 확인 필요</option>}{availableAI.map((user) => <option key={user.id} value={user.id}>{user.division || '소속 미지정'} - {user.name}</option>)}</select></td>;
-      })}</tr>)}</tbody></table></div> : <div className="adm-inset"><p>{!selectedAI.length ? 'AI 종류를 먼저 등록하세요.' : '그룹을 먼저 등록하세요.'}</p>{!selectedAI.length && <Button onClick={() => onNavigate('ai')}>AI 종류 추가</Button>}</div>}
-      <div className="adm-inset"><p className="adm-secondary">미배정 상태로도 저장 가능 · 확정 출원의 그룹은 유지</p>{readiness.missingAssignments.length > 0 && <p className="adm-inline-error">담당자 미배정 {readiness.missingAssignments.length}건: {readiness.missingAssignments.map((entry) => entry.groupName + ' · ' + entry.methodName).join(', ')}</p>}{readiness.unavailableAssignments.length > 0 && <p className="adm-inline-error">확인할 AI 배정 {readiness.unavailableAssignments.length}건이 있습니다.</p>}{!availableAI.length && <p className="adm-inline-error">활성 AI 담당자가 없습니다. 계정 역할을 확인하세요.</p>}</div>
-    </section>
-    <div className="adm-save-bar"><div><strong>심사관 관리</strong>{changed && <p className="adm-secondary adm-dirty is-dirty" role="status">배정 변경 미저장</p>}</div><div className="adm-actions"><Button disabled={disabled || !changed} onClick={() => { if (confirmDiscard(changed)) { setAllocation(personnelDraft(state)); dirty(accountDirty); } }}>배정 변경 취소</Button><Button primary disabled={disabled || !changed} onClick={() => void savePersonnel()}>심사관 관리 저장</Button></div></div>
-    {(editing === 'new' || selected) && <AccountEditor key={editing} user={selected} bureau={props.bureau} busy={busy} save={saveAccount} dirty={setAccountDirty} saveFeedback={props.saveFeedback} onClose={() => { setAccountDirty(false); setEditing(null); }} />}
-  </>;
-}
-
-export function AccountEditor({ user, bureau, busy, save, dirty, onClose, saveFeedback }: {
-  user?: EvaluationUser; bureau?: Bureau; busy: boolean; save: Save; dirty: (value: boolean) => void; onClose: () => void; saveFeedback?: React.ReactNode;
-}) {
-  const original = useMemo(() => user ? { ...user, bureau: bureau || user.bureau } : { name: '', bureau: bureau || '', division: '', roles: ['examiner'] as Role[], active: true }, [user, bureau]);
-  const [form, setForm] = useState(original);
-  const [submitFailed, setSubmitFailed] = useState(false);
-  const feedback = useRef<HTMLDivElement>(null);
-  const changed = !same(form, original);
-  useEffect(() => dirty(changed), [changed, dirty]);
-  useEffect(() => { if (submitFailed && !busy) feedback.current?.focus(); }, [submitFailed, busy]);
-  function update(patch: Partial<typeof form>) { setForm((previous) => ({ ...previous, ...patch })); dirty(true); }
-  function requestClose() { if (!busy && confirmDiscard(changed)) onClose(); }
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    if (busy || !form.name.trim() || !form.roles.length) return;
-    setSubmitFailed(false);
-    if (await save({ type: 'saveUser', user: { ...form, bureau: bureau || form.bureau } }, user ? `${form.name} 계정 정보를 저장했습니다.` : `${form.name} 계정을 등록했습니다. 심사관 관리에서 참여 그룹과 담당 업무를 정해 주세요.`)) {
-      dirty(false); onClose();
-    } else setSubmitFailed(true);
-  }
-  return <AccessibleDialog labelledBy="adm-account-dialog-title" className="adm-form-modal" onClose={requestClose}>
-    <header>
-      <div><h2 id="adm-account-dialog-title">{user ? `${user.name} 계정 수정` : '신규 계정 등록'}</h2></div>
-      <Button disabled={busy} aria-label="계정 편집 닫기" onClick={requestClose}>닫기</Button>
-    </header>
-    <form className="adm-modal-form" onSubmit={submit} aria-busy={busy}>
-      <div className="adm-editor-body adm-modal-fields">
-        {submitFailed && <div ref={feedback} className="adm-modal-feedback" tabIndex={-1}>{saveFeedback || <div className="ev-alert" role="alert"><p>계정을 저장하지 못했습니다. 입력한 내용은 유지되어 있습니다. 잠시 후 다시 시도해 주세요.</p></div>}</div>}
-        <div className="adm-form-grid">
-          <label className="adm-field">이름 <span className="adm-required">필수</span><input className="krds-input" data-dialog-autofocus required maxLength={200} disabled={busy} value={form.name} onChange={(event) => update({ name: event.target.value })} /></label>
-          <label className="adm-field">심사국<input className="krds-input" maxLength={200} disabled={busy} readOnly={Boolean(bureau)} value={bureau || form.bureau} onChange={(event) => update({ bureau: event.target.value })} /></label>
-          <label className="adm-field">심사과<input className="krds-input" maxLength={200} disabled={busy} value={form.division} onChange={(event) => update({ division: event.target.value })} /></label>
-        </div>
-        <fieldset className="adm-fieldset" disabled={busy}><legend className="adm-label">역할 <span className="adm-required">1개 이상</span></legend><div className="adm-check-list">{roles.map((role) => <label key={role.value} className="adm-check-row"><input type="checkbox" checked={form.roles.includes(role.value)} onChange={(event) => update({ roles: event.target.checked ? [...form.roles, role.value] : form.roles.filter((entry) => entry !== role.value) })} /><span>{role.label}</span></label>)}</div></fieldset>
-        <label className="adm-field">계정 상태<select className="krds-form-select" disabled={busy} value={form.active ? 'active' : 'inactive'} onChange={(event) => update({ active: event.target.value === 'active' })}><option value="active">활성 · 업무 화면에 표시</option><option value="inactive">비활성 · 신규 접속 제한</option></select></label>
-        {!form.active && <p className="adm-secondary">비활성화해도 기존 기록과 배정은 유지됩니다.</p>}
-      </div>
-      <footer className="adm-actions adm-modal-actions">{changed && <span className="adm-dirty is-dirty" role="status">미저장 변경 있음</span>}<Button disabled={busy} onClick={requestClose}>취소</Button><button type="submit" className="krds-btn medium ev-button primary" disabled={busy || !form.name.trim() || !form.roles.length || (Boolean(user) && !changed)}>{busy ? '저장 중…' : user ? '계정 변경 저장' : '계정 등록'}</button></footer>
-    </form>
-  </AccessibleDialog>;
 }
 
 function MethodManager(props: FormProps) {
@@ -277,19 +150,6 @@ export function MethodEditor({ method, busy, dirty, save, onClose, saveFeedback 
       <footer className="adm-actions adm-modal-actions">{changed && <span className="adm-dirty is-dirty" role="status">미저장 변경 있음</span>}<Button disabled={busy} onClick={requestClose}>취소</Button><button type="submit" className="krds-btn medium ev-button primary" disabled={busy || !form.name.trim() || (Boolean(method) && !changed)}>{busy ? '저장 중…' : method ? '변경 저장' : 'AI 종류 추가'}</button></footer>
     </form>
   </AccessibleDialog>;
-}
-
-function GroupManager(props: FormProps) {
-  const { state, busy, hasUnsaved, dirty } = props; const [query, setQuery] = useState(''); const [editing, setEditing] = useState<string | null>(null);
-  const selected = state.groups.find((group) => group.id === editing); const visible = state.groups.filter((group) => group.name.toLocaleLowerCase().includes(queryValue(query)));
-  function open(id: string) { if (confirmDiscard(hasUnsaved)) { dirty(false); setEditing(id); } }
-  return <><div className="adm-toolbar"><div className="adm-search"><label className="sr-only" htmlFor="adm-group-search">그룹 이름 검색</label><input id="adm-group-search" className="krds-input" placeholder="그룹 이름 검색" value={query} onChange={(event) => setQuery(event.target.value)} /></div><span className="adm-secondary">전체 {state.groups.length}개 그룹</span><Button primary disabled={busy} onClick={() => open('new')}>신규 그룹 등록</Button></div><div className="adm-split"><section className="adm-list"><div className="adm-list-head"><h2>그룹 목록</h2><span className="adm-secondary">{visible.length}개</span></div>{visible.length ? visible.map((group) => <button type="button" key={group.id} className={`adm-list-item ${editing === group.id ? 'is-selected' : ''}`} disabled={busy} aria-pressed={editing === group.id} onClick={() => open(group.id)}><span className="adm-name">{group.name}</span><span className="adm-secondary">소속 계정 {personnelOf(state).memberships.filter((entry) => entry.groupId === group.id).length}명 · AI 담당 배정 {personnelOf(state).assignments.filter((entry) => entry.groupId === group.id).length}건</span></button>) : <Empty title={state.groups.length ? '검색한 그룹이 없습니다.' : '등록된 그룹이 없습니다.'} actions={state.groups.length ? <Button onClick={() => setQuery('')}>검색 초기화</Button> : undefined} />}</section><section className="adm-editor">{editing === 'new' || selected ? <GroupEditor key={editing} group={selected} busy={busy} dirty={dirty} save={props.save} onClose={() => { dirty(false); setEditing(null); }} /> : <Empty title="관리할 그룹을 선택하세요.">그룹을 등록한 뒤 심사관 관리에서 심사관과 AI 담당자를 연결합니다.</Empty>}</section></div></>;
-}
-
-export function GroupEditor({ group, busy, dirty, save, onClose }: { group?: EvaluationGroup; busy: boolean; dirty: (value: boolean) => void; save: Save; onClose: () => void }) {
-  const [name, setName] = useState(group?.name || ''); const changed = name !== (group?.name || ''); useEffect(() => dirty(changed), [changed, dirty]);
-  async function submit(event: React.FormEvent) { event.preventDefault(); if (await save({ type: 'saveGroup', group: { id: group?.id, name } }, group ? `${name} 그룹 정보를 저장했습니다.` : `${name} 그룹을 등록했습니다. 심사관 관리에서 심사관를 배정해 주세요.`)) { dirty(false); onClose(); } }
-  return <><EditorHeader title={group ? `${group.name} 그룹 수정` : '신규 그룹 등록'} /><form className="adm-editor-body" onSubmit={(event) => void submit(event)}><label className="adm-field">그룹 이름 <span className="adm-required">필수</span><input className="krds-input" required maxLength={200} disabled={busy} value={name} onChange={(event) => { setName(event.target.value); dirty(true); }} /></label>{group && <p className="adm-secondary">확정 출원의 그룹명은 바뀌지 않습니다.</p>}<div className="adm-actions">{changed && <span className="adm-dirty is-dirty" role="status">미저장 변경 있음</span>}<Button disabled={busy} onClick={() => { if (confirmDiscard(changed)) onClose(); }}>취소</Button><button type="submit" className="krds-btn medium ev-button primary" disabled={busy || !name.trim() || (Boolean(group) && !changed)}>{group ? '그룹 변경 저장' : '그룹 등록'}</button></div></form></>;
 }
 
 function Step({ number, title, status, children, complete = false, missing = false }: { number: number; title: string; status: string; children: React.ReactNode; complete?: boolean; missing?: boolean }) {
@@ -381,7 +241,7 @@ function Overview(props: AdminProps & { month: OperationMonth; navigateCases: (f
   const [groupId, setGroupId] = useState(''); const [examinerId, setExaminerId] = useState(''); const [detail, setDetail] = useState('followup'); const [status, setStatus] = useState('all');
   const stats = useMemo(() => getStatistics(state, month.id, groupId, examinerId), [state, month.id, groupId, examinerId]); const readiness = getAdminReadiness(state, month); const { summary } = stats;
   const followups = filterTargetCases(state, month.id, { status: status === 'all' ? 'confirmed' : status, groupId, examinerId });
-  return <><div className="adm-toolbar"><select className="krds-form-select adm-filter" aria-label="운영 현황 그룹 필터" value={groupId} onChange={(event) => { setGroupId(event.target.value); setExaminerId(''); }}><option value="">전체 그룹</option>{state.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select><select className="krds-form-select adm-filter" aria-label="운영 현황 담당 심사관 필터" value={examinerId} onChange={(event) => setExaminerId(event.target.value)}><option value="">전체 담당 심사관</option>{state.users.filter((user) => personnelOf(state).memberships.some((entry) => entry.userId === user.id && (!groupId || entry.groupId === groupId)) || stats.cases.some((item) => item.examinerId === user.id)).map((user) => <option key={user.id} value={user.id}>{user.division} - {user.name}</option>)}</select><Button onClick={async () => { const result = await exportAdminStatistics(state, month.id, groupId, examinerId, bureau); if (result) notify(result); }}>현재 범위 엑셀 저장</Button><Button primary={month.closed} disabled={busy} onClick={() => { if (window.confirm(month.closed ? `${monthLabel(month.id)} 운영을 재개방하시겠습니까? 설정한 기한 안에 입력과 평가를 다시 진행할 수 있습니다.` : `${monthLabel(month.id)} 운영을 마감하시겠습니까? 선정·검색 결과·평가와 월별 설정을 수정할 수 없게 됩니다.`)) void save({ type: 'setMonthClosed', monthId: month.id, closed: !month.closed }, month.closed ? `${monthLabel(month.id)} 운영을 재개방했습니다. 설정한 기한 안에 입력과 평가를 진행할 수 있습니다.` : `${monthLabel(month.id)} 운영을 마감했습니다. 자료 조회와 다운로드는 계속할 수 있습니다.`); }}>{month.closed ? '운영 재개방' : '월 운영 마감'}</Button></div><div className="adm-metrics"><Metric label="소속 심사관" value={`${summary.participants}명`} hint={`미선정 ${summary.unselected}명`} /><Metric label="확정 출원" value={`${summary.cases}건`} hint={`공개 문헌 ${summary.documents}건`} /><Metric label="AI 입력 완료" value={`${summary.inputComplete}건`} hint={`완료율 ${percent(summary.inputRate)}`} /><Metric label="평가 완료" value={`${summary.complete}건`} hint={`완료율 ${percent(summary.evaluationRate)}`} /></div><div className="adm-followups"><button type="button" className="adm-link-card" onClick={() => navigateCases('inputPending')}><span>AI 입력 대기</span><strong>{summary.inputPending}건</strong><span>담당 출원 찾기</span></button><button type="button" className="adm-link-card" onClick={() => navigateCases('recheck')}><span>평가 재확인 필요</span><strong>{summary.recheck}건</strong><span>변경된 결과 확인</span></button><button type="button" className="adm-link-card" onClick={() => onNavigate('examiners')}><span>담당 배정 확인</span><strong>{readiness.missingAssignments.length + readiness.unavailableAssignments.length}건</strong><span>심사관 관리</span></button></div><div className="adm-overview-grid"><section className="adm-list"><EditorHeader title="그룹별 진행" /><div className="adm-table-wrap"><table className="adm-table"><caption className="sr-only">그룹별 월 운영 진행</caption><thead><tr><th scope="col">그룹</th><th scope="col">대상건 선정</th><th scope="col">AI 검색 완료</th><th scope="col">평가 완료</th><th scope="col">완료율</th></tr></thead><tbody>{stats.groups.map((group) => <tr key={group.id}><td>{group.name}</td><td>{group.cases}</td><td>{group.inputComplete}</td><td>{group.complete}</td><td>{percent(group.completionRate)}</td></tr>)}</tbody></table>{!stats.groups.length && <Empty title="등록된 그룹이 없습니다." actions={<Button onClick={() => onNavigate('groups')}>그룹 등록</Button>} />}</div></section><section className="adm-list"><EditorHeader title="조사 방식별 평가" /><div className="adm-table-wrap"><table className="adm-table"><caption className="sr-only">조사 방식별 유효 평가 통계</caption><thead><tr><th scope="col">조사 방식</th><th scope="col">문헌 수</th><th scope="col">평균 점수</th><th scope="col">인용률</th><th scope="col">1위 횟수</th></tr></thead><tbody>{stats.methods.map((method) => <tr key={method.id}><td>{method.name}</td><td>{method.kind === 'baseline' ? '—' : method.documents}</td><td>{method.averageScore === null ? '—' : method.averageScore.toFixed(2)}</td><td>{percent(method.citationRate)}</td><td>{method.firstPlace}</td></tr>)}</tbody></table></div></section></div><section className="adm-list"><div className="adm-list-head"><div><h2>진행 상세</h2><p className="adm-secondary">미평가 {summary.unevaluated} · 평가 중 {summary.inProgress} · 재확인 필요 {summary.recheck}</p></div><div className="adm-inline-tabs">{[['followup', '출원별 후속 업무'], ['accounts', '계정별 진행'], ['documents', 'AI 문헌 평가']].map(([id, label]) => <button type="button" key={id} aria-pressed={detail === id} className={detail === id ? 'is-selected' : ''} onClick={() => setDetail(id)}>{label}</button>)}</div></div>{detail === 'followup' ? <><div className="adm-toolbar adm-inset"><select className="krds-form-select adm-filter" aria-label="후속 업무 상태" value={status} onChange={(event) => setStatus(event.target.value)}>{caseFilters.filter(([value]) => !['draft', 'cancelled', 'confirmed'].includes(value)).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><span className="adm-secondary">{followups.length}건</span></div><div className="adm-table-wrap"><table className="adm-table"><caption className="sr-only">현재 조회 범위의 출원별 후속 업무</caption><thead><tr><th scope="col">출원번호</th><th scope="col">담당 심사관</th><th scope="col">그룹</th><th scope="col">AI 입력</th><th scope="col">평가 상태</th></tr></thead><tbody>{followups.map((item) => { const progress = caseStatus(state, item); return <tr key={item.id}><td>{item.applicationNumber}</td><td>{item.examinerName}</td><td>{item.groupName}</td><td>{progress.inputComplete ? '입력 완료' : '대기 중'}</td><td><Pill tone={progress.stale ? 'is-warning' : progress.complete ? 'is-active' : ''}>{progress.evaluationStatus}</Pill></td></tr>; })}</tbody></table>{!followups.length && <Empty title="현재 조건의 후속 업무가 없습니다." />}</div></> : detail === 'accounts' ? <div className="adm-table-wrap"><table className="adm-table"><caption className="sr-only">계정별 심사 및 AI 담당 업무 진행</caption><thead><tr><th scope="col">심사과</th><th scope="col">이름</th><th scope="col">개인 출원</th><th scope="col">평가 완료</th><th scope="col">AI 담당 대상</th><th scope="col">AI 입력 완료</th></tr></thead><tbody>{stats.accounts.map((account) => <tr key={account.id}><td>{account.division}</td><td>{account.name}</td><td>{account.cases}</td><td>{account.complete}</td><td>{account.aiTarget}</td><td>{account.aiCompleted}</td></tr>)}</tbody></table></div> : <div className="adm-table-wrap"><table className="adm-table"><caption className="sr-only">AI 문헌별 최신 결과에 대한 평가</caption><thead><tr><th scope="col">출원번호</th><th scope="col">담당 심사관</th><th scope="col">AI 담당자</th><th scope="col">조사 방식</th><th scope="col">AI 검색 결과</th><th scope="col">인용여부</th><th scope="col">점수</th><th scope="col">평가 상태</th></tr></thead><tbody>{stats.rows.map((row) => <tr key={`${row.caseId}:${row.methodId}:${row.number}`}><td>{row.applicationNumber}</td><td>{row.examinerName}</td><td>{row.authorName}</td><td>{row.methodName}</td><td>{row.number}</td><td>{row.cited ?? '—'}</td><td>{row.score ?? '—'}</td><td>{row.status}</td></tr>)}</tbody></table>{!stats.rows.length && <Empty title="공개된 AI 문헌이 없습니다." />}</div>}</section></>;
+  return <><div className="adm-toolbar"><select className="krds-form-select adm-filter" aria-label="운영 현황 그룹 필터" value={groupId} onChange={(event) => { setGroupId(event.target.value); setExaminerId(''); }}><option value="">전체 그룹</option>{operationGroups(state, month.id).map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select><select className="krds-form-select adm-filter" aria-label="운영 현황 담당 심사관 필터" value={examinerId} onChange={(event) => setExaminerId(event.target.value)}><option value="">전체 담당 심사관</option>{state.users.filter((user) => personnelOf(state).memberships.some((entry) => entry.userId === user.id && (!groupId || entry.groupId === groupId)) || stats.cases.some((item) => item.examinerId === user.id)).map((user) => <option key={user.id} value={user.id}>{user.division} - {user.name}</option>)}</select><Button onClick={async () => { const result = await exportAdminStatistics(state, month.id, groupId, examinerId, bureau); if (result) notify(result); }}>현재 범위 엑셀 저장</Button><Button primary={month.closed} disabled={busy} onClick={() => { if (window.confirm(month.closed ? `${monthLabel(month.id)} 운영을 재개방하시겠습니까? 설정한 기한 안에 입력과 평가를 다시 진행할 수 있습니다.` : `${monthLabel(month.id)} 운영을 마감하시겠습니까? 선정·검색 결과·평가와 월별 설정을 수정할 수 없게 됩니다.`)) void save({ type: 'setMonthClosed', monthId: month.id, closed: !month.closed }, month.closed ? `${monthLabel(month.id)} 운영을 재개방했습니다. 설정한 기한 안에 입력과 평가를 진행할 수 있습니다.` : `${monthLabel(month.id)} 운영을 마감했습니다. 자료 조회와 다운로드는 계속할 수 있습니다.`); }}>{month.closed ? '운영 재개방' : '월 운영 마감'}</Button></div><div className="adm-metrics"><Metric label="소속 심사관" value={`${summary.participants}명`} hint={`미선정 ${summary.unselected}명`} /><Metric label="확정 출원" value={`${summary.cases}건`} hint={`공개 문헌 ${summary.documents}건`} /><Metric label="AI 입력 완료" value={`${summary.inputComplete}건`} hint={`완료율 ${percent(summary.inputRate)}`} /><Metric label="평가 완료" value={`${summary.complete}건`} hint={`완료율 ${percent(summary.evaluationRate)}`} /></div><div className="adm-followups"><button type="button" className="adm-link-card" onClick={() => navigateCases('inputPending')}><span>AI 입력 대기</span><strong>{summary.inputPending}건</strong><span>담당 출원 찾기</span></button><button type="button" className="adm-link-card" onClick={() => navigateCases('recheck')}><span>평가 재확인 필요</span><strong>{summary.recheck}건</strong><span>변경된 결과 확인</span></button><button type="button" className="adm-link-card" onClick={() => onNavigate('examiners')}><span>담당 배정 확인</span><strong>{readiness.missingAssignments.length + readiness.unavailableAssignments.length}건</strong><span>심사관 관리</span></button></div><div className="adm-overview-grid"><section className="adm-list"><EditorHeader title="그룹별 진행" /><div className="adm-table-wrap"><table className="adm-table"><caption className="sr-only">그룹별 월 운영 진행</caption><thead><tr><th scope="col">그룹</th><th scope="col">대상건 선정</th><th scope="col">AI 검색 완료</th><th scope="col">평가 완료</th><th scope="col">완료율</th></tr></thead><tbody>{stats.groups.map((group) => <tr key={group.id}><td>{group.name}</td><td>{group.cases}</td><td>{group.inputComplete}</td><td>{group.complete}</td><td>{percent(group.completionRate)}</td></tr>)}</tbody></table>{!stats.groups.length && <Empty title="등록된 그룹이 없습니다." actions={<Button onClick={() => onNavigate('examiners')}>그룹 등록</Button>} />}</div></section><section className="adm-list"><EditorHeader title="조사 방식별 평가" /><div className="adm-table-wrap"><table className="adm-table"><caption className="sr-only">조사 방식별 유효 평가 통계</caption><thead><tr><th scope="col">조사 방식</th><th scope="col">문헌 수</th><th scope="col">평균 점수</th><th scope="col">인용률</th><th scope="col">1위 횟수</th></tr></thead><tbody>{stats.methods.map((method) => <tr key={method.id}><td>{method.name}</td><td>{method.kind === 'baseline' ? '—' : method.documents}</td><td>{method.averageScore === null ? '—' : method.averageScore.toFixed(2)}</td><td>{percent(method.citationRate)}</td><td>{method.firstPlace}</td></tr>)}</tbody></table></div></section></div><section className="adm-list"><div className="adm-list-head"><div><h2>진행 상세</h2><p className="adm-secondary">미평가 {summary.unevaluated} · 평가 중 {summary.inProgress} · 재확인 필요 {summary.recheck}</p></div><div className="adm-inline-tabs">{[['followup', '출원별 후속 업무'], ['accounts', '계정별 진행'], ['documents', 'AI 문헌 평가']].map(([id, label]) => <button type="button" key={id} aria-pressed={detail === id} className={detail === id ? 'is-selected' : ''} onClick={() => setDetail(id)}>{label}</button>)}</div></div>{detail === 'followup' ? <><div className="adm-toolbar adm-inset"><select className="krds-form-select adm-filter" aria-label="후속 업무 상태" value={status} onChange={(event) => setStatus(event.target.value)}>{caseFilters.filter(([value]) => !['draft', 'cancelled', 'confirmed'].includes(value)).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><span className="adm-secondary">{followups.length}건</span></div><div className="adm-table-wrap"><table className="adm-table"><caption className="sr-only">현재 조회 범위의 출원별 후속 업무</caption><thead><tr><th scope="col">출원번호</th><th scope="col">담당 심사관</th><th scope="col">그룹</th><th scope="col">AI 입력</th><th scope="col">평가 상태</th></tr></thead><tbody>{followups.map((item) => { const progress = caseStatus(state, item); return <tr key={item.id}><td>{item.applicationNumber}</td><td>{item.examinerName}</td><td>{item.groupName}</td><td>{progress.inputComplete ? '입력 완료' : '대기 중'}</td><td><Pill tone={progress.stale ? 'is-warning' : progress.complete ? 'is-active' : ''}>{progress.evaluationStatus}</Pill></td></tr>; })}</tbody></table>{!followups.length && <Empty title="현재 조건의 후속 업무가 없습니다." />}</div></> : detail === 'accounts' ? <div className="adm-table-wrap"><table className="adm-table"><caption className="sr-only">계정별 심사 및 AI 담당 업무 진행</caption><thead><tr><th scope="col">심사과</th><th scope="col">이름</th><th scope="col">개인 출원</th><th scope="col">평가 완료</th><th scope="col">AI 담당 대상</th><th scope="col">AI 입력 완료</th></tr></thead><tbody>{stats.accounts.map((account) => <tr key={account.id}><td>{account.division}</td><td>{account.name}</td><td>{account.cases}</td><td>{account.complete}</td><td>{account.aiTarget}</td><td>{account.aiCompleted}</td></tr>)}</tbody></table></div> : <div className="adm-table-wrap"><table className="adm-table"><caption className="sr-only">AI 문헌별 최신 결과에 대한 평가</caption><thead><tr><th scope="col">출원번호</th><th scope="col">담당 심사관</th><th scope="col">AI 담당자</th><th scope="col">조사 방식</th><th scope="col">AI 검색 결과</th><th scope="col">인용여부</th><th scope="col">점수</th><th scope="col">평가 상태</th></tr></thead><tbody>{stats.rows.map((row) => <tr key={`${row.caseId}:${row.methodId}:${row.number}`}><td>{row.applicationNumber}</td><td>{row.examinerName}</td><td>{row.authorName}</td><td>{row.methodName}</td><td>{row.number}</td><td>{row.cited ?? '—'}</td><td>{row.score ?? '—'}</td><td>{row.status}</td></tr>)}</tbody></table>{!stats.rows.length && <Empty title="공개된 AI 문헌이 없습니다." />}</div>}</section></>;
 }
 
 export async function exportAdminStatistics(state: EvaluationState, monthId: string, groupId = '', examinerId = '', bureau?: Bureau) {

@@ -116,6 +116,29 @@ try {
   assert.equal((await store.readEvaluationState('기획국')).state.users.some((user) => user.name === '전기국 신규'), false);
   await assert.rejects(() => store.mutateEvaluationState(1, { admin: true }, { type: 'saveUser', user: { id: 'demo-user-6', name: '다른국 덮어쓰기', bureau: '기획국', division: '', roles: ['examiner'], active: true } }, '기획국'), (error) => error.status === 404);
   await assert.rejects(() => store.mutateEvaluationState(1, { admin: true }, { type: 'saveUser', user: { name: '다른국 등록', bureau: '전기국', division: '', roles: ['examiner'], active: true } }, '기획국'), (error) => error.status === 400);
+  for (const attempt of [
+    { user: { ...planning.state.users[0], bureau: '전기국' }, groupId: '', responsibilities: [], status: 400 },
+    { user: { ...planning.state.users[0], id: 'demo-user-6' }, groupId: '', responsibilities: [], status: 404 },
+  ]) await assert.rejects(() => store.mutateEvaluationState(1, { admin: true }, { type: 'saveExaminer', ...attempt }, '기획국'), (error) => error.status === attempt.status);
+
+  // Profile, membership and responsibilities persist in one revision and one scope.
+  let merged = await store.readEvaluationState('반도체단');
+  merged = await store.mutateEvaluationState(merged.revision, { admin: true }, { type: 'saveGroup', group: { name: '통합 저장 검증 그룹' } }, '반도체단');
+  const mergedGroup = merged.state.groups.at(-1);
+  const beforeMergedRevision = merged.revision;
+  merged = await store.mutateEvaluationState(merged.revision, { admin: true }, { type: 'saveExaminer', user: { name: '통합 저장 검증 심사관', bureau: '반도체단', division: '통합과', roles: ['examiner', 'ai'], active: true }, groupId: mergedGroup.id, responsibilities: [{ groupId: mergedGroup.id, methodId: 'chatgpt' }] }, '반도체단');
+  const mergedUser = merged.state.users.at(-1);
+  assert.equal(merged.revision, beforeMergedRevision + 1);
+  assert.equal(merged.state.personnel.memberships[0].userId, mergedUser.id);
+  assert.equal(merged.state.personnel.assignments[0].userId, mergedUser.id);
+  assert.deepEqual((await store.readEvaluationState('반도체단')).state.personnel, merged.state.personnel);
+  assert.equal((await store.readEvaluationState('기획국')).state.users.some((user) => user.id === mergedUser.id), false);
+  await assert.rejects(() => store.mutateEvaluationState(merged.revision, { admin: true }, { type: 'saveExaminer', user: { ...mergedUser, name: '저장되면 안 되는 이름' }, groupId: mergedGroup.id, responsibilities: [{ groupId: mergedGroup.id, methodId: 'baseline' }] }, '반도체단'), (error) => error.status === 400);
+  assert.equal((await store.readEvaluationState('반도체단')).revision, merged.revision);
+  assert.equal((await store.readEvaluationState('반도체단')).state.users[0].name, mergedUser.name);
+  merged = await store.mutateEvaluationState(merged.revision, { admin: true }, { type: 'deleteGroup', groupId: mergedGroup.id }, '반도체단');
+  assert.equal(merged.state.groups.find((group) => group.id === mergedGroup.id).deletedAt.length > 0, true);
+  assert.deepEqual(merged.state.personnel, { memberships: [], assignments: [] });
   await assert.rejects(() => store.mutateEvaluationState(1, { userId: 'demo-user-6' }, { type: 'saveSelection', monthId: '2026-10', rows: [], confirm: false }, '기획국'), (error) => error.status === 403);
   planning = await store.mutateEvaluationState(1, { userId: 'demo-user-1' }, { type: 'saveResult', caseId: planning.state.cases[0].id, methodId: 'chatgpt', documents: ['PLANNING PRIVATE'], publish: false }, '기획국');
   assert.equal((await store.readEvaluationState('전기국')).state.results.some((result) => result.draftDocuments.includes('PLANNING PRIVATE')), false);

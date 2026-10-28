@@ -39,6 +39,7 @@ function loadModule(relative, append = '') {
     if (id.endsWith('/pdf-download')) return PdfStub;
     if (id.endsWith('/target-publication-download')) return TargetStub;
     if (id.endsWith('/accessible-dialog')) return loadModule('app/components/accessible-dialog.tsx');
+    if (id === './examiner-manager') return loadModule('app/evaluation/examiner-manager.tsx');
     if (id === './admin-workspace') return loadModule('app/evaluation/admin-workspace.tsx');
     if (id === './notice-manager') return NoticeManagerStub;
     if (id.endsWith('/bureau-notice')) return loadModule('app/components/bureau-notice.tsx');
@@ -60,7 +61,7 @@ function loadModule(relative, append = '') {
   return module.exports;
 }
 const ui = loadModule('app/evaluation/workspace.tsx', '\nexport { CaseResource as TestCaseResource, EvaluationEditor as TestEvaluationEditor, AIResultEditor as TestAIResultEditor };');
-const adminUI = loadModule('app/evaluation/admin-workspace.tsx', '\nexport { AccountManager as TestAccountManager, MethodManager as TestMethodManager, GroupManager as TestGroupManager };');
+const adminUI = loadModule('app/evaluation/admin-workspace.tsx', '\nexport { AccountManager as TestAccountManager, MethodManager as TestMethodManager };');
 const domain = loadModule('app/lib/evaluation.ts');
 const { BUREAUS } = loadModule('app/lib/bureaus.ts');
 const BureauNotice = loadModule('app/components/bureau-notice.tsx').default;
@@ -124,7 +125,7 @@ assert(JSON.stringify(noticeTime).includes('19:00'), 'Notice dates must use Asia
 function renderWorkspaceWithNotice(bureau, { admin = false, selected = false, closed = false, error = '', conflict = false } = {}) {
   const state = domain.createInitialState('2026-10');
   state.notice = publicNotice;
-  state.users = [{ id: 'notice-reader', name: '공지 확인자', bureau, division: '시험과', roles: ['examiner'], active: true }];
+  state.users = [{ id: 'notice-reader', name: '공지 확인자', bureau, division: '시험과', roles: ['examiner'], active: true, groupId: '', responsibilities: [] }];
   state.months[0].closed = closed;
   const scope = ui.workspaceSessionKey(`simsadesk-workspace-${admin ? 'admin' : 'user'}`, bureau);
   hookIndex = 0; hookOverrides = [];
@@ -219,7 +220,7 @@ const aiTarget = aiDetailNodes.find(({ element }) => element.type === TargetStub
 assert.equal(aiTarget.props.applicationNumber, item.applicationNumber);
 assert.equal(aiTarget.props.context, 'detail');
 
-assert.deepEqual(Array.from(adminUI.ADMIN_NAV, entry => entry.id), ['overview', 'examiners', 'ai', 'groups', 'month', 'cases', 'notices']);
+assert.deepEqual(Array.from(adminUI.ADMIN_NAV, entry => entry.id), ['overview', 'examiners', 'ai', 'month', 'cases', 'notices']);
 assert.equal(adminUI.readAdminSection(null, '전기국', 'settings'), 'examiners');
 assert.equal(adminUI.readAdminSection(null, undefined, 'stats'), 'overview');
 assert.equal(adminUI.readAdminSection(JSON.stringify({ adminSection: 'ai' }), '전기국', 'settings'), 'ai');
@@ -228,33 +229,33 @@ assert.equal(adminUI.readAdminSection(JSON.stringify({ adminSection: 'unsupporte
 assert.equal(adminUI.readAdminSection(JSON.stringify({ adminSection: 'accounts' }), '전기국', 'settings'), 'examiners', 'Previously saved account-menu sessions must open the unified examiner tab.');
 const emptyState = domain.createInitialState('2026-10');
 const managerProps = { state: { ...emptyState, methods: [] }, month: emptyState.months[0], busy: false, dirty() {}, save: async () => true, onNavigate() {}, hasUnsaved: false };
-for (const Manager of [adminUI.TestAccountManager, adminUI.TestMethodManager, adminUI.TestGroupManager]) {
+for (const Manager of [adminUI.TestAccountManager, adminUI.TestMethodManager]) {
   hookIndex = 0; hookOverrides = [];
   const tree = Manager(managerProps);
   const placeholders = descendants(tree).filter(({ element }) => element.type?.name === 'Empty');
-  assert.equal(placeholders.length, Manager === adminUI.TestGroupManager ? 2 : 1);
+  assert.equal(placeholders.length, Manager === adminUI.TestAccountManager ? 2 : 1);
   assert(placeholders.every(({ element }) => element.props.actions === undefined), 'Empty list and unselected editor must not repeat the toolbar registration action.');
 }
 hookIndex = 0; hookOverrides = [];
-const initialUserForm = adminUI.AccountEditor({ bureau: '전기국', busy: false, dirty() {}, save: async () => true, onClose() {} });
+const initialUserForm = adminUI.AccountEditor({ state: emptyState, bureau: '전기국', busy: false, dirty() {}, save: async () => true, onClose() {} });
 const bureauField = descendants(initialUserForm).find(({ element }) => element.type === 'input' && element.props.readOnly === true);
 assert.equal(bureauField.element.props.value, '전기국');
 let savedAction;
 hookIndex = 0;
-hookOverrides = [{ name: '새 담당자', bureau: '다른 국', division: '시험과', roles: ['examiner'], active: true }];
-const userForm = adminUI.AccountEditor({ bureau: '전기국', busy: false, dirty() {}, onClose() {}, save: async action => { savedAction = action; return true; } });
+hookOverrides = [{ name: '새 담당자', bureau: '다른 국', division: '시험과', roles: ['examiner'], active: true, groupId: '', responsibilities: [] }];
+const userForm = adminUI.AccountEditor({ state: emptyState, bureau: '전기국', busy: false, dirty() {}, onClose() {}, save: async action => { savedAction = action; return true; } });
 const form = descendants(userForm).find(({ element }) => element.type === 'form').element;
 await form.props.onSubmit({ preventDefault() {} });
-assert.equal(savedAction.type, 'saveUser');
+assert.equal(savedAction.type, 'saveExaminer');
 assert.equal(savedAction.user.bureau, '전기국');
 const modal = initialUserForm.type(initialUserForm.props);
 assert.equal(descendants(modal).find(({ element }) => element.props.role === 'dialog').element.props['aria-labelledby'], 'adm-account-dialog-title');
 assert(descendants(modal).some(({ element }) => element.props.id === 'adm-account-dialog-title'));
 let closedAccounts = 0;
-const enteredAccount = { name: '입력 보존 담당자', bureau: '전기국', division: '시험과', roles: ['examiner', 'ai'], active: true };
+const enteredAccount = { name: '입력 보존 담당자', bureau: '전기국', division: '시험과', roles: ['examiner', 'ai'], active: true, groupId: '', responsibilities: [] };
 function accountDialog(extra = {}, failed = false) {
   hookIndex = 0; hookOverrides = [enteredAccount, failed];
-  return adminUI.AccountEditor({ bureau: '전기국', busy: false, dirty() {}, onClose() { closedAccounts++; }, save: async () => false, ...extra });
+  return adminUI.AccountEditor({ state: emptyState, bureau: '전기국', busy: false, dirty() {}, onClose() { closedAccounts++; }, save: async () => false, ...extra });
 }
 allowDiscard = false;
 const guardedDialog = accountDialog();
@@ -274,7 +275,7 @@ await descendants(failedAccount).find(({ element }) => element.type === 'form').
 assert.equal(closedAccounts, 1, 'A rejected save must keep the account modal open.');
 assert.equal(hookWrites.findLast(entry => entry.index === 1).value, true);
 const visibleFailure = accountDialog({}, true);
-assert(descendants(visibleFailure).some(({ element }) => element.props.role === 'alert'));
+assert(descendants(visibleFailure).some(({ element }) => element.props.role === 'alert' || element.type?.name === 'SaveFailure' && descendants(element.type(element.props)).some(({element}) => element.props.role === 'alert')));
 assert.equal(descendants(visibleFailure).find(({ element }) => element.type === 'input' && element.props.required).element.props.value, enteredAccount.name);
 const recoveryFeedback = require('react/jsx-runtime').jsx('div', { role: 'alert', children: '충돌 안내 및 입력 보관' });
 assert(descendants(accountDialog({ saveFeedback: recoveryFeedback }, true)).some(({ element }) => element === recoveryFeedback), 'Server guidance and input-recovery actions must remain available inside the modal.');
@@ -282,7 +283,7 @@ await descendants(accountDialog({ save: async () => true })).find(({ element }) 
 assert.equal(closedAccounts, 2, 'A successful save must close the modal.');
 for (const editing of ['new', 'managed-user']) {
   const managedUser = { ...enteredAccount, id: 'managed-user' };
-  hookIndex = 0; hookOverrides = ['', 'all', 'all', editing];
+  hookIndex = 0; hookOverrides = ['', 'all', 'all', '', { kind: 'account', id: editing === 'new' ? undefined : editing }, false];
   const manager = adminUI.TestAccountManager({ ...managerProps, state: { ...managerProps.state, users: [managedUser] } });
   const editor = descendants(manager).find(({ element }) => element.type === adminUI.AccountEditor).element;
   assert.equal(editor.props.user, editing === 'new' ? undefined : managedUser, 'New and existing accounts must both open the modal editor.');
@@ -360,75 +361,45 @@ assert.equal(adminUI.filterAdminUsers(people, '전기', 'ai', 'active')[0].id, '
 assert.equal(adminUI.filterAdminUsers(people, '담당', 'all', 'inactive')[0].id, 'two');
 assert.equal(adminUI.filterAdminUsers(people, '미등록', 'all', 'all').length, 0);
 const demo = domain.createDemoState('2026-10');
-let personnelAction;
-let personnelDirty;
-function renderPersonnel(draft = adminUI.personnelDraft(demo), options = {}) {
-  hookIndex = 0; hookOverrides = ['', 'all', 'all', options.editing ?? null, 'all', draft, options.accountDirty ?? false];
-  hookEffects.length = 0;
-  const tree = adminUI.TestAccountManager({ ...managerProps, state: options.state || demo, month: 'month' in options ? options.month : demo.months[0], dirty(value) { personnelDirty = value; }, save: async action => { personnelAction = action; return true; } });
-  hookEffects[0]();
-  return tree;
+// Unified directory: group cards above five-column examiner table, all edits in modals.
+function renderDirectory(options = {}) {
+  hookIndex=0; hookOverrides=['', 'all', 'all', '', options.dialog ?? null, options.dirty ?? false]; hookEffects.length=0;
+  return adminUI.TestAccountManager({ ...managerProps, state: options.state || demo, month: undefined, dirty: options.markDirty || (()=>{}), save: options.save || (async()=>true) });
 }
-let allocation = adminUI.personnelDraft(demo);
-const originalPersonnel = renderPersonnel(allocation);
-assert(!JSON.stringify(originalPersonnel).includes('이달 참여'));
-assert(!JSON.stringify(originalPersonnel).includes('월별 운영에서'));
-const withoutMonth = renderPersonnel(allocation, { month: undefined });
-assert(descendants(withoutMonth).some(({ element }) => element.props.children === '심사관 관리 저장'));
-assert.equal(personnelDirty, false);
-const participantSelect = descendants(originalPersonnel).find(({ element }) => element.props['aria-label'] === demo.users[0].name + ' 소속 그룹');
-assert(participantSelect);
-assert(!participantSelect.ancestors.some(element => element.type === 'button'), 'Participation controls must not trigger the account editor.');
-hookWrites.length = 0;
-participantSelect.element.props.onChange({ target: { value: 'group-b' } });
-allocation = hookWrites.findLast(entry => entry.index === 5).value(allocation);
-assert.equal(allocation.memberships.find(entry => entry.userId === demo.users[0].id).groupId, 'group-b');
-assert.equal(demo.personnel.memberships[0].groupId, 'group-a', 'Draft changes must not mutate saved state.');
-const withGroupDraft = renderPersonnel(allocation);
-assert.equal(personnelDirty, true);
-const aiAssignee = descendants(withGroupDraft).find(({ element }) => element.props['aria-label'] === '가상 1그룹 ChatGPT 담당자').element;
-hookWrites.length = 0;
-aiAssignee.props.onChange({ target: { value: demo.users[1].id } });
-allocation = hookWrites.findLast(entry => entry.index === 5).value(allocation);
-const unifiedPersonnel = renderPersonnel(allocation);
-const assigneeRow = descendants(unifiedPersonnel).find(({ element }) => element.type === 'article' && JSON.stringify(element).includes(demo.users[1].name)).element;
-assert(descendants(assigneeRow).some(({ element }) => element.type === 'li' && Array.from(element.props.children).join('') === '가상 1그룹 · ChatGPT'), 'The user list must immediately reflect the group AI assignment draft.');
-const personnelSave = descendants(unifiedPersonnel).find(({ element }) => element.props.children === '심사관 관리 저장').element;
-assert.equal(personnelSave.props.disabled, false);
-personnelSave.props.onClick();
-assert.equal(personnelAction.type, 'savePersonnel');
-assert.equal(personnelAction.personnel.memberships.find(entry => entry.userId === demo.users[0].id).groupId, 'group-b');
-assert.equal(personnelAction.personnel.assignments.find(entry => entry.groupId === 'group-a' && entry.methodId === 'chatgpt').userId, demo.users[1].id);
-assert.doesNotThrow(() => domain.applyAction(demo, { admin: true }, personnelAction));
-assert.equal(domain.applyAction(demo, { admin: true }, personnelAction).cases[0].groupId, 'group-a', 'Historical confirmed cases must retain their original group.');
-renderPersonnel(allocation, { accountDirty: true });
-assert.equal(personnelDirty, true);
-const afterModal = renderPersonnel(allocation, { accountDirty: false, editing: demo.users[0].id });
-assert.equal(personnelDirty, true, 'Closing or saving an account modal must not clear an unsaved participation draft.');
-hookWrites.length = 0;
-descendants(afterModal).find(({ element }) => element.type === adminUI.AccountEditor).element.props.onClose();
-assert(!hookWrites.some(entry => entry.index === 5), 'Closing the account editor must not replace participation or assignment inputs.');
-hookWrites.length = 0;
-await descendants(afterModal).find(({ element }) => element.type === adminUI.AccountEditor).element.props.save({ type: 'saveUser', user: demo.users[0] });
-assert(!hookWrites.some(entry => entry.index === 5), 'Saving account metadata must preserve the personnel draft.');
-assert(hookWrites.some(entry => entry.index === 0 && entry.value === '') && hookWrites.some(entry => entry.index === 4 && entry.value === 'all'), 'Account saves clear search and participation filters so new accounts remain visible.');
-const scopedPersonnelSave = domain.applyAction(demo, { admin: true }, personnelAction);
-assert.equal(JSON.stringify(scopedPersonnelSave.months), JSON.stringify(demo.months), 'Personnel saves must never write monthly operation settings.');
-const settingsDraft = adminUI.operatingSettings(demo.months[0]); settingsDraft.caseLimit = 7;
-const latestPersonnelMonth = { ...demo.months[0], participants: allocation.memberships, assignments: allocation.assignments };
-const scopedOperatingSave = adminUI.mergeOperatingMonth(latestPersonnelMonth, settingsDraft);
-assert.equal(scopedOperatingSave.caseLimit, 7);
-assert.deepEqual(scopedOperatingSave.participants, latestPersonnelMonth.participants);
-assert.deepEqual(scopedOperatingSave.assignments, latestPersonnelMonth.assignments);
-const droppedAI = adminUI.mergeOperatingMonth(latestPersonnelMonth, { ...settingsDraft, methodIds: ['chatgpt', 'baseline'] });
-assert.deepEqual(droppedAI.assignments, latestPersonnelMonth.assignments, 'Changing one month must never remove shared AI assignments.');
-const closedPersonnel = renderPersonnel(allocation, { month: { ...demo.months[0], closed: true } });
-assert(descendants(closedPersonnel).filter(({ element }) => element.type === 'select' && /소속 그룹|담당자$/.test(element.props['aria-label'] || '')).every(({ element }) => !element.props.disabled));
-assert.equal(descendants(closedPersonnel).find(({ element }) => element.props.children === '심사관 관리 저장').element.props.disabled, false);
-assert.equal(descendants(closedPersonnel).find(({ element }) => element.props.children === '신규 계정 등록').element.props.disabled, false, 'Global account management stays available when monthly assignments are closed.');
-const withoutExaminerRole = structuredClone(demo); withoutExaminerRole.users[0].roles = ['ai'];
-const roleRepair = renderPersonnel(adminUI.personnelDraft(demo), { state: withoutExaminerRole });
-assert.equal(descendants(roleRepair).find(({ element }) => element.props['aria-label'] === demo.users[0].name + ' 소속 그룹').element.props.disabled, false, 'An invalid existing participation must remain removable.');
+const directory=renderDirectory();
+assert.equal(descendants(directory).filter(({element})=>element.type==='article').length,2);
+assert.equal(JSON.stringify(descendants(directory).filter(({element})=>element.type==='th').map(({element})=>element.props.children)), JSON.stringify(['심사관명','심사과','소속 그룹','권한','담당 AI']));
+assert(!JSON.stringify(directory).includes('이달 참여'));
+assert(!descendants(directory).some(({element})=>element.props.children==='심사관 관리 저장'));
+hookWrites.length=0;
+descendants(directory).find(({element})=>element.props['aria-label']===demo.users[0].name+' 심사관 정보 수정').element.props.onClick();
+assert.equal(JSON.stringify(hookWrites.findLast(entry=>entry.index===4).value),JSON.stringify({kind:'account',id:demo.users[0].id}));
+const directoryModal=renderDirectory({dialog:{kind:'account',id:demo.users[0].id}});
+assert.equal(descendants(directoryModal).find(({element})=>element.type===adminUI.AccountEditor).element.props.user.id,demo.users[0].id);
+const groupModal=renderDirectory({dialog:{kind:'group'}});
+assert(descendants(groupModal).some(({element})=>element.type===adminUI.GroupEditor));
+const deleteModal=renderDirectory({dialog:{kind:'delete-group',id:'group-a'}});
+assert(descendants(deleteModal).some(({element})=>element.type===adminUI.GroupDeleteDialog));
+assert.equal(adminUI.readAdminSection(JSON.stringify({adminSection:'groups'}),'기획국'),'examiners');
+const examinerDraft=adminUI.examinerForm(demo,demo.users[1]);
+examinerDraft.name='통합 수정 심사관'; examinerDraft.division='통합 심사과'; examinerDraft.groupId='group-b';
+examinerDraft.responsibilities.push({groupId:'group-a',methodId:'chatgpt'});
+let examinerAction;
+hookIndex=0;hookOverrides=[examinerDraft,false];
+const atomicEditor=adminUI.AccountEditor({state:demo,user:demo.users[1],busy:false,dirty(){},onClose(){},save:async action=>{examinerAction=action;return true;}});
+assert(JSON.stringify(atomicEditor).includes('담당자 변경'));
+await descendants(atomicEditor).find(({element})=>element.type==='form').element.props.onSubmit({preventDefault(){}});
+assert.equal(examinerAction.type,'saveExaminer');
+const atomicSaved=domain.applyAction(demo,{admin:true},examinerAction);
+assert.equal(atomicSaved.users.find(user=>user.id===demo.users[1].id).division,'통합 심사과');
+assert.equal(atomicSaved.personnel.memberships.find(entry=>entry.userId===demo.users[1].id).groupId,'group-b');
+assert.equal(atomicSaved.personnel.assignments.find(entry=>entry.groupId==='group-a'&&entry.methodId==='chatgpt').userId,demo.users[1].id);
+assert.equal(JSON.stringify(atomicSaved.months),JSON.stringify(demo.months));
+assert.equal(atomicSaved.cases[0].groupId,'group-a');
+const settingsDraft=adminUI.operatingSettings(demo.months[0]);settingsDraft.caseLimit=7;
+const latestPersonnelMonth={...demo.months[0],assignments:demo.personnel.assignments};
+const droppedAI=adminUI.mergeOperatingMonth(latestPersonnelMonth,{...settingsDraft,methodIds:['chatgpt','baseline']});
+assert.deepEqual(droppedAI.assignments,latestPersonnelMonth.assignments);
 // Multiple operating cards and monthly actions carry their own month IDs.
 const concurrentState = domain.applyAction(demo, { admin: true }, { type: 'saveMonth', month: domain.emptyMonth('2026-11') });
 let selectedOperatingMonth; let monthManagementAction;
@@ -537,4 +508,4 @@ assert(exportedWorkbook.filename.includes('전기국'));
 assert.deepEqual(Array.from(exportedWorkbook.sheets, sheet => sheet.name), ['그룹별 통계','계정별 현황','출원별 현황','조사 방식별 통계','AI 검색 결과 평가','조회 기준']);
 assert.equal(exportedWorkbook.sheets.find(sheet => sheet.name === 'AI 검색 결과 평가').rows.length, 141);
 assert.equal(exportedWorkbook.sheets.find(sheet => sheet.name === '출원별 현황').rows.length, 11);
-console.log('Admin and bureau workspace UI tests passed: seven task menus, scoped sessions and forms, search/filter combinations, target publication handoff, independent downloads, draft-save guidance, closed-month controls, and six-sheet filtered exports.');
+console.log('Admin and bureau workspace UI tests passed: six task menus, scoped sessions and forms, search/filter combinations, target publication handoff, independent downloads, draft-save guidance, closed-month controls, and six-sheet filtered exports.');

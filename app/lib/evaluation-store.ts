@@ -51,7 +51,7 @@ export async function mutateEvaluationState(revision: number, actor: EvaluationA
   const current = await readEvaluationState(bureau);
   assertBureauActor(current.state, actor, bureau);
   if (revision !== current.revision) throw new EvaluationError('다른 화면에서 업무 자료가 변경되었습니다. 입력내용을 보관한 뒤 최신 자료를 불러와 다시 저장해 주세요.', 409);
-  if (bureau && action.type === 'saveUser') {
+  if (bureau && (action.type === 'saveUser' || action.type === 'saveExaminer')) {
     const requestedUser = action.user;
     if (requestedUser.bureau !== bureau) throw new EvaluationError('사용자의 심사국은 현재 선택한 심사국과 같아야 합니다.');
     if (requestedUser.id && !current.state.users.some((user) => user.id === requestedUser.id)) throw new EvaluationError('선택한 심사국에 해당 사용자가 없습니다.', 404);

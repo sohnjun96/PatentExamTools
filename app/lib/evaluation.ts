@@ -1,6 +1,6 @@
 export type Role = 'admin' | 'examiner' | 'ai';
 export type EvaluationUser = { id: string; name: string; bureau: string; division: string; roles: Role[]; active: boolean };
-export type EvaluationGroup = { id: string; name: string };
+export type EvaluationGroup = { id: string; name: string; deletedAt?: string };
 export type InvestigationMethod = { id: string; name: string; kind: 'ai' | 'baseline'; active: boolean };
 export type GroupMembership = { userId: string; groupId: string };
 export type MonthParticipant = GroupMembership;
@@ -39,7 +39,9 @@ export type EvaluationActor = { admin?: boolean; userId?: string };
 export type EvaluationAction =
   | { type: 'saveNotice'; markdown: string }
   | { type: 'saveUser'; user: Omit<EvaluationUser, 'id'> & { id?: string } }
+  | { type: 'saveExaminer'; user: Omit<EvaluationUser, 'id'> & { id?: string }; groupId: string; responsibilities: { groupId: string; methodId: string }[] }
   | { type: 'saveGroup'; group: { id?: string; name: string } }
+  | { type: 'deleteGroup'; groupId: string }
   | { type: 'saveMethod'; method: Omit<InvestigationMethod, 'id'> & { id?: string } }
   | { type: 'savePersonnel'; personnel: Personnel }
   | { type: 'saveMonth'; month: Omit<OperationMonth, 'confirmedUserIds'> & { confirmedUserIds?: string[] } }
@@ -93,6 +95,15 @@ export function personnelOf(state: EvaluationState): Personnel {
 
 export function normalizeEvaluationState(state: EvaluationState): EvaluationState {
   return state.personnel ? state : { ...state, personnel: personnelOf(state) };
+}
+
+export function currentGroups(state: EvaluationState) {
+  return state.groups.filter((group) => !group.deletedAt);
+}
+
+export function operationGroups(state: EvaluationState, monthId: string) {
+  const historicalIds = new Set(state.cases.filter((item) => item.monthId === monthId && item.status === 'confirmed').map((item) => item.groupId));
+  return state.groups.filter((group) => !group.deletedAt || historicalIds.has(group.id));
 }
 
 export function preferredOperationMonth(months: OperationMonth[], current = currentOperationMonth()): string {
@@ -181,7 +192,7 @@ function selectionRows(rows: SelectionRow[]) {
 
 function createCase(state: EvaluationState, month: OperationMonth, user: EvaluationUser, row: SelectionRow, status: EvaluationCase['status']): EvaluationCase {
   const participant = personnelOf(state).memberships.find((entry) => entry.userId === user.id) ?? fail('심사관 관리에서 소속 그룹을 먼저 배정해 주세요.');
-  const group = state.groups.find((entry) => entry.id === participant.groupId) ?? fail('그룹이 없습니다.');
+  const group = currentGroups(state).find((entry) => entry.id === participant.groupId) ?? fail('심사관 관리에서 소속 그룹을 다시 배정해 주세요.');
   return { ...row, id: uid(), monthId: month.id, examinerId: user.id, examinerName: user.name, bureau: user.bureau, division: user.division, groupId: group.id, groupName: group.name, status };
 }
 
@@ -211,12 +222,22 @@ function validatePersonnel(state: EvaluationState, value: Personnel) {
   if (value.memberships.some((entry) => !entry || typeof entry.userId !== 'string' || typeof entry.groupId !== 'string') || value.assignments.some((entry) => !entry || typeof entry.userId !== 'string' || typeof entry.groupId !== 'string' || typeof entry.methodId !== 'string')) fail('심사관 배정 형식을 확인해 주세요.');
   if (new Set(value.memberships.map((entry) => entry.userId)).size !== value.memberships.length) fail('심사관의 소속 그룹은 한 개만 배정할 수 있습니다.');
   for (const entry of value.memberships) {
-    if (!state.users.some((user) => user.id === entry.userId) || !state.groups.some((group) => group.id === entry.groupId)) fail('심사관 또는 소속 그룹을 확인해 주세요.');
+    if (!state.users.some((user) => user.id === entry.userId) || !currentGroups(state).some((group) => group.id === entry.groupId)) fail('심사관 또는 소속 그룹을 확인해 주세요.');
   }
   if (new Set(value.assignments.map((assignment) => `${assignment.groupId}:${assignment.methodId}`)).size !== value.assignments.length) fail('그룹·AI 종류별 담당자는 한 명이어야 합니다.');
   for (const assignment of value.assignments) {
     if (!state.users.some((user) => user.id === assignment.userId && user.roles.includes('ai')) || !state.groups.some((group) => group.id === assignment.groupId) || !state.methods.some((method) => method.id === assignment.methodId && method.kind === 'ai')) fail('AI 담당 배정을 확인해 주세요.');
   }
+}
+
+function upsertUser(state: EvaluationState, user: Omit<EvaluationUser, 'id'> & { id?: string }) {
+  const roles: Role[] = [...new Set(user.roles ?? [])];
+  if (!roles.length || roles.some((role) => !['admin', 'examiner', 'ai'].includes(role))) fail('역할을 한 개 이상 선택해 주세요.');
+  const record: EvaluationUser = { id: user.id || uid(), name: text(user.name), bureau: text(user.bureau), division: text(user.division), roles, active: Boolean(user.active) };
+  if (!record.name) fail('이름을 입력해 주세요.');
+  const index = state.users.findIndex((entry) => entry.id === record.id);
+  if (index < 0) state.users.push(record); else state.users[index] = record;
+  return record;
 }
 
 export function applyAction(input: EvaluationState, actor: EvaluationActor, action: EvaluationAction, now = new Date()): EvaluationState {
@@ -236,13 +257,33 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
     }
     case 'saveUser': {
       requireAdmin(actor);
-      const user = action.user;
-      const roles: Role[] = [...new Set(user.roles ?? [])];
-      if (!roles.length || roles.some((role) => !['admin', 'examiner', 'ai'].includes(role))) fail('역할을 한 개 이상 선택해 주세요.');
-      const record: EvaluationUser = { id: user.id || uid(), name: text(user.name), bureau: text(user.bureau), division: text(user.division), roles, active: Boolean(user.active) };
-      if (!record.name) fail('이름을 입력해 주세요.');
-      const index = state.users.findIndex((entry) => entry.id === record.id);
-      if (index < 0) state.users.push(record); else state.users[index] = record;
+      upsertUser(state, action.user);
+      return state;
+    }
+    case 'saveExaminer': {
+      requireAdmin(actor);
+      const groupId = text(action.groupId);
+      if (groupId && !currentGroups(state).some((group) => group.id === groupId)) fail('소속 그룹을 다시 선택해 주세요.');
+      if (!Array.isArray(action.responsibilities) || action.responsibilities.length > 5000 || action.responsibilities.some((entry) => !entry || typeof entry.groupId !== 'string' || typeof entry.methodId !== 'string')) fail('담당 AI 배정 형식을 확인해 주세요.');
+      const keys = action.responsibilities.map((entry) => JSON.stringify([entry.groupId, entry.methodId]));
+      if (new Set(keys).size !== keys.length) fail('담당 AI가 중복 지정되어 있습니다.');
+      const original = personnelOf(state);
+      const record = upsertUser(state, action.user);
+      const responsibilities = record.roles.includes('ai') ? action.responsibilities : [];
+      for (const entry of responsibilities) {
+        const group = state.groups.find((group) => group.id === entry.groupId);
+        if (!group || (group.deletedAt && !state.cases.some((item) => item.groupId === group.id && item.status === 'confirmed'))) fail('담당 AI의 그룹을 확인해 주세요.');
+        if (!record.active && !original.assignments.some((old) => old.userId === record.id && old.groupId === entry.groupId && old.methodId === entry.methodId)) fail('비활성 계정에는 담당 AI를 새로 배정할 수 없습니다.');
+      }
+      const selected = new Set(responsibilities.map((entry) => JSON.stringify([entry.groupId, entry.methodId])));
+      const personnel: Personnel = {
+        memberships: original.memberships.filter((entry) => entry.userId !== record.id),
+        assignments: original.assignments.filter((entry) => entry.userId !== record.id && !selected.has(JSON.stringify([entry.groupId, entry.methodId]))),
+      };
+      if (groupId) personnel.memberships.push({ userId: record.id, groupId });
+      personnel.assignments.push(...responsibilities.map(({ groupId, methodId }) => ({ groupId, methodId, userId: record.id })));
+      validatePersonnel(state, { memberships: personnel.memberships.filter((entry) => entry.userId === record.id), assignments: personnel.assignments.filter((entry) => entry.userId === record.id) });
+      state.personnel = personnel;
       return state;
     }
     case 'saveGroup': {
@@ -250,7 +291,21 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       const record = { id: action.group.id || uid(), name: text(action.group.name) };
       if (!record.name) fail('그룹 이름을 입력해 주세요.');
       const index = state.groups.findIndex((entry) => entry.id === record.id);
+      if (index >= 0 && state.groups[index].deletedAt) fail('삭제된 그룹은 수정할 수 없습니다.', 409);
       if (index < 0) state.groups.push(record); else state.groups[index] = record;
+      return state;
+    }
+    case 'deleteGroup': {
+      requireAdmin(actor);
+      const group = state.groups.find((entry) => entry.id === action.groupId) ?? fail('그룹을 찾을 수 없습니다.', 404);
+      if (group.deletedAt) return state;
+      group.deletedAt = now.toISOString();
+      const original = personnelOf(state);
+      const hasConfirmedCases = state.cases.some((item) => item.groupId === group.id && item.status === 'confirmed');
+      state.personnel = {
+        memberships: original.memberships.filter((entry) => entry.groupId !== group.id),
+        assignments: original.assignments.filter((entry) => entry.groupId !== group.id || hasConfirmedCases),
+      };
       return state;
     }
     case 'saveMethod': {
@@ -318,6 +373,10 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       const item = state.cases.find((entry) => entry.id === action.caseId) ?? fail('출원이 없습니다.');
       editable(monthOf(state, item.monthId), '', now, true);
       item.status = 'cancelled';
+      if (state.groups.some((group) => group.id === item.groupId && group.deletedAt) && !state.cases.some((entry) => entry.groupId === item.groupId && entry.status === 'confirmed')) {
+        const personnel = personnelOf(state);
+        state.personnel = { ...personnel, assignments: personnel.assignments.filter((entry) => entry.groupId !== item.groupId) };
+      }
       return state;
     }
     case 'saveResult': {
@@ -440,7 +499,7 @@ export function getStatistics(state: EvaluationState, monthId: string, groupId =
   });
   const statuses = cases.map((item) => ({ ...item, ...caseStatus(state, item), documentCount: rows.filter((row) => row.caseId === item.id).length }));
   const summary = { participants: participants.length, unselected: participants.filter((participant) => !month?.confirmedUserIds.includes(participant.userId)).length, cases: cases.length, inputComplete: statuses.filter((item) => item.inputComplete).length, inputPending: statuses.filter((item) => !item.inputComplete).length, unevaluated: statuses.filter((item) => item.evaluationStatus === '미평가').length, inProgress: statuses.filter((item) => item.evaluationStatus === '평가 중').length, complete: statuses.filter((item) => item.complete).length, recheck: statuses.filter((item) => item.stale).length, documents: rows.length, inputRate: cases.length ? statuses.filter((item) => item.inputComplete).length / cases.length : null, evaluationRate: cases.length ? statuses.filter((item) => item.complete).length / cases.length : null };
-  const groups = state.groups.filter((group) => !groupId || group.id === groupId).map((group) => {
+  const groups = operationGroups(state, monthId).filter((group) => !groupId || group.id === groupId).map((group) => {
     const items = statuses.filter((item) => item.groupId === group.id);
     return { id: group.id, name: group.name, participants: participants.filter((entry) => entry.groupId === group.id).length, cases: items.length, inputComplete: items.filter((item) => item.inputComplete).length, complete: items.filter((item) => item.complete).length, documents: rows.filter((row) => row.groupId === group.id).length, completionRate: items.length ? items.filter((item) => item.complete).length / items.length : null };
   });

@@ -1,4 +1,4 @@
-import { personnelOf, type EvaluationState, type OperationMonth } from '@/app/lib/evaluation';
+import { currentGroups, personnelOf, type EvaluationState, type OperationMonth } from '@/app/lib/evaluation';
 
 type AssignmentReason = 'user_missing' | 'user_inactive' | 'ai_role_missing' | 'group_missing' | 'method_not_selected' | 'duplicate_assignment';
 type ParticipantReason = 'user_missing' | 'examiner_role_missing' | 'group_missing' | 'duplicate_participant';
@@ -61,7 +61,7 @@ export function getAdminReadiness(state: EvaluationState, month?: OperationMonth
   const participantGroupIds = new Set(participants.map((participant) => participant.groupId));
   const cases = state.cases.filter((item) => item.status === 'confirmed' && (month ? item.monthId === month.id : !state.months.find((entry) => entry.id === item.monthId)?.closed));
   // A past case keeps its original group even when current participation changes.
-  const groupIds = new Set([...(month ? participantGroupIds : state.groups.map((group) => group.id)), ...cases.map((item) => item.groupId)]);
+  const groupIds = new Set([...(month ? participantGroupIds : currentGroups(state).map((group) => group.id)), ...cases.map((item) => item.groupId)]);
   const groupName = (id: string) => groupById.get(id)?.name ?? cases.find((item) => item.groupId === id)?.groupName ?? '등록되지 않은 그룹';
   const cell = (groupId: string, methodId: string): AssignmentCell => ({ groupId, groupName: groupName(groupId), methodId, methodName: methodById.get(methodId)?.name ?? '등록되지 않은 조사 방식' });
   const participantOccurrences = new Map<string, number>();
