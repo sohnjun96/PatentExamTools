@@ -242,7 +242,7 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
     </div>;
   }
   return <div className="ev"><a className="ev-skip-link" href="#evaluation-main">본문 바로가기</a><div className="ev-shell">
-    <aside className="ev-sidebar"><a className="ev-brand" href={bureauPath(bureau)}><span className="ev-brand-mark" aria-hidden="true">AI</span><span><strong>AI 선행기술 검색 포털</strong><small>{bureau ? `${bureau} AI 검색 결과 평가` : 'AI 검색 결과 평가'}</small></span></a>{(bureau || admin) && <div className="ev-bureau-context"><strong>{bureau || '공용 관리'}</strong><span>{admin ? '관리자 업무' : '국별 평가 업무'}</span></div>}
+    <aside className="ev-sidebar"><a className="ev-brand" href={bureauPath(bureau)}><span className="ev-brand-mark" aria-hidden="true">AI</span><span><strong>AI 선행기술 검색 포털</strong><small>{bureau ? `${bureau} AI 검색 결과 평가` : 'AI 검색 결과 평가'}</small></span></a>
       <div className="ev-side-label">업무 메뉴</div><nav aria-label="주요 메뉴">
         {admin ? <>{ADMIN_NAV.map((entry) => <button type="button" key={entry.id} className={`ev-nav ${adminSection === entry.id ? 'active' : ''}`} aria-current={adminSection === entry.id ? 'page' : undefined} disabled={busy || !sessionReady} onClick={() => navigate(() => { setAdminSection(entry.id); setView(entry.id === 'overview' ? 'stats' : 'settings'); })}><span aria-hidden="true">{entry.icon}</span>{entry.label}</button>)}</> : <><button className={`ev-nav ${view === 'review' ? 'active' : ''}`} aria-current={view === 'review' ? 'page' : undefined} onClick={() => navigate(() => setView('review'))}><span>▤</span>내 심사 업무</button>{user?.roles.includes('ai') && <button className={`ev-nav ${view === 'ai' ? 'active' : ''}`} aria-current={view === 'ai' ? 'page' : undefined} onClick={() => navigate(() => setView('ai'))}><span>⌕</span>AI 담당 업무</button>}</>}
       </nav>
@@ -251,10 +251,8 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
           <div className="ev-side-user"><span className="ev-avatar" aria-hidden="true">{user.name.slice(0, 1)}</span><div><strong>{user.name}</strong><span>{user.division || '소속 미지정'}</span></div></div>
           <button type="button" className="krds-btn medium ev-button link" onClick={() => navigate(() => { setUserId(''); setView('review'); })}>사용자 변경</button>
         </section>}
-        <button type="button" className="krds-btn medium ev-button" disabled={!sessionReady || loading || busy} onClick={refreshLatest} aria-label="최신 자료 새로고침">↻ 새로고침</button>
         {admin && <a className="ev-nav" href={bureauPath(bureau)}><span aria-hidden="true">↗</span>일반사용자 화면</a>}
       </div>
-      <div className="ev-side-bottom"><div className="ev-connection"><span className="ev-dot" />KIPRIS Plus 연동</div></div>
     </aside>
     <main className="ev-main" id="evaluation-main" tabIndex={-1}>
       <div className="ev-content">{errorFeedback}{sessionReady && notice && <div className="ev-alert success" role="status">{notice}</div>}
