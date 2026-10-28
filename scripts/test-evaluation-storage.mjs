@@ -264,6 +264,19 @@ try {
   phases = await store.readEvaluationState('화학국');
   assert.equal((await stagePost(phases.revision, phaseEvaluationAction, { userId: commentCase.examinerId })).status, 200);
   assert.deepEqual(await store.readEvaluationState('전기국'), otherBureauBefore);
+  // Genuine legacy JSON with a cap still permits a longer selection through the API.
+  let uncappedFixture = await store.readEvaluationState('화학국');
+  uncappedFixture.state.months.find(month => month.id === '2025-01').caseLimit = 1;
+  await db.prepare('UPDATE evaluation_workspace SET payload_json = ? WHERE id = ?').bind(JSON.stringify(uncappedFixture.state), 'bureau:화학국').run();
+  const uncappedSelection = { type: 'saveSelection', monthId: '2025-01', rows: [{ applicationNumber: '10-2020-0000001', cpc: '' }, { applicationNumber: '10-2020-0000002', cpc: 'G06N' }], confirm: false };
+  const submitUncapped = (revision, confirm) => api.POST(request('?bureau=화학국', { revision, actor: { userId: 'demo-user-2' }, action: { ...uncappedSelection, confirm } }));
+  assert.equal((await submitUncapped(uncappedFixture.revision, false)).status, 200);
+  uncappedFixture = await store.readEvaluationState('화학국');
+  assert.equal((await submitUncapped(uncappedFixture.revision, true)).status, 200);
+  uncappedFixture = await store.readEvaluationState('화학국');
+  assert.equal(uncappedFixture.state.cases.filter(item => item.monthId === '2025-01' && item.examinerId === 'demo-user-2' && item.status === 'confirmed').length, 2);
+  const cleanedMonth = await store.mutateEvaluationState(uncappedFixture.revision, { admin: true }, { type: 'saveMonth', month: uncappedFixture.state.months.find(month => month.id === '2025-01') }, '화학국');
+  assert.equal('caseLimit' in cleanedMonth.state.months.find(month => month.id === '2025-01'), false);
   console.log('Evaluation storage: isolated D1 persistence/CAS; bureau-specific accounts, methods, data and revisions; cross-bureau read/write rejection; selective legacy import; untouched main; scoped demo; URL-only scope and concurrent independent writes verified.');
 } finally {
   await mf.dispose();

@@ -19,7 +19,7 @@ export const ADMIN_NAV = [
   { id: 'overview', label: '운영 현황', icon: '▦', description: '월별 진행을 확인하고 후속 업무를 찾습니다.' },
   { id: 'examiners', label: '심사관 관리', icon: '▤', description: '사용자 계정과 소속 그룹·AI 담당 배정을 관리합니다.' },
   { id: 'ai', label: 'AI 종류', icon: '◇', description: '비교에 사용할 AI 종류를 등록하고 관리합니다.' },
-  { id: 'month', label: '월별 운영', icon: '◷', description: '단계별 운영 상태와 기한, 선정 건수, 비교 AI를 설정합니다.' },
+  { id: 'month', label: '월별 운영', icon: '◷', description: '단계별 운영 상태와 기한, 비교 AI를 설정합니다.' },
   { id: 'cases', label: '대상 출원', icon: '▧', description: '대상 출원을 찾고 운영상 필요한 등록과 취소를 처리합니다.' },
   { id: 'notices', label: '공지사항 관리', icon: '▣', description: '메인 페이지에 표시할 공지사항을 마크다운으로 작성하고 관리합니다.' },
 ] as const;
@@ -180,12 +180,14 @@ export function MonthManager(props: AdminProps) {
   </>;
 }
 
-type OperatingSettings = Pick<OperationMonth, 'methodIds' | 'caseLimit' | 'selectionDeadline' | 'resultDeadline' | 'evaluationDeadline'>;
+type OperatingSettings = Pick<OperationMonth, 'methodIds' | 'selectionDeadline' | 'resultDeadline' | 'evaluationDeadline'>;
 export function operatingSettings(month: OperationMonth): OperatingSettings {
-  return { methodIds: [...month.methodIds], caseLimit: month.caseLimit, selectionDeadline: month.selectionDeadline, resultDeadline: month.resultDeadline, evaluationDeadline: month.evaluationDeadline };
+  return { methodIds: [...month.methodIds], selectionDeadline: month.selectionDeadline, resultDeadline: month.resultDeadline, evaluationDeadline: month.evaluationDeadline };
 }
 export function mergeOperatingMonth(month: OperationMonth, settings: OperatingSettings): OperationMonth {
-  return { ...month, ...operatingSettings({ ...month, ...settings }) };
+  const merged = { ...month, ...operatingSettings({ ...month, ...settings }) };
+  delete merged.caseLimit;
+  return merged;
 }
 
 export function MonthlyForm({ state, month, busy, dirty, save, onNavigate, hasUnsaved }: MonthFormProps) {
@@ -197,7 +199,7 @@ export function MonthlyForm({ state, month, busy, dirty, save, onNavigate, hasUn
   const stageControlsDisabled = busy || month.closed || changed || hasUnsaved;
   return <>
 
-    <Step number={1} title="기본 설정" status={month.closed ? '마감 · 일정 수정 가능' : '기한·건수 선택 사항'} complete>
+    <Step number={1} title="기본 설정" status={month.closed ? '마감 · 일정 수정 가능' : '기한 선택 사항'} complete>
       <div className="adm-stage-grid">{OPERATION_STAGES.map(stage => {
         const status = operationStageStatus(month, stage.id);
         return <section className="adm-stage-card" key={stage.id} aria-labelledby={`adm-stage-${stage.id}`}>
@@ -214,14 +216,13 @@ export function MonthlyForm({ state, month, busy, dirty, save, onNavigate, hasUn
         </section>;
       })}</div>
       {changed || hasUnsaved ? <p className="adm-secondary">설정 변경을 저장하거나 취소하면 단계 상태를 변경할 수 있습니다.</p> : month.closed ? <p className="adm-secondary">월 전체를 재개방하면 각 단계를 제어할 수 있습니다.</p> : null}
-      <label className="adm-field adm-stage-limit">심사관별 출원 건수 상한<input className="krds-input" type="number" min="0" max="500" disabled={disabled} value={form.caseLimit} onChange={event => update({ caseLimit: Number(event.target.value) })} /></label><p className="adm-secondary">상한 0은 제한 없음</p>
     </Step>
     <Step number={2} title="비교 AI 선택" status={'AI ' + selectedAI.length + '개 선택'} complete={selectedAI.length > 0} missing={!selectedAI.length}>
       {state.methods.some((method) => method.kind === 'ai') ? <div className="adm-check-list">{state.methods.map((method) => <label key={method.id} className="adm-check-row"><input type="checkbox" disabled={disabled} checked={form.methodIds.includes(method.id)} onChange={(event) => update({ methodIds: event.target.checked ? [...form.methodIds, method.id] : form.methodIds.filter((id) => id !== method.id) })} /><span>{method.name}</span>{method.kind === 'baseline' && <Pill>순위 비교 전용</Pill>}{!method.active && <Pill tone="is-inactive">비활성</Pill>}</label>)}</div> : <Empty title="비교할 AI 종류를 등록하세요." actions={<Button onClick={() => onNavigate('ai')}>AI 종류 추가</Button>} />}
       {!selectedAI.length && <p className="adm-inline-error">비교할 AI를 1개 이상 선택하세요.</p>}<p className="adm-secondary">선행기술조사는 문헌 입력 없이 순위만 비교합니다.</p><Button onClick={() => onNavigate('ai')}>AI 종류 관리</Button>
     </Step>
 
-    <div className="adm-save-bar"><div><strong>{monthLabel(month.id)} 운영 설정</strong>{changed && <p className="adm-secondary adm-dirty is-dirty" role="status">운영 설정 미저장</p>}</div><div className="adm-actions"><Button disabled={busy || !changed} onClick={() => { if (confirmDiscard(changed)) { setForm(operatingSettings(month)); dirty(false); } }}>설정 변경 취소</Button><Button primary disabled={busy || !changed || !selectedAI.length} onClick={() => void save({ type: 'saveMonth', month: mergeOperatingMonth(month, form) }, monthLabel(month.id) + ' 운영 기한·건수·비교 AI 설정을 저장했습니다.')}>월별 운영 저장</Button></div></div>
+    <div className="adm-save-bar"><div><strong>{monthLabel(month.id)} 운영 설정</strong>{changed && <p className="adm-secondary adm-dirty is-dirty" role="status">운영 설정 미저장</p>}</div><div className="adm-actions"><Button disabled={busy || !changed} onClick={() => { if (confirmDiscard(changed)) { setForm(operatingSettings(month)); dirty(false); } }}>설정 변경 취소</Button><Button primary disabled={busy || !changed || !selectedAI.length} onClick={() => void save({ type: 'saveMonth', month: mergeOperatingMonth(month, form) }, monthLabel(month.id) + ' 운영 기한·비교 AI 설정을 저장했습니다.')}>월별 운영 저장</Button></div></div>
   </>;
 }
 

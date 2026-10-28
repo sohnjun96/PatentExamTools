@@ -473,7 +473,7 @@ assert.equal(atomicSaved.personnel.memberships.find(entry=>entry.userId===demo.u
 assert.equal(atomicSaved.personnel.assignments.find(entry=>entry.groupId==='group-a'&&entry.methodId==='chatgpt').userId,demo.users[1].id);
 assert.equal(JSON.stringify(atomicSaved.months),JSON.stringify(demo.months));
 assert.equal(atomicSaved.cases[0].groupId,'group-a');
-const settingsDraft=adminUI.operatingSettings(demo.months[0]);settingsDraft.caseLimit=7;
+const settingsDraft=adminUI.operatingSettings(demo.months[0]);settingsDraft.selectionDeadline='2026-11-05';
 const latestPersonnelMonth={...demo.months[0],assignments:demo.personnel.assignments};
 const droppedAI=adminUI.mergeOperatingMonth(latestPersonnelMonth,{...settingsDraft,methodIds:['chatgpt','baseline']});
 assert.deepEqual(droppedAI.assignments,latestPersonnelMonth.assignments);
@@ -559,7 +559,7 @@ assert.equal(adminUI.filterTargetCases(demo, '2026-10', { status: 'complete' }).
 assert.equal(adminUI.filterTargetCases(demo, '2026-11').length, 0);
 assert.equal(adminUI.filterTargetCases(demo, '2026-10', { query: demo.cases[0].applicationNumber.replace(/\D/g, '') }).length, 1);
 assert.equal(adminUI.filterTargetCases(demo, '2026-10', { examinerId: demo.users[0].id }).length, 2);
-const changed = adminUI.operatingSettings(demo.months[0]); changed.caseLimit = 3;
+const changed = adminUI.operatingSettings(demo.months[0]); changed.selectionDeadline = '2026-11-05';
 hookIndex = 0; hookOverrides = [changed, ''];
 let monthAction;
 const monthForm = adminUI.MonthlyForm({ state: demo, month: demo.months[0], busy: false, dirty() {}, onNavigate() {}, save: async action => { monthAction = action; return true; } });
@@ -578,8 +578,6 @@ assert(modifyingInputs.filter(({ element }) => element.props.type === 'date').ev
 assert(modifyingInputs.filter(({ element }) => element.props.type !== 'date').every(({ element }) => element.props.disabled === true));
 const closedSave = descendants(closedForm).find(({ element }) => element.props.children === '월별 운영 저장').element;
 assert.equal(closedSave.props.disabled, true);
-const monthParagraphs = descendants(closedForm).filter(({ element }) => element.type === 'p').map(({ element }) => element.props.children);
-assert(monthParagraphs.includes('상한 0은 제한 없음'));
 const revisedSchedule = { ...adminUI.operatingSettings(closedMonth), selectionDeadline: '2026-11-01', resultDeadline: '2026-11-10', evaluationDeadline: '2026-11-20' };
 hookIndex = 0; hookOverrides = [revisedSchedule];
 let scheduleAction;

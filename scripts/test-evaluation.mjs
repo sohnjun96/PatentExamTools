@@ -136,7 +136,8 @@ for (const timestamp of ['2026-10-27T14:59:59.999Z', '2026-10-27T15:00:00Z', '20
   assert.deepEqual(edited.months.find(entry => entry.id === prior.id), { ...closedMonth, selectionDeadline: '', resultDeadline: '2026-12-01', evaluationDeadline: '2026-12-10' });
   for (const key of ['cases', 'results', 'evaluations', 'rankings', 'personnel']) assert.deepEqual(edited[key], deadlineState[key]);
   assert.throws(() => applyAction(deadlineState, { userId: 'demo-user-1' }, { type: 'saveMonth', month: revised }, now), error => error.status === 403);
-  assert.throws(() => applyAction(deadlineState, { admin: true }, { type: 'saveMonth', month: { ...closedMonth, caseLimit: 8 } }, now), /재개방/);
+  const ignoredLegacyLimit = applyAction(deadlineState, { admin: true }, { type: 'saveMonth', month: { ...closedMonth, caseLimit: 8 } }, now);
+  assert.equal(ignoredLegacyLimit.months.find(entry => entry.id === prior.id).caseLimit, undefined);
   assert.throws(() => applyAction(deadlineState, { admin: true }, { type: 'saveMonth', month: { ...closedMonth, methodIds: ['chatgpt'] } }, now), /재개방/);
   for (const invalidDate of ['2026-02-30', '2026-13-01', 'invalid', null, 123]) {
     assert.throws(() => applyAction(deadlineState, { admin: true }, { type: 'saveMonth', month: { ...closedMonth, resultDeadline: invalidDate } }, now), /기한 날짜/);
@@ -145,5 +146,18 @@ for (const timestamp of ['2026-10-27T14:59:59.999Z', '2026-10-27T15:00:00Z', '20
     assert.throws(() => applyAction(edited, { userId: 'demo-user-1' }, action, now), /마감한/);
   }
 }
+// A previously stored per-examiner cap cannot restrict drafts or confirmed selections.
+let legacyLimitedState = applyAction(createDemoState(monthId), { admin: true }, { type: 'saveMonth', month: emptyMonth('2026-11') });
+legacyLimitedState.months.find(month => month.id === '2026-11').caseLimit = 1;
+legacyLimitedState.months.find(month => month.id === '2026-11').stages = { selection: 'running', result: 'stopped', evaluation: 'stopped' };
+legacyLimitedState = applyAction(legacyLimitedState, { userId: 'demo-user-1' }, { type: 'saveSelection', monthId: '2026-11', rows, confirm: false });
+assert.equal(legacyLimitedState.cases.filter(item => item.monthId === '2026-11' && item.status === 'draft').length, rows.length);
+legacyLimitedState = applyAction(legacyLimitedState, { userId: 'demo-user-1' }, { type: 'saveSelection', monthId: '2026-11', rows, confirm: true });
+assert.equal(legacyLimitedState.cases.filter(item => item.monthId === '2026-11' && item.status === 'confirmed').length, rows.length);
+const legacyMonth = legacyLimitedState.months.find(month => month.id === '2026-11');
+const withoutLimit = applyAction(legacyLimitedState, { admin: true }, { type: 'saveMonth', month: { ...legacyMonth, resultDeadline: '2026-11-15' } });
+assert.equal('caseLimit' in withoutLimit.months.find(month => month.id === '2026-11'), false);
+assert.deepEqual(withoutLimit.cases, legacyLimitedState.cases);
+assert.deepEqual(withoutLimit.months.find(month => month.id === '2026-11').stages, legacyMonth.stages);
 assert.equal(createInitialState(monthId).users.length, 0);
 console.log('Evaluation rules: 20 cases / 40 AI bundles / 280 literature evaluations verified; drafts, 0/X, recheck, scopes, rankings, assignments, deadlines and closure passed.');

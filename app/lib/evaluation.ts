@@ -17,7 +17,9 @@ export const OPERATION_STAGE_STATUS_LABELS: Record<OperationStageStatus, string>
 export type OperationMonth = {
   // Legacy month-level allocations are retained for migration/audit only.
   id: string; methodIds: string[]; participants: MonthParticipant[]; assignments: AIAssignment[];
-  closed: boolean; caseLimit: number; selectionDeadline: string; resultDeadline: string; evaluationDeadline: string;
+  closed: boolean; selectionDeadline: string; resultDeadline: string; evaluationDeadline: string;
+  /** Legacy stored field, ignored by selection and removed on settings saves. */
+  caseLimit?: number;
   confirmedUserIds: string[];
   stages?: Partial<Record<OperationStage, OperationStageStatus>>;
 };
@@ -80,7 +82,7 @@ export function currentOperationMonth(now = new Date()) {
 }
 
 export function emptyMonth(id: string): OperationMonth {
-  return { id, methodIds: ['chatgpt', 'claude', 'baseline'], participants: [], assignments: [], closed: false, caseLimit: 0, selectionDeadline: '', resultDeadline: '', evaluationDeadline: '', confirmedUserIds: [] };
+  return { id, methodIds: ['chatgpt', 'claude', 'baseline'], participants: [], assignments: [], closed: false, selectionDeadline: '', resultDeadline: '', evaluationDeadline: '', confirmedUserIds: [] };
 }
 
 export function createInitialState(monthId = currentOperationMonth()): EvaluationState {
@@ -241,7 +243,6 @@ function validateMonth(state: EvaluationState, value: OperationMonth) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value.id)) fail('운영월은 YYYY-MM 형식이어야 합니다.');
   if (!Array.isArray(value.methodIds) || new Set(value.methodIds).size !== value.methodIds.length || value.methodIds.some((id) => !state.methods.some((method) => method.id === id))) fail('비교 조사 방식을 확인해 주세요.');
   if (!value.methodIds.some((id) => state.methods.some((method) => method.id === id && method.kind === 'ai'))) fail('AI 조사 방식을 한 개 이상 선택해 주세요.');
-  if (!Number.isInteger(value.caseLimit) || value.caseLimit < 0 || value.caseLimit > 500) fail('건수 상한은 0~500 정수로 입력해 주세요.');
   if (value.stages !== undefined && (!value.stages || typeof value.stages !== 'object' || Array.isArray(value.stages) || Object.entries(value.stages).some(([stage, status]) => !OPERATION_STAGES.some(entry => entry.id === stage) || !['running', 'stopped', 'closed'].includes(status)))) fail('단계 운영 상태를 확인해 주세요.');
   for (const date of [value.selectionDeadline, value.resultDeadline, value.evaluationDeadline]) {
     if (typeof date !== 'string') fail('기한 날짜를 확인해 주세요.');
@@ -368,12 +369,13 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
         if (action.month[key] && JSON.stringify(action.month[key]) !== JSON.stringify(old?.[key] ?? [])) fail('심사관·AI 담당 배정은 심사관 관리에서 저장해 주세요.');
       }
       const month: OperationMonth = { ...action.month, participants: old?.participants ?? [], assignments: old?.assignments ?? [], closed: old?.closed ?? false, confirmedUserIds: old?.confirmedUserIds ?? [] };
+      delete month.caseLimit;
       // Ordinary settings saves, including older clients, cannot reopen stopped stages.
       if (old) {
         if (old.stages) month.stages = { ...old.stages }; else delete month.stages;
       }
       validateMonth(state, month);
-      if (old?.closed && (old.caseLimit !== month.caseLimit || JSON.stringify(old.methodIds) !== JSON.stringify(month.methodIds))) fail('마감 월의 건수·비교 AI 설정은 재개방한 후 변경해 주세요.', 409);
+      if (old?.closed && JSON.stringify(old.methodIds) !== JSON.stringify(month.methodIds)) fail('마감 월의 비교 AI 설정은 재개방한 후 변경해 주세요.', 409);
       if (old) state.months[state.months.indexOf(old)] = month; else state.months.push(month);
       return state;
     }
@@ -397,7 +399,6 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       editable(month, 'selection');
       if (month.confirmedUserIds.includes(user.id)) fail('선정 확정한 목록은 관리자만 변경할 수 있습니다.', 409);
       const rows = selectionRows(action.rows);
-      if (month.caseLimit && rows.length > month.caseLimit) fail(`해당 월의 선정 상한은 ${month.caseLimit}건입니다.`);
       if (action.confirm && !rows.length) fail('확정할 출원을 한 건 이상 입력해 주세요.');
       state.cases = state.cases.filter((entry) => !(entry.monthId === month.id && entry.examinerId === user.id && entry.status === 'draft'));
       state.cases.push(...rows.map((row) => createCase(state, month, user, row, action.confirm ? 'confirmed' : 'draft')));

@@ -272,7 +272,6 @@
 .adm-stage-card .adm-name { flex-wrap:wrap; margin-bottom:16px; }
 .adm-stage-card .adm-actions { margin-top:16px; gap:8px; flex-wrap:wrap; }
 .adm-stage-card .adm-actions>.ev-button { flex:1; min-width:56px; padding:10px; }
-.adm-stage-limit { max-width:320px; margin-top:20px; }
 @media(max-width:1100px) { .adm-stage-grid { grid-template-columns:minmax(0,1fr); } }
 @media(max-width:600px) {
   .adm-group-grid,.adm-directory-toolbar { padding:16px; }
