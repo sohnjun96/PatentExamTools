@@ -379,15 +379,11 @@ assert(aiCards.every(({ element }) => element.props['aria-haspopup'] === 'dialog
 assert(!aiCards.some(({ element }) => JSON.stringify(element).includes('선행기술조사')), 'The AI catalog only manages actual AI tools.');
 assert(!descendants(catalog).some(({ element }) => element.type === adminUI.MethodEditor), 'The catalog must not show an inline or initially open editor.');
 for (const editing of ['new', 'claude']) {
-  hookIndex = 0; hookOverrides = ['', 'all', editing];
+  hookIndex = 0; hookOverrides = [editing];
   const tree = adminUI.TestMethodManager(methodManagerProps);
   const editor = descendants(tree).find(({ element }) => element.type === adminUI.MethodEditor).element;
   assert.equal(editor.props.method?.id, editing === 'new' ? undefined : editing);
 }
-hookIndex = 0; hookOverrides = ['클로드', 'all', null];
-const filteredAI = descendants(adminUI.TestMethodManager(methodManagerProps)).filter(({ element }) => element.type === 'button' && element.props.className?.startsWith('adm-ai-card '));
-assert.equal(filteredAI.length, 1);
-assert.equal(filteredAI[0].element.props['aria-label'], 'AI 종류 클로드 수정');
 let closedMethods = 0;
 let savedMethodAction;
 const enteredMethod = { name: 'Gemini', kind: 'ai', active: true };
@@ -427,9 +423,6 @@ assert.equal(hookWrites.findLast(entry => entry.index === 1).value, true);
 const methodFailure = methodDialog({ saveFeedback: recoveryFeedback }, true);
 assert(descendants(methodFailure).some(({ element }) => element === recoveryFeedback));
 assert.equal(descendants(methodFailure).find(({ element }) => element.type === 'input').element.props.value, enteredMethod.name);
-hookIndex = 0; hookOverrides = ['클로드', 'inactive', 'new'];
-const searchedCatalog = adminUI.TestMethodManager(methodManagerProps);
-const searchedEditor = descendants(searchedCatalog).find(({ element }) => element.type === adminUI.MethodEditor).element;
 let methodDeletes = 0, deleteClosed = 0, deletedMethodAction;
 function renderMethodDelete(options = {}) {
   hookIndex = 0; hookOverrides = [claude, false];
@@ -448,10 +441,10 @@ assert.equal(deleteClosed, 0); assert.equal(hookWrites.findLast(entry => entry.i
 await deleteButton(renderMethodDelete()).props.onClick();
 assert.equal(deleteClosed, 1); assert.equal(JSON.stringify(deletedMethodAction), JSON.stringify({ type: 'deleteMethod', methodId: claude.id }));
 const deletedCatalogState = domain.applyAction(emptyState, { admin: true }, deletedMethodAction);
-hookIndex = 0; hookOverrides = ['', 'all', null];
+hookIndex = 0; hookOverrides = [null];
 const remainingAI = descendants(adminUI.TestMethodManager({ ...methodManagerProps, state: deletedCatalogState })).filter(({ element }) => element.props.className?.startsWith('adm-ai-card '));
 assert.equal(remainingAI.length, 1); assert.equal(remainingAI[0].element.props['aria-label'], 'AI 종류 ChatGPT 수정');
-hookIndex = 0; hookOverrides = ['', 'all', 'claude'];
+hookIndex = 0; hookOverrides = ['claude'];
 assert(!descendants(adminUI.TestMethodManager({ ...methodManagerProps, state: deletedCatalogState })).some(({ element }) => element.type === adminUI.MethodEditor));
 let postDeletionMonth;
 hookIndex = 0; hookOverrides = ['2030-01'];
@@ -467,10 +460,6 @@ assert(historicalAssignments.every(({ element }) => element.props.checked || ele
 hookIndex = 0; hookOverrides = [];
 const otherOwner = adminUI.AccountEditor({ state: historicalMethods, user: historicalMethods.users[1], busy: false, dirty() {}, onClose() {}, save: async () => true });
 assert(!descendants(otherOwner).some(({ element }) => element.type === 'input' && /ChatGPT 담당$/.test(element.props['aria-label'] || '')));
-hookWrites.length = 0;
-await searchedEditor.props.save({ type: 'saveMethod', method: enteredMethod });
-assert(hookWrites.some(entry => entry.index === 0 && entry.value === ''));
-assert(hookWrites.some(entry => entry.index === 1 && entry.value === 'all'), 'Saving an AI tool must clear filters so the new or changed tool stays visible.');
 hookIndex = 0; hookOverrides = ['검색결과없음', 'all', 'all', null];
 const noMatchingAccount = adminUI.TestAccountManager({ ...managerProps, state: { ...emptyState, users: people } });
 const searchEmpty = descendants(noMatchingAccount).find(({ element }) => element.props?.title === '검색 조건에 맞는 계정이 없습니다.');
