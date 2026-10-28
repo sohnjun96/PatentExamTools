@@ -120,9 +120,8 @@ function actorUser(state: EvaluationState, actor: EvaluationActor) {
   return state.users.find((user) => user.id === actor.userId && user.active) ?? fail('활성 사용자를 선택해 주세요.', 403);
 }
 
-function editable(month: OperationMonth, deadline: string, now: Date, admin = false) {
+function editable(month: OperationMonth) {
   if (month.closed) fail('마감한 운영월입니다. 관리자 재개방 후 수정할 수 있습니다.', 409);
-  if (!admin && deadline && now.getTime() > new Date(`${deadline}T23:59:59.999+09:00`).getTime()) fail('업무 기한이 지났습니다.', 409);
 }
 
 export function aiMethods(state: EvaluationState, monthId: string) {
@@ -213,7 +212,11 @@ function validateMonth(state: EvaluationState, value: OperationMonth) {
   if (!value.methodIds.some((id) => state.methods.some((method) => method.id === id && method.kind === 'ai'))) fail('AI 조사 방식을 한 개 이상 선택해 주세요.');
   if (!Number.isInteger(value.caseLimit) || value.caseLimit < 0 || value.caseLimit > 500) fail('건수 상한은 0~500 정수로 입력해 주세요.');
   for (const date of [value.selectionDeadline, value.resultDeadline, value.evaluationDeadline]) {
-    if (date && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00+09:00`).getTime()))) fail('기한 날짜를 확인해 주세요.');
+    if (typeof date !== 'string') fail('기한 날짜를 확인해 주세요.');
+    if (date) {
+      const timestamp = /^\d{4}-\d{2}-\d{2}$/.test(date) ? Date.parse(`${date}T00:00:00.000Z`) : NaN;
+      if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== date) fail('기한 날짜를 확인해 주세요.');
+    }
   }
 }
 
@@ -334,7 +337,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       }
       const month: OperationMonth = { ...action.month, participants: old?.participants ?? [], assignments: old?.assignments ?? [], closed: old?.closed ?? false, confirmedUserIds: old?.confirmedUserIds ?? [] };
       validateMonth(state, month);
-      if (old?.closed) fail('마감 월을 재개방한 후 설정을 변경해 주세요.', 409);
+      if (old?.closed && (old.caseLimit !== month.caseLimit || JSON.stringify(old.methodIds) !== JSON.stringify(month.methodIds))) fail('마감 월의 건수·비교 AI 설정은 재개방한 후 변경해 주세요.', 409);
       if (old) state.months[state.months.indexOf(old)] = month; else state.months.push(month);
       return state;
     }
@@ -347,7 +350,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       const user = actorUser(state, actor);
       if (!user.roles.includes('examiner')) fail('심사관 역할이 필요합니다.', 403);
       const month = monthOf(state, action.monthId);
-      editable(month, month.selectionDeadline, now);
+      editable(month);
       if (month.confirmedUserIds.includes(user.id)) fail('선정 확정한 목록은 관리자만 변경할 수 있습니다.', 409);
       const rows = selectionRows(action.rows);
       if (month.caseLimit && rows.length > month.caseLimit) fail(`해당 월의 선정 상한은 ${month.caseLimit}건입니다.`);
@@ -360,7 +363,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
     case 'adminAddCase': {
       requireAdmin(actor);
       const month = monthOf(state, action.monthId);
-      editable(month, '', now, true);
+      editable(month);
       const user = state.users.find((entry) => entry.id === action.examinerId && entry.roles.includes('examiner')) ?? fail('담당 심사관을 확인해 주세요.');
       const [row] = selectionRows([action.row]);
       if (state.cases.some((entry) => entry.monthId === month.id && entry.examinerId === user.id && entry.status !== 'cancelled' && identity(entry.applicationNumber) === identity(row.applicationNumber))) fail('같은 월·심사관에 중복 출원이 있습니다.');
@@ -371,7 +374,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
     case 'cancelCase': {
       requireAdmin(actor);
       const item = state.cases.find((entry) => entry.id === action.caseId) ?? fail('출원이 없습니다.');
-      editable(monthOf(state, item.monthId), '', now, true);
+      editable(monthOf(state, item.monthId));
       item.status = 'cancelled';
       if (state.groups.some((group) => group.id === item.groupId && group.deletedAt) && !state.cases.some((entry) => entry.groupId === item.groupId && entry.status === 'confirmed')) {
         const personnel = personnelOf(state);
@@ -383,7 +386,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       const user = actorUser(state, actor);
       const item = state.cases.find((entry) => entry.id === action.caseId && entry.status === 'confirmed') ?? fail('확정 출원이 없습니다.');
       const month = monthOf(state, item.monthId);
-      editable(month, month.resultDeadline, now);
+      editable(month);
       if (!canInputResult(state, actor, item, action.methodId)) fail('배정받은 그룹과 AI 조사 방식만 입력할 수 있습니다.', 403);
       const documents = documentsFrom(action.documents, !action.publish);
       let result = resultFor(state, item.id, action.methodId);
@@ -403,7 +406,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       const item = state.cases.find((entry) => entry.id === action.caseId && entry.status === 'confirmed') ?? fail('확정 출원이 없습니다.');
       if (item.examinerId !== user.id || !user.roles.includes('examiner')) fail('본인이 선정한 출원만 평가할 수 있습니다.', 403);
       const month = monthOf(state, item.monthId);
-      editable(month, month.evaluationDeadline, now);
+      editable(month);
       if (action.overallComment !== undefined && (typeof action.overallComment !== 'string' || action.overallComment.length > OVERALL_COMMENT_MAX_LENGTH)) fail('총평은 4,000자 이내의 텍스트로 입력해 주세요.');
       const overallComment = action.overallComment === undefined
         ? state.rankings.find((entry) => entry.caseId === item.id)?.overallComment ?? ''

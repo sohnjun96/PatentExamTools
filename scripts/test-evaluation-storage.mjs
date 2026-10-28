@@ -201,6 +201,32 @@ try {
   const clearedComment = await api.POST(commentRequest(persistedComment.revision));
   assert.equal(clearedComment.status, 200);
   assert.equal((await store.readEvaluationState('화학국')).state.rankings.find(entry => entry.caseId === commentCase.id).overallComment, '');
+  // Schedule-only edits persist for existing closed months without reopening them.
+  let scheduled = await store.readEvaluationState('화학국');
+  scheduled = await store.mutateEvaluationState(scheduled.revision, { admin: true }, { type: 'setMonthClosed', monthId: commentCase.monthId, closed: true }, '화학국');
+  const savedMonth = scheduled.state.months.find(month => month.id === commentCase.monthId);
+  const scheduleAction = { type: 'saveMonth', month: { ...savedMonth, selectionDeadline: '2000-01-01', resultDeadline: '2000-01-02', evaluationDeadline: '2000-01-03' } };
+  const updateSchedule = await api.POST(request('?bureau=화학국', { revision: scheduled.revision, actor: { admin: true }, action: scheduleAction }));
+  assert.equal(updateSchedule.status, 200);
+  const persistedSchedule = await store.readEvaluationState('화학국');
+  assert.deepEqual(persistedSchedule.state.months.find(month => month.id === savedMonth.id), scheduleAction.month);
+  assert.deepEqual(persistedSchedule.state.cases, scheduled.state.cases);
+  assert.deepEqual(persistedSchedule.state.personnel, scheduled.state.personnel);
+  assert.equal((await api.POST(request('?bureau=화학국', { revision: scheduled.revision, actor: { admin: true }, action: scheduleAction }))).status, 409);
+  assert.equal((await api.POST(request('?bureau=화학국', { revision: persistedSchedule.revision, actor: { userId: commentCase.examinerId }, action: scheduleAction }))).status, 403);
+  scheduled = await store.mutateEvaluationState(persistedSchedule.revision, { admin: true }, { type: 'setMonthClosed', monthId: savedMonth.id, closed: false }, '화학국');
+  const lateResult = await api.POST(request('?bureau=화학국', { revision: scheduled.revision, actor: { userId: 'demo-user-1' }, action: { type: 'saveResult', caseId: commentCase.id, methodId: 'chatgpt', documents: ['KR2020000000A'], publish: true } }));
+  assert.equal(lateResult.status, 200, 'AI results can be published after the target date.');
+  scheduled = await store.readEvaluationState('화학국');
+  const publishedVersion = scheduled.state.results.find(result => result.caseId === commentCase.id && result.methodId === 'chatgpt').publishedVersion;
+  const lateEvaluation = await api.POST(request('?bureau=화학국', { revision: scheduled.revision, actor: { userId: commentCase.examinerId }, action: { type: 'saveEvaluation', caseId: commentCase.id, evaluations: [{ methodId: 'chatgpt', version: publishedVersion, documents: [{ number: 'KR2020000000A', score: 3, cited: 'O', note: '' }] }], rankings: {}, versions: {}, overallComment: '기한 이후 API 평가' } }));
+  assert.equal(lateEvaluation.status, 200, 'Evaluations can be saved after the target date.');
+  scheduled = await store.readEvaluationState('화학국');
+  assert.equal(scheduled.state.rankings.find(entry => entry.caseId === commentCase.id).overallComment, '기한 이후 API 평가');
+  scheduled = await store.mutateEvaluationState(scheduled.revision, { admin: true }, { type: 'saveMonth', month: { ...rules.emptyMonth('2025-01'), selectionDeadline: '2000-01-01' } }, '화학국');
+  const lateSelection = await api.POST(request('?bureau=화학국', { revision: scheduled.revision, actor: { userId: commentCase.examinerId }, action: { type: 'saveSelection', monthId: '2025-01', rows: [{ applicationNumber: '10-2020-0093844', cpc: '' }], confirm: true } }));
+  assert.equal(lateSelection.status, 200, 'Target cases can be confirmed after the target date.');
+  assert.equal((await store.readEvaluationState('화학국')).state.cases.filter(item => item.monthId === '2025-01' && item.status === 'confirmed').length, 1);
   console.log('Evaluation storage: isolated D1 persistence/CAS; bureau-specific accounts, methods, data and revisions; cross-bureau read/write rejection; selective legacy import; untouched main; scoped demo; URL-only scope and concurrent independent writes verified.');
 } finally {
   await mf.dispose();

@@ -110,10 +110,40 @@ assert.throws(() => applyAction(state, { userId: 'demo-user-1' }, { type: 'saveS
 const invalidPersonnel = { ...state.personnel, memberships: [...state.personnel.memberships, state.personnel.memberships[0]] };
 assert.throws(() => applyAction(state, { admin: true }, { type: 'savePersonnel', personnel: invalidPersonnel }), /한 개/);
 
-// Date-only deadlines include the full calendar day in Korea.
-let deadlineState = createDemoState(monthId);
-deadlineState.months[0].resultDeadline = '2026-10-27';
-applyAction(deadlineState, { userId: 'demo-user-1' }, { type: 'saveResult', caseId: deadlineState.cases[0].id, methodId: 'chatgpt', documents: ['A'], publish: false }, new Date('2026-10-27T14:59:59.999Z'));
-assert.throws(() => applyAction(deadlineState, { userId: 'demo-user-1' }, { type: 'saveResult', caseId: deadlineState.cases[0].id, methodId: 'chatgpt', documents: ['A'], publish: false }, new Date('2026-10-27T15:00:00Z')), /기한/);
+// Dates are planning targets: submission works on and after the Korean due date.
+for (const timestamp of ['2026-10-27T14:59:59.999Z', '2026-10-27T15:00:00Z', '2027-01-01T00:00:00Z']) {
+  const now = new Date(timestamp);
+  const deadlines = { selectionDeadline: '2026-10-27', resultDeadline: '2026-10-27', evaluationDeadline: '2026-10-27' };
+  let deadlineState = applyAction(createDemoState(monthId), { admin: true }, { type: 'saveMonth', month: { ...emptyMonth('2026-11'), ...deadlines } }, now);
+  const selection = { type: 'saveSelection', monthId: '2026-11', rows: [rows[0]], confirm: true };
+  deadlineState = applyAction(deadlineState, { userId: 'demo-user-1' }, { ...selection, confirm: false }, now);
+  deadlineState = applyAction(deadlineState, { userId: 'demo-user-1' }, selection, now);
+  const selected = deadlineState.cases.find(entry => entry.monthId === '2026-11' && entry.status === 'confirmed');
+  const resultAction = { type: 'saveResult', caseId: selected.id, methodId: 'chatgpt', documents: ['KR2020000000A'], publish: true };
+  deadlineState = applyAction(deadlineState, { userId: 'demo-user-1' }, { ...resultAction, publish: false }, now);
+  deadlineState = applyAction(deadlineState, { userId: 'demo-user-1' }, resultAction, now);
+  const evaluationAction = { type: 'saveEvaluation', caseId: selected.id, evaluations: [{ methodId: 'chatgpt', version: 1, documents: [{ number: 'KR2020000000A', score: 3, cited: 'O', note: '' }] }], rankings: {}, versions: { chatgpt: 1, claude: 0 }, overallComment: '기한 이후 평가도 저장' };
+  deadlineState = applyAction(deadlineState, { userId: 'demo-user-1' }, evaluationAction, now);
+  assert.equal(validEvaluation(deadlineState, selected.id, 'chatgpt').documents[0].score, 3);
+  const prior = deadlineState.months.find(entry => entry.id === '2026-11');
+  const revised = { ...prior, selectionDeadline: '2026-11-05', resultDeadline: '2026-11-15', evaluationDeadline: '2026-11-25' };
+  deadlineState = applyAction(deadlineState, { admin: true }, { type: 'saveMonth', month: revised }, now);
+  assert.deepEqual(deadlineState.months.find(entry => entry.id === prior.id), revised);
+  deadlineState = applyAction(deadlineState, { admin: true }, { type: 'setMonthClosed', monthId: prior.id, closed: true }, now);
+  const closedMonth = deadlineState.months.find(entry => entry.id === prior.id);
+  const closedRevision = { ...closedMonth, selectionDeadline: '', resultDeadline: '2026-12-01', evaluationDeadline: '2026-12-10', closed: false, confirmedUserIds: [] };
+  const edited = applyAction(deadlineState, { admin: true }, { type: 'saveMonth', month: closedRevision }, now);
+  assert.deepEqual(edited.months.find(entry => entry.id === prior.id), { ...closedMonth, selectionDeadline: '', resultDeadline: '2026-12-01', evaluationDeadline: '2026-12-10' });
+  for (const key of ['cases', 'results', 'evaluations', 'rankings', 'personnel']) assert.deepEqual(edited[key], deadlineState[key]);
+  assert.throws(() => applyAction(deadlineState, { userId: 'demo-user-1' }, { type: 'saveMonth', month: revised }, now), error => error.status === 403);
+  assert.throws(() => applyAction(deadlineState, { admin: true }, { type: 'saveMonth', month: { ...closedMonth, caseLimit: 8 } }, now), /재개방/);
+  assert.throws(() => applyAction(deadlineState, { admin: true }, { type: 'saveMonth', month: { ...closedMonth, methodIds: ['chatgpt'] } }, now), /재개방/);
+  for (const invalidDate of ['2026-02-30', '2026-13-01', 'invalid', null, 123]) {
+    assert.throws(() => applyAction(deadlineState, { admin: true }, { type: 'saveMonth', month: { ...closedMonth, resultDeadline: invalidDate } }, now), /기한 날짜/);
+  }
+  for (const action of [selection, resultAction, evaluationAction]) {
+    assert.throws(() => applyAction(edited, { userId: 'demo-user-1' }, action, now), /마감한/);
+  }
+}
 assert.equal(createInitialState(monthId).users.length, 0);
 console.log('Evaluation rules: 20 cases / 40 AI bundles / 280 literature evaluations verified; drafts, 0/X, recheck, scopes, rankings, assignments, deadlines and closure passed.');

@@ -10,7 +10,6 @@ assert.equal(viewForRoles(['ai']), 'ai');
 assert.equal(viewForRoles(['examiner'], 'ai'), 'review');
 assert.equal(viewForRoles(['examiner', 'ai'], 'ai'), 'ai');
 assert.equal(saveFailureGuidance(409, '마감 월을 재개방한 후 설정을 변경해 주세요.').conflict, false);
-assert.equal(saveFailureGuidance(409, '업무 기한이 지났습니다.').conflict, false);
 assert.equal(saveFailureGuidance(409, '다른 화면에서 업무 자료가 변경되었습니다.').conflict, true);
 assert.equal(saveFailureGuidance(409, 'AI 결과가 변경되었습니다.').conflict, true);
 assert.equal(saveFailureGuidance(500, '저장 연결을 확인할 수 없습니다.').conflict, false);
@@ -19,4 +18,4 @@ assert(saveFailureGuidance(400, '같은 선정 목록에 중복된 출원이 있
 assert(!saveFailureGuidance(400, 'Invalid server payload').message.includes('payload'));
 assert(saveFailureGuidance(403, '배정받은 AI 조사 방식만 입력할 수 있습니다.').message.includes('담당 배정'));
 assert.equal(saveFailureGuidance(409, '선정 확정한 목록은 관리자만 변경할 수 있습니다.').conflict, false);
-console.log('Workspace location and recovery tests passed: role entry, session scope, invalid storage, closure/deadline/conflict guidance.');
+console.log('Workspace location and recovery tests passed: role entry, session scope, invalid storage, closure/conflict guidance.');

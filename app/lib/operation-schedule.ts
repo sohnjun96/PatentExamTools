@@ -30,7 +30,7 @@ export function deadlineInfo(deadline: string | null | undefined, now: Date | nu
   return {
     date, dateLabel, daysLeft,
     dDayLabel: daysLeft > 0 ? `D-${daysLeft}` : daysLeft === 0 ? 'D-day' : `D+${-daysLeft}`,
-    accessibleLabel: daysLeft > 0 ? `마감까지 ${daysLeft}일 남음` : daysLeft === 0 ? '오늘 마감, 23시 59분까지' : `기한 ${-daysLeft}일 지남`,
+    accessibleLabel: daysLeft > 0 ? `예정 기한까지 ${daysLeft}일 남음` : daysLeft === 0 ? '오늘 예정 기한' : `기한 ${-daysLeft}일 지남`,
     status: daysLeft > 0 ? 'upcoming' : daysLeft === 0 ? 'today' : 'overdue',
   };
 }
