@@ -16,6 +16,7 @@ export type OperationStageStatus = 'running' | 'stopped' | 'closed';
 export const OPERATION_STAGE_STATUS_LABELS: Record<OperationStageStatus, string> = { running: '진행 중', stopped: '중지', closed: '마감' };
 export type OperationMonth = {
   // Legacy month-level allocations are retained for migration/audit only.
+  // methodIds is retained for old records; assignments and published results determine AI scope.
   id: string; methodIds: string[]; participants: MonthParticipant[]; assignments: AIAssignment[];
   closed: boolean; selectionDeadline: string; resultDeadline: string; evaluationDeadline: string;
   /** Legacy stored field, ignored by selection and removed on settings saves. */
@@ -87,15 +88,22 @@ function newMonthStageStatuses(): Record<OperationStage, OperationStageStatus> {
 }
 
 export function emptyMonth(id: string): OperationMonth {
-  return { id, methodIds: ['chatgpt', 'claude', 'baseline'], participants: [], assignments: [], closed: false, selectionDeadline: '', resultDeadline: '', evaluationDeadline: '', confirmedUserIds: [], stages: newMonthStageStatuses() };
+  return { id, methodIds: [], participants: [], assignments: [], closed: false, selectionDeadline: '', resultDeadline: '', evaluationDeadline: '', confirmedUserIds: [], stages: newMonthStageStatuses() };
 }
 
-export function createInitialState(monthId = currentOperationMonth()): EvaluationState {
+export const DEFAULT_OPERATION_MONTHS = ['2026-11', '2026-12', '2027-01'] as const;
+
+export function withDefaultOperationMonths(state: EvaluationState): EvaluationState {
+  const missing = DEFAULT_OPERATION_MONTHS.filter((id) => !state.months.some((month) => month.id === id));
+  return missing.length ? { ...state, months: [...state.months, ...missing.map(emptyMonth)] } : state;
+}
+
+export function createInitialState(monthId?: string): EvaluationState {
   return { schemaVersion: 1, users: [], groups: [], methods: [
     { id: 'chatgpt', name: 'ChatGPT', kind: 'ai', active: true },
     { id: 'claude', name: '클로드', kind: 'ai', active: true },
     { id: 'baseline', name: '선행기술조사', kind: 'baseline', active: true },
-  ], months: [emptyMonth(monthId)], cases: [], results: [], evaluations: [], rankings: [], isDemo: false, notice: null, personnel: { memberships: [], assignments: [] } };
+  ], months: (monthId ? [monthId] : DEFAULT_OPERATION_MONTHS).map(emptyMonth), cases: [], results: [], evaluations: [], rankings: [], isDemo: false, notice: null, personnel: { memberships: [], assignments: [] } };
 }
 
 /** Existing records keep their snapshots; newest month wins only for each shared allocation. */
@@ -126,7 +134,8 @@ export function operationGroups(state: EvaluationState, monthId: string) {
 export function preferredOperationMonth(months: OperationMonth[], current = currentOperationMonth()): string {
   const sorted = [...months].sort((a, b) => b.id.localeCompare(a.id));
   return sorted.find((month) => month.id === current && !month.closed)?.id
-    ?? sorted.find((month) => !month.closed)?.id ?? sorted[0]?.id ?? '';
+    ?? sorted.find((month) => month.id < current && !month.closed)?.id
+    ?? [...sorted].reverse().find((month) => !month.closed)?.id ?? sorted[0]?.id ?? '';
 }
 
 function monthOf(state: EvaluationState, monthId: string) {
@@ -163,12 +172,20 @@ function editable(month: OperationMonth, stage?: OperationStage) {
 }
 
 export function aiMethods(state: EvaluationState, monthId: string) {
-  const ids = monthOf(state, monthId).methodIds;
-  return state.methods.filter((method) => ids.includes(method.id) && method.kind === 'ai');
+  monthOf(state, monthId);
+  const caseIds = new Set(state.cases.filter((item) => item.monthId === monthId).map((item) => item.id));
+  const historicalIds = new Set(state.results.filter((result) => caseIds.has(result.caseId)).map((result) => result.methodId));
+  return state.methods.filter((method) => method.kind === 'ai' && (!method.deletedAt || historicalIds.has(method.id)));
 }
 
 export function caseMethods(state: EvaluationState, item: EvaluationCase) {
-  return state.methods.filter((method) => monthOf(state, item.monthId).methodIds.includes(method.id));
+  const publishedIds = new Set(state.results.filter((result) => result.caseId === item.id && result.publishedVersion > 0 && result.publishedDocuments.length > 0).map((result) => result.methodId));
+  return state.methods.filter((method) => method.kind === 'baseline' || method.kind === 'ai' && publishedIds.has(method.id));
+}
+
+export function assignedCaseMethods(state: EvaluationState, item: EvaluationCase) {
+  const assignedIds = new Set(personnelOf(state).assignments.filter((entry) => entry.groupId === item.groupId).map((entry) => entry.methodId));
+  return aiMethods(state, item.monthId).filter((method) => assignedIds.has(method.id) && (!method.deletedAt || Boolean(resultFor(state, item.id, method.id))));
 }
 
 export function resultFor(state: EvaluationState, caseId: string, methodId: string) {
@@ -177,7 +194,7 @@ export function resultFor(state: EvaluationState, caseId: string, methodId: stri
 
 export function canInputResult(state: EvaluationState, actor: EvaluationActor, item: EvaluationCase, methodId: string) {
   const user = state.users.find((candidate) => candidate.id === actor.userId && candidate.active && candidate.roles.includes('ai'));
-  return Boolean(user && item.status === 'confirmed' && aiMethods(state, item.monthId).some((method) => method.id === methodId) && personnelOf(state).assignments.some((assignment) => assignment.groupId === item.groupId && assignment.methodId === methodId && assignment.userId === user.id));
+  return Boolean(user && item.status === 'confirmed' && assignedCaseMethods(state, item).some((method) => method.id === methodId) && personnelOf(state).assignments.some((assignment) => assignment.groupId === item.groupId && assignment.methodId === methodId && assignment.userId === user.id));
 }
 
 export function validEvaluation(state: EvaluationState, caseId: string, methodId: string) {
@@ -187,11 +204,12 @@ export function validEvaluation(state: EvaluationState, caseId: string, methodId
 
 export function rankingIsCurrent(state: EvaluationState, item: EvaluationCase, ranking?: QualityRanking) {
   if (!ranking) return false;
-  return aiMethods(state, item.monthId).every((method) => (ranking.versions[method.id] ?? 0) === (resultFor(state, item.id, method.id)?.publishedVersion ?? 0));
+  return caseMethods(state, item).filter((method) => method.kind === 'ai').every((method) => (ranking.versions[method.id] ?? 0) === resultFor(state, item.id, method.id)?.publishedVersion);
 }
 
 export function rankingComplete(state: EvaluationState, item: EvaluationCase, values: Record<string, RankValue>) {
   const available = caseMethods(state, item).filter((method) => method.kind === 'baseline' || (resultFor(state, item.id, method.id)?.publishedVersion ?? 0) > 0);
+  if (!available.some((method) => method.kind === 'ai')) return false;
   if (available.some((method) => values[method.id] == null)) return false;
   const compared = available.filter((method) => values[method.id] !== 'excluded');
   if (compared.length === 0) return false;
@@ -202,8 +220,8 @@ export function rankingComplete(state: EvaluationState, item: EvaluationCase, va
 }
 
 export function caseStatus(state: EvaluationState, item: EvaluationCase) {
-  const methods = aiMethods(state, item.monthId);
-  const inputComplete = methods.length > 0 && methods.every((method) => (resultFor(state, item.id, method.id)?.publishedVersion ?? 0) > 0);
+  const methods = caseMethods(state, item).filter((method) => method.kind === 'ai');
+  const inputComplete = methods.length > 0 && assignedCaseMethods(state, item).every((method) => (resultFor(state, item.id, method.id)?.publishedVersion ?? 0) > 0);
   const stale = methods.some((method) => {
     const evaluation = state.evaluations.find((entry) => entry.caseId === item.id && entry.methodId === method.id);
     return evaluation && evaluation.version !== resultFor(state, item.id, method.id)?.publishedVersion;
@@ -214,7 +232,7 @@ export function caseStatus(state: EvaluationState, item: EvaluationCase) {
     return result && result.publishedDocuments.length > 0 && result.publishedDocuments.every((number) => evaluation?.documents.some((document) => identity(document.number) === identity(number) && document.score !== null && document.cited !== null));
   });
   const ranking = state.rankings.find((entry) => entry.caseId === item.id);
-  const complete = inputComplete && !stale && allDocuments && rankingIsCurrent(state, item, ranking) && rankingComplete(state, item, ranking?.values ?? {});
+  const complete = methods.length > 0 && !stale && allDocuments && rankingIsCurrent(state, item, ranking) && rankingComplete(state, item, ranking?.values ?? {});
   const started = state.evaluations.some((entry) => entry.caseId === item.id) || Boolean(ranking);
   return { inputComplete, evaluationStatus: complete ? '평가 완료' : stale ? '재확인 필요' : started ? '평가 중' : '미평가', complete, stale };
 }
@@ -246,10 +264,6 @@ function documentsFrom(values: string[], allowEmpty: boolean) {
 
 function validateMonth(state: EvaluationState, value: OperationMonth) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value.id)) fail('운영월은 YYYY-MM 형식이어야 합니다.');
-  if (!Array.isArray(value.methodIds) || new Set(value.methodIds).size !== value.methodIds.length || value.methodIds.some((id) => !state.methods.some((method) => method.id === id))) fail('비교 조사 방식을 확인해 주세요.');
-  if (!value.methodIds.some((id) => state.methods.some((method) => method.id === id && method.kind === 'ai'))) fail('AI 조사 방식을 한 개 이상 선택해 주세요.');
-  const previous = state.months.find(month => month.id === value.id);
-  if (value.methodIds.some(id => state.methods.find(method => method.id === id)?.deletedAt && !previous?.methodIds.includes(id))) fail('삭제된 AI 종류는 새 비교 대상으로 선택할 수 없습니다.');
   if (value.stages !== undefined && (!value.stages || typeof value.stages !== 'object' || Array.isArray(value.stages) || Object.entries(value.stages).some(([stage, status]) => !OPERATION_STAGES.some(entry => entry.id === stage) || !['running', 'stopped', 'closed'].includes(status)))) fail('단계 운영 상태를 확인해 주세요.');
   for (const date of [value.selectionDeadline, value.resultDeadline, value.evaluationDeadline]) {
     if (typeof date !== 'string') fail('기한 날짜를 확인해 주세요.');
@@ -373,7 +387,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       if (method.deletedAt) return state;
       method.deletedAt = now.toISOString();
       method.active = false;
-      const historicalMonths = new Set(state.months.filter(month => month.methodIds.includes(method.id) && state.cases.some(item => item.monthId === month.id && item.status !== 'draft')).map(month => month.id));
+      const historicalMonths = new Set(state.results.filter(result => result.methodId === method.id).map(result => state.cases.find(item => item.id === result.caseId)?.monthId));
       for (const month of state.months) if (!historicalMonths.has(month.id)) month.methodIds = month.methodIds.filter(id => id !== method.id);
       const personnel = personnelOf(state);
       state.personnel = { ...personnel, assignments: personnel.assignments.filter(entry => entry.methodId !== method.id || state.cases.some(item => historicalMonths.has(item.monthId) && item.groupId === entry.groupId && item.status === 'confirmed')) };
@@ -391,7 +405,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       for (const key of ['participants', 'assignments'] as const) {
         if (action.month[key] && JSON.stringify(action.month[key]) !== JSON.stringify(old?.[key] ?? [])) fail('심사관·AI 담당 배정은 심사관 관리에서 저장해 주세요.');
       }
-      const month: OperationMonth = { ...action.month, participants: old?.participants ?? [], assignments: old?.assignments ?? [], closed: old?.closed ?? false, confirmedUserIds: old?.confirmedUserIds ?? [] };
+      const month: OperationMonth = { ...action.month, methodIds: old?.methodIds ?? [], participants: old?.participants ?? [], assignments: old?.assignments ?? [], closed: old?.closed ?? false, confirmedUserIds: old?.confirmedUserIds ?? [] };
       delete month.caseLimit;
       // Ordinary settings saves, including older clients, cannot reopen stopped stages.
       if (old) {
@@ -399,7 +413,6 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       }
       validateMonth(state, month);
       if (!old) month.stages = { ...newMonthStageStatuses(), ...month.stages };
-      if (old?.closed && JSON.stringify(old.methodIds) !== JSON.stringify(month.methodIds)) fail('마감 월의 비교 AI 설정은 재개방한 후 변경해 주세요.', 409);
       if (old) state.months[state.months.indexOf(old)] = month; else state.months.push(month);
       return state;
     }
@@ -485,7 +498,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       for (const entry of action.evaluations) {
         const result = resultFor(state, item.id, entry.methodId) ?? fail('공개한 AI 결과만 평가할 수 있습니다.');
         if (!result.publishedVersion) fail('공개한 AI 결과만 평가할 수 있습니다.');
-        if (!aiMethods(state, month.id).some((method) => method.id === entry.methodId)) fail('공개한 AI 결과만 평가할 수 있습니다.');
+        if (!caseMethods(state, item).some((method) => method.kind === 'ai' && method.id === entry.methodId)) fail('공개한 AI 결과만 평가할 수 있습니다.');
         if (entry.version !== result.publishedVersion) fail('AI 결과가 변경되었습니다. 최신 결과를 확인해 주세요.', 409);
         if (!Array.isArray(entry.documents) || entry.documents.length > 7 || new Set(entry.documents.map((document) => identity(document.number))).size !== entry.documents.length) fail('문헌별 평가 내용을 확인해 주세요.');
         const documents = entry.documents.map((document) => {
@@ -502,7 +515,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       if (!values || typeof values !== 'object' || Array.isArray(values)) fail('품질 순위를 확인해 주세요.');
       const selectedRanks: number[] = [];
       for (const [methodId, rank] of Object.entries(values)) {
-        const method = caseMethods(state, item).find((entry) => entry.id === methodId) ?? fail('월 비교 대상 조사 방식이 아닙니다.');
+        const method = caseMethods(state, item).find((entry) => entry.id === methodId) ?? fail('현재 출원에 공개된 AI 결과 또는 선행기술조사 보고서만 비교할 수 있습니다.');
         if (![null, 1, 2, 3, 'unranked', 'excluded', 'incomparable'].includes(rank)) fail('품질 순위 값을 확인해 주세요.');
         if (rank !== null && method.kind === 'ai' && !resultFor(state, item.id, method.id)?.publishedVersion) fail('대기 중인 AI의 순위는 선택할 수 없습니다.');
         if (typeof rank === 'number') selectedRanks.push(rank);
@@ -510,11 +523,12 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       if (new Set(selectedRanks).size !== selectedRanks.length) fail('품질 순위는 동순위를 허용하지 않습니다.');
       const hasRank = Object.values(values).some((value) => value !== null);
       if (hasRank) {
-        for (const method of aiMethods(state, month.id)) {
+        if (!caseMethods(state, item).some((method) => method.kind === 'ai')) fail('공개된 AI 검색 결과가 있어야 품질 순위를 매길 수 있습니다.');
+        for (const method of caseMethods(state, item).filter((method) => method.kind === 'ai')) {
           if ((action.versions[method.id] ?? 0) !== (resultFor(state, item.id, method.id)?.publishedVersion ?? 0)) fail('AI 결과가 변경되어 품질 순위를 다시 확인해야 합니다.', 409);
         }
       }
-      const ranking: QualityRanking = { caseId: item.id, versions: Object.fromEntries(aiMethods(state, month.id).map((method) => [method.id, resultFor(state, item.id, method.id)?.publishedVersion ?? 0])), values, updatedAt: now.toISOString(), overallComment };
+      const ranking: QualityRanking = { caseId: item.id, versions: Object.fromEntries(caseMethods(state, item).filter((method) => method.kind === 'ai').map((method) => [method.id, resultFor(state, item.id, method.id)!.publishedVersion])), values, updatedAt: now.toISOString(), overallComment };
       state.rankings = state.rankings.filter((old) => old.caseId !== item.id);
       state.rankings.push(ranking);
       return state;
@@ -527,7 +541,7 @@ export function visibleState(state: EvaluationState, actor: EvaluationActor): Ev
   state = normalizeEvaluationState(state);
   if (actor.admin) return state;
   const user = state.users.find((candidate) => candidate.id === actor.userId && candidate.active);
-  const visibleCases = state.cases.filter((item) => user && (item.examinerId === user.id || (item.status === 'confirmed' && caseMethods(state, item).some((method) => canInputResult(state, actor, item, method.id)))));
+  const visibleCases = state.cases.filter((item) => user && (item.examinerId === user.id || assignedCaseMethods(state, item).some((method) => canInputResult(state, actor, item, method.id))));
   const ids = new Set(visibleCases.map((item) => item.id));
   return {
     ...state,
@@ -552,8 +566,8 @@ export function getStatistics(state: EvaluationState, monthId: string, groupId =
   const cases = state.cases.filter((item) => item.monthId === monthId && item.status === 'confirmed' && (!groupId || item.groupId === groupId) && (!examinerId || item.examinerId === examinerId));
   const personnel = personnelOf(state);
   const participants = (month ? personnel.memberships : []).filter((entry) => state.users.some((user) => user.id === entry.userId && user.active && user.roles.includes('examiner')) && (!groupId || entry.groupId === groupId) && (!examinerId || entry.userId === examinerId));
-  const assignments = personnel.assignments.filter((entry) => month?.methodIds.includes(entry.methodId));
-  const rows = cases.flatMap((item) => (month ? aiMethods(state, month.id) : []).flatMap((method) => {
+  const assignments = personnel.assignments.filter((entry) => cases.some((item) => item.groupId === entry.groupId && assignedCaseMethods(state, item).some((method) => method.id === entry.methodId)));
+  const rows = cases.flatMap((item) => caseMethods(state, item).filter((method) => method.kind === 'ai').flatMap((method) => {
     const result = resultFor(state, item.id, method.id);
     const evaluation = validEvaluation(state, item.id, method.id);
     return (result?.publishedDocuments ?? []).map((number) => {
@@ -562,12 +576,14 @@ export function getStatistics(state: EvaluationState, monthId: string, groupId =
       return { caseId: item.id, applicationNumber: item.applicationNumber, cpc: item.cpc, examinerId: item.examinerId, examinerName: item.examinerName, groupId: item.groupId, groupName: item.groupName, authorName: result?.publishedBy?.name ?? '', methodId: method.id, methodName: method.name, number, score: document?.score ?? null, cited: document?.cited ?? null, note: document?.note ?? '', status: stale ? '재확인 필요' : document?.score != null && document?.cited != null ? '평가 완료' : '미평가' };
     });
   }));
-  const methods = (month ? state.methods.filter((method) => month.methodIds.includes(method.id)) : []).map((method) => {
+  const availableIds = new Set(month ? aiMethods(state, month.id).map((method) => method.id) : []);
+  const methods = (month ? state.methods.filter((method) => method.kind === 'baseline' || availableIds.has(method.id)) : []).map((method) => {
     const documents = rows.filter((row) => row.methodId === method.id);
     const scores = documents.filter((row) => row.score !== null);
     const citations = documents.filter((row) => row.cited !== null);
     const completed = method.kind === 'ai' ? cases.filter((item) => resultFor(state, item.id, method.id)?.publishedVersion).length : 0;
-    return { id: method.id, name: method.name, kind: method.kind, target: method.kind === 'ai' ? cases.length : 0, completed, pending: method.kind === 'ai' ? cases.length - completed : 0, documents: documents.length, averageScore: scores.length ? scores.reduce((sum, row) => sum + row.score!, 0) / scores.length : null, citationRate: citations.length ? citations.filter((row) => row.cited === 'O').length / citations.length : null, firstPlace: cases.filter((item) => { const ranking = state.rankings.find((entry) => entry.caseId === item.id); return rankingIsCurrent(state, item, ranking) && rankingComplete(state, item, ranking?.values ?? {}) && ranking?.values[method.id] === 1; }).length };
+    const target = method.kind === 'ai' ? cases.filter((item) => assignedCaseMethods(state, item).some((assigned) => assigned.id === method.id) || Boolean(resultFor(state, item.id, method.id)?.publishedVersion)).length : 0;
+    return { id: method.id, name: method.name, kind: method.kind, target, completed, pending: target - completed, documents: documents.length, averageScore: scores.length ? scores.reduce((sum, row) => sum + row.score!, 0) / scores.length : null, citationRate: citations.length ? citations.filter((row) => row.cited === 'O').length / citations.length : null, firstPlace: cases.filter((item) => { const ranking = state.rankings.find((entry) => entry.caseId === item.id); return rankingIsCurrent(state, item, ranking) && rankingComplete(state, item, ranking?.values ?? {}) && ranking?.values[method.id] === 1; }).length };
   });
   const statuses = cases.map((item) => ({ ...item, ...caseStatus(state, item), documentCount: rows.filter((row) => row.caseId === item.id).length }));
   const summary = { participants: participants.length, unselected: participants.filter((participant) => !month?.confirmedUserIds.includes(participant.userId)).length, cases: cases.length, inputComplete: statuses.filter((item) => item.inputComplete).length, inputPending: statuses.filter((item) => !item.inputComplete).length, unevaluated: statuses.filter((item) => item.evaluationStatus === '미평가').length, inProgress: statuses.filter((item) => item.evaluationStatus === '평가 중').length, complete: statuses.filter((item) => item.complete).length, recheck: statuses.filter((item) => item.stale).length, documents: rows.length, inputRate: cases.length ? statuses.filter((item) => item.inputComplete).length / cases.length : null, evaluationRate: cases.length ? statuses.filter((item) => item.complete).length / cases.length : null };
@@ -590,6 +606,7 @@ export function createDemoState(monthId = currentOperationMonth()): EvaluationSt
   state.groups = [{ id: 'group-a', name: '가상 1그룹' }, { id: 'group-b', name: '가상 2그룹' }];
   state.users = Array.from({ length: 10 }, (_, index) => ({ id: `demo-user-${index + 1}`, name: `가상 심사관 ${index + 1}`, bureau: '가상 심사국', division: index < 5 ? '가상 심사1과' : '가상 심사2과', roles: (index === 0 || index === 1 || index === 5 || index === 6 ? ['examiner', 'ai'] : ['examiner']) as Role[], active: true }));
   const month = state.months[0];
+  month.methodIds = state.methods.map((method) => method.id);
   // Completed demonstration data represents a workflow whose stages already started.
   month.stages = { selection: 'running', result: 'running', evaluation: 'running' };
   state.personnel = { memberships: state.users.map((user, index) => ({ userId: user.id, groupId: index < 5 ? 'group-a' : 'group-b' })), assignments: [ { groupId: 'group-a', methodId: 'chatgpt', userId: 'demo-user-1' }, { groupId: 'group-a', methodId: 'claude', userId: 'demo-user-2' }, { groupId: 'group-b', methodId: 'chatgpt', userId: 'demo-user-6' }, { groupId: 'group-b', methodId: 'claude', userId: 'demo-user-7' } ] };

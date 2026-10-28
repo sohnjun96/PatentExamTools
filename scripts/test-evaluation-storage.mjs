@@ -32,6 +32,7 @@ try {
   });
   const initial = await store.readEvaluationState();
   assert.equal(initial.revision, 0);
+  assert.deepEqual(initial.state.months.map(month => month.id), [...rules.DEFAULT_OPERATION_MONTHS]);
   const attempts = await Promise.allSettled([
     store.mutateEvaluationState(0, { admin: true }, { type: 'saveGroup', group: { name: '그룹 A' } }),
     store.mutateEvaluationState(0, { admin: true }, { type: 'saveGroup', group: { name: '그룹 B' } }),
@@ -71,6 +72,9 @@ try {
   const mainBefore = await store.readEvaluationState();
   let planning = await store.readEvaluationState('기획국');
   let electric = await store.readEvaluationState('전기국');
+  for (const workspace of [mainBefore, planning, electric]) {
+    for (const monthId of rules.DEFAULT_OPERATION_MONTHS) assert(workspace.state.months.some(month => month.id === monthId), 'Existing scoped workspaces receive missing default periods without replacing history.');
+  }
   assert.equal(planning.revision, 0);
   assert.equal(electric.revision, 0);
   assert.equal(planning.state.users.length, 5);
@@ -104,7 +108,7 @@ try {
   await store.mutateEvaluationState(afterOperationRace.revision, { admin: true }, independentActions[losingIndex], '반도체단');
   const independentSaved = await store.readEvaluationState('반도체단');
   assert(independentSaved.state.months.some((month) => month.id === '2026-11' && !month.closed));
-  assert.equal(independentSaved.state.months.filter((month) => !month.closed).length, 2);
+  assert.equal(independentSaved.state.months.filter((month) => !month.closed).length, 3);
   assert.deepEqual(independentSaved.state.months.find(month => month.id === '2026-11').stages, { selection: 'running', result: 'stopped', evaluation: 'stopped' }, 'A newly saved period keeps result entry and evaluation stopped after a D1 reload.');
   assert.deepEqual(independentSaved.state.personnel, { memberships: [], assignments: [] });
 

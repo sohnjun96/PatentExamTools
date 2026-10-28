@@ -19,7 +19,7 @@ export const ADMIN_NAV = [
   { id: 'overview', label: '운영 현황', icon: '▦', description: '월별 진행을 확인하고 후속 업무를 찾습니다.' },
   { id: 'examiners', label: '심사관 관리', icon: '▤', description: '사용자 계정과 소속 그룹·AI 담당 배정을 관리합니다.' },
   { id: 'ai', label: 'AI 종류', icon: '◇', description: '비교에 사용할 AI 종류를 등록하고 관리합니다.' },
-  { id: 'month', label: '월별 운영', icon: '◷', description: '단계별 운영 상태와 기한, 비교 AI를 설정합니다.' },
+  { id: 'month', label: '월별 운영', icon: '◷', description: '운영월별 기한과 단계별 운영 상태를 설정합니다.' },
   { id: 'cases', label: '대상 출원', icon: '▧', description: '대상 출원을 찾고 운영상 필요한 등록과 취소를 처리합니다.' },
   { id: 'notices', label: '공지사항 관리', icon: '▣', description: '메인 페이지에 표시할 공지사항을 마크다운으로 작성하고 관리합니다.' },
 ] as const;
@@ -175,7 +175,7 @@ export function mergeOperatingMonth(month: OperationMonth, settings: OperatingSe
   return merged;
 }
 
-export function MonthlyForm({ state, month, busy, dirty, save, onNavigate, hasUnsaved }: MonthFormProps) {
+export function MonthlyForm({ month, busy, dirty, save, hasUnsaved }: MonthFormProps) {
   const [form, setForm] = useState<OperatingSettings>(() => operatingSettings(month));
   const changed = !same(form, operatingSettings(month)); useEffect(() => dirty(changed), [changed, dirty]);
   function update(patch: Partial<OperatingSettings>) { setForm((previous) => ({ ...previous, ...patch })); dirty(true); }

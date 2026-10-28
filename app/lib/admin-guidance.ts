@@ -1,4 +1,4 @@
-import { currentGroups, personnelOf, type EvaluationState, type OperationMonth } from '@/app/lib/evaluation';
+import { aiMethods, currentGroups, personnelOf, type EvaluationState, type OperationMonth } from '@/app/lib/evaluation';
 
 type AssignmentReason = 'user_missing' | 'user_inactive' | 'ai_role_missing' | 'group_missing' | 'method_not_selected' | 'duplicate_assignment';
 type ParticipantReason = 'user_missing' | 'examiner_role_missing' | 'group_missing' | 'duplicate_participant';
@@ -30,7 +30,7 @@ const assignmentMessages: Record<AssignmentReason, string> = {
   user_inactive: '비활성 사용자는 AI 결과를 입력할 수 없습니다. 활성 담당자를 배정해 주세요.',
   ai_role_missing: '담당자에게 AI 담당자 역할이 없습니다. 역할을 확인하거나 담당자를 다시 선택해 주세요.',
   group_missing: '등록되지 않은 그룹에 담당자가 지정되어 있습니다. 그룹 배정을 확인해 주세요.',
-  method_not_selected: '선택한 비교 AI에 포함되지 않은 담당 배정입니다. 비교 방식과 배정을 확인해 주세요.',
+  method_not_selected: '등록된 AI 종류가 아닌 담당 배정입니다. AI 종류와 배정을 확인해 주세요.',
   duplicate_assignment: '같은 그룹·AI 방식에 담당자가 중복 지정되어 있습니다. 한 명만 배정해 주세요.',
 };
 
@@ -51,8 +51,9 @@ export function getAdminReadiness(state: EvaluationState, month?: OperationMonth
   const methodById = new Map(state.methods.map((method) => [method.id, method]));
   const personnel = personnelOf(state);
   const participants = personnel.memberships.filter((entry) => { const user = userById.get(entry.userId); return !user || user.active && user.roles.includes('examiner'); });
-  const methodIds = month?.methodIds ?? state.methods.filter((method) => method.active).map((method) => method.id);
-  const assignments = personnel.assignments.filter((entry) => !month || methodIds.includes(entry.methodId) || !methodById.has(entry.methodId));
+  const availableIds = new Set((month ? aiMethods(state, month.id) : state.methods.filter((method) => method.kind === 'ai' && !method.deletedAt)).map((method) => method.id));
+  const assignments = personnel.assignments.filter((entry) => !methodById.get(entry.methodId)?.deletedAt || availableIds.has(entry.methodId));
+  const methodIds = [...new Set(assignments.map((entry) => entry.methodId))];
   const confirmedUserIds = month?.confirmedUserIds ?? [];
   const closed = month?.closed ?? false;
   const selectedAi = state.methods.filter((method) => method.kind === 'ai' && methodIds.includes(method.id));
@@ -74,7 +75,7 @@ export function getAdminReadiness(state: EvaluationState, month?: OperationMonth
   });
   const assignmentReason = (groupId: string, methodId: string, userId: string): AssignmentReason | null => {
     if (!groupById.has(groupId)) return 'group_missing';
-    if (month ? !selectedAiIds.has(methodId) : methodById.get(methodId)?.kind !== 'ai') return 'method_not_selected';
+    if (!selectedAiIds.has(methodId)) return 'method_not_selected';
     if ((assignmentOccurrences.get(assignmentKey(groupId, methodId)) ?? 0) > 1) return 'duplicate_assignment';
     const user = userById.get(userId);
     if (!user) return 'user_missing';
@@ -89,11 +90,15 @@ export function getAdminReadiness(state: EvaluationState, month?: OperationMonth
   }
   const missingAssignments: AssignmentCell[] = [];
   let assignmentReadyCount = 0;
+  let assignmentTargetCount = 0;
   for (const groupId of groupIds) {
-    for (const method of selectedAi) {
-      const matches = assignments.filter((assignment) => assignment.groupId === groupId && assignment.methodId === method.id);
-      if (!matches.length) missingAssignments.push(cell(groupId, method.id));
-      else if (matches.length === 1 && !assignmentReason(groupId, method.id, matches[0].userId)) assignmentReadyCount += 1;
+    const groupAssignments = assignments.filter((assignment) => assignment.groupId === groupId);
+    const assignedIds = [...new Set(groupAssignments.map((assignment) => assignment.methodId))];
+    assignmentTargetCount += Math.max(1, assignedIds.length);
+    if (!assignedIds.length) missingAssignments.push({ groupId, groupName: groupName(groupId), methodId: '', methodName: 'AI 담당자 배정' });
+    for (const methodId of assignedIds) {
+      const matches = groupAssignments.filter((assignment) => assignment.methodId === methodId);
+      if (matches.length === 1 && !assignmentReason(groupId, methodId, matches[0].userId)) assignmentReadyCount += 1;
     }
   }
   const inactiveParticipants: AdminReadiness['inactiveParticipants'] = [];
@@ -114,7 +119,7 @@ export function getAdminReadiness(state: EvaluationState, month?: OperationMonth
     groupCount: groupIds.size,
     participantGroupCount: participantGroupIds.size,
     selectedAiCount: selectedAi.length,
-    assignmentTargetCount: groupIds.size * selectedAi.length,
+    assignmentTargetCount,
     assignmentReadyCount,
     missingAssignments,
     unavailableAssignments,

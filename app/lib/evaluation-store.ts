@@ -1,5 +1,5 @@
 import { appDatabase } from '@/app/lib/db';
-import { applyAction, createInitialState, normalizeEvaluationState, EvaluationError, type EvaluationAction, type EvaluationActor, type EvaluationState } from '@/app/lib/evaluation';
+import { applyAction, createInitialState, normalizeEvaluationState, withDefaultOperationMonths, EvaluationError, type EvaluationAction, type EvaluationActor, type EvaluationState } from '@/app/lib/evaluation';
 import { parseBureau, type Bureau } from '@/app/lib/bureaus';
 import { demoForBureau, migrateEvaluationBureau } from '@/app/lib/evaluation-bureau';
 
@@ -43,7 +43,7 @@ export async function readEvaluationState(bureau?: Bureau) {
       .bind(id).first<{ revision: number; payload_json: string }>();
   }
   if (!row) throw new EvaluationError('평가 업무 저장소를 초기화하지 못했습니다.', 500);
-  return { revision: row.revision, state: normalizeEvaluationState(JSON.parse(row.payload_json) as EvaluationState) };
+  return { revision: row.revision, state: withDefaultOperationMonths(normalizeEvaluationState(JSON.parse(row.payload_json) as EvaluationState)) };
 }
 
 export async function mutateEvaluationState(revision: number, actor: EvaluationActor, action: EvaluationAction, bureau?: Bureau) {
@@ -57,7 +57,7 @@ export async function mutateEvaluationState(revision: number, actor: EvaluationA
     if (requestedUser.id && !current.state.users.some((user) => user.id === requestedUser.id)) throw new EvaluationError('선택한 심사국에 해당 사용자가 없습니다.', 404);
     action = { ...action, user: { ...requestedUser, bureau } };
   }
-  let state = applyAction(current.state, actor, action);
+  let state = withDefaultOperationMonths(applyAction(current.state, actor, action));
   if (bureau && action.type === 'loadDemo') state = demoForBureau(state, bureau);
   const db = await evaluationDatabase();
   const result = await db.prepare(`UPDATE evaluation_workspace SET payload_json = ?, revision = revision + 1,

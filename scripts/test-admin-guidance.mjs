@@ -28,9 +28,13 @@ assert.equal(JSON.stringify(state), snapshot);
 const missing = structuredClone(state);
 missing.personnel.assignments.pop();
 const missingReady = getAdminReadiness(missing, month);
-assert.equal(missingReady.missingAssignments.length, 1);
+assert.equal(missingReady.missingAssignments.length, 0, 'A group may use only the AI methods actually assigned to it.');
 assert.equal(missingReady.assignmentReadyCount, 3);
-assert.equal(missingReady.canStart, false);
+assert.equal(missingReady.canStart, true);
+const unassignedGroup = structuredClone(state);
+unassignedGroup.personnel.assignments = unassignedGroup.personnel.assignments.filter(entry => entry.groupId !== 'group-b');
+assert.equal(getAdminReadiness(unassignedGroup, month).missingAssignments.length, 1);
+assert.equal(getAdminReadiness(unassignedGroup, month).canStart, false);
 assert.doesNotThrow(() => applyAction(state, { admin: true }, { type: 'savePersonnel', personnel: missing.personnel }));
 
 const inactive = structuredClone(state);
@@ -78,13 +82,13 @@ invalid.personnel.assignments.push({ userId: 'unknown-user', groupId: 'group-a',
 const invalidMonth = { ...month, methodIds: [...month.methodIds, 'unknown-method', 'chatgpt'] };
 const invalidReady = getAdminReadiness(invalid, invalidMonth);
 assert.equal(invalidReady.invalidParticipants.some(entry => entry.reason === 'user_missing'), true);
-assert.equal(JSON.stringify(invalidReady.invalidMethodIds), JSON.stringify(['unknown-method']));
-assert.equal(JSON.stringify(invalidReady.duplicateMethodIds), JSON.stringify(['chatgpt']));
+assert.equal(JSON.stringify(invalidReady.invalidMethodIds), JSON.stringify([]));
+assert.equal(JSON.stringify(invalidReady.duplicateMethodIds), JSON.stringify([]));
 assert.equal(invalidReady.canStart, false);
 
 const chatgptOnly = { ...month, methodIds: ['chatgpt', 'baseline'] };
 assert.equal(getAdminReadiness(state, chatgptOnly).unavailableAssignments.length, 0);
-assert.equal(getAdminReadiness(state, chatgptOnly).assignmentTargetCount, 2);
+assert.equal(getAdminReadiness(state, chatgptOnly).assignmentTargetCount, 4, 'Legacy monthly AI selections do not change assignment readiness.');
 assert.equal(getAdminReadiness(state).assignmentTargetCount, 4);
 const empty = createInitialState('2026-10');
 assert.equal(getAdminReadiness(empty, empty.months[0]).canStart, false);

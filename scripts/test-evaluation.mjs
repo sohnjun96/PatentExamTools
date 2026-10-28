@@ -139,7 +139,8 @@ for (const timestamp of ['2026-10-27T14:59:59.999Z', '2026-10-27T15:00:00Z', '20
   assert.throws(() => applyAction(deadlineState, { userId: 'demo-user-1' }, { type: 'saveMonth', month: revised }, now), error => error.status === 403);
   const ignoredLegacyLimit = applyAction(deadlineState, { admin: true }, { type: 'saveMonth', month: { ...closedMonth, caseLimit: 8 } }, now);
   assert.equal(ignoredLegacyLimit.months.find(entry => entry.id === prior.id).caseLimit, undefined);
-  assert.throws(() => applyAction(deadlineState, { admin: true }, { type: 'saveMonth', month: { ...closedMonth, methodIds: ['chatgpt'] } }, now), /재개방/);
+  const ignoredAISelection = applyAction(deadlineState, { admin: true }, { type: 'saveMonth', month: { ...closedMonth, methodIds: ['chatgpt'] } }, now);
+  assert.deepEqual(ignoredAISelection.months.find(entry => entry.id === prior.id).methodIds, closedMonth.methodIds, 'Old monthly AI configuration is ignored and cannot alter comparison scope.');
   for (const invalidDate of ['2026-02-30', '2026-13-01', 'invalid', null, 123]) {
     assert.throws(() => applyAction(deadlineState, { admin: true }, { type: 'saveMonth', month: { ...closedMonth, resultDeadline: invalidDate } }, now), /기한 날짜/);
   }

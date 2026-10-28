@@ -507,6 +507,7 @@ const settingsDraft=adminUI.operatingSettings(demo.months[0]);settingsDraft.sele
 const latestPersonnelMonth={...demo.months[0],assignments:demo.personnel.assignments};
 const droppedAI=adminUI.mergeOperatingMonth(latestPersonnelMonth,{...settingsDraft,methodIds:['chatgpt','baseline']});
 assert.deepEqual(droppedAI.assignments,latestPersonnelMonth.assignments);
+assert.deepEqual(droppedAI.methodIds,latestPersonnelMonth.methodIds, 'Operating settings must not edit the legacy comparison list.');
 // Multiple operating cards and monthly actions carry their own month IDs.
 const concurrentState = domain.applyAction(demo, { admin: true }, { type: 'saveMonth', month: domain.emptyMonth('2026-11') });
 let selectedOperatingMonth; let monthManagementAction;
@@ -514,6 +515,9 @@ hookIndex = 0; hookOverrides = [];
 const concurrentManagement = adminUI.MonthManager({ ...managerProps, state: concurrentState, month: concurrentState.months[1], selectMonth: id => { selectedOperatingMonth = id; }, save: async action => { monthManagementAction = action; return true; } });
 const cards = descendants(concurrentManagement).filter(({element}) => element.type === 'article');
 assert.equal(cards.length, 2);
+hookIndex = 0; hookOverrides = [];
+const defaultMonthManager = adminUI.MonthManager({ ...managerProps, state: domain.createInitialState(), month: undefined });
+for (const label of ['2026년 11월', '2026년 12월', '2027년 1월']) assert(descendants(defaultMonthManager).some(({ element }) => element.type === 'h3' && element.props.children === label));
 const chooseOctober = descendants(concurrentManagement).find(({element}) => element.props['aria-label'] === '2026년 10월 일정·운영 설정').element;
 chooseOctober.props.onClick(); assert.equal(selectedOperatingMonth, '2026-10');
 assert.equal(descendants(concurrentManagement).find(({element}) => element.props['aria-label'] === '2026년 11월 일정·운영 설정').element.props.disabled, true);
@@ -543,6 +547,13 @@ assert.deepEqual(Array.from(evaluationPanels, ({ element }) => element.props.tit
 const commentField = tree => descendants(tree).find(({ element }) => element.type === 'textarea' && element.props.id?.startsWith('overall-comment-')).element;
 assert.equal(commentField(evaluationTree).props.value, '', 'Legacy records must start with an empty optional comment.');
 assert.equal(commentField(evaluationTree).props.required, undefined);
+const deliveredOnlyState = structuredClone(mixedState);
+deliveredOnlyState.months[0].methodIds = [];
+deliveredOnlyState.results = deliveredOnlyState.results.filter(result => result.caseId !== mixedProps.item.id || result.methodId !== 'claude');
+hookIndex = 0; hookOverrides = [];
+const deliveredOnlyTree = ui.TestEvaluationEditor({ ...mixedProps, state: deliveredOnlyState });
+const comparisonLabels = descendants(deliveredOnlyTree).filter(({ element }) => element.type === 'select' && /품질 순위$/.test(element.props['aria-label'] || '')).map(({ element }) => element.props['aria-label']);
+assert.deepEqual(comparisonLabels, ['ChatGPT 품질 순위', '선행기술조사 품질 순위'], 'Only delivered AI results and the report belong in the comparison form.');
 assert.equal(commentField(evaluationTree).props.maxLength, domain.OVERALL_COMMENT_MAX_LENGTH);
 const restoredCommentState = structuredClone(mixedState);
 restoredCommentState.rankings.find(entry => entry.caseId === mixedProps.item.id).overallComment = '이전에 저장한 총평\n검색 결과 검토';
@@ -600,6 +611,7 @@ const changed = adminUI.operatingSettings(demo.months[0]); changed.selectionDead
 hookIndex = 0; hookOverrides = [changed, ''];
 let monthAction;
 const monthForm = adminUI.MonthlyForm({ state: demo, month: demo.months[0], busy: false, dirty() {}, onNavigate() {}, save: async action => { monthAction = action; return true; } });
+assert(!descendants(monthForm).some(({ element }) => element.props.title === '비교 AI 선택' || element.type === 'input' && element.props.type === 'checkbox'), 'Monthly operation settings must not require comparison AI selection.');
 assert(!descendants(monthForm).some(({ element }) => element.type === 'select' && /이달 참여 그룹|담당자$/.test(element.props['aria-label'] || '')), 'Personnel controls must appear only in the unified examiner tab.');
 const monthSave = descendants(monthForm).find(({ element }) => element.props.children === '월별 운영 저장').element;
 assert.equal(monthSave.props.disabled, false, 'Missing assignments are guidance; draft month settings remain saveable.');
@@ -610,7 +622,7 @@ const closedMonth = { ...demo.months[0], closed: true };
 hookIndex = 0; hookOverrides = [];
 const closedForm = adminUI.MonthlyForm({ state: demo, month: closedMonth, busy: false, dirty() {}, onNavigate() {}, save: async () => true });
 const modifyingInputs = descendants(closedForm).filter(({ element }) => element.type === 'input' && ['checkbox','date','number'].includes(element.props.type));
-assert(modifyingInputs.length > 4);
+assert.equal(modifyingInputs.length, 3);
 assert(modifyingInputs.filter(({ element }) => element.props.type === 'date').every(({ element }) => element.props.disabled === false));
 assert(modifyingInputs.filter(({ element }) => element.props.type !== 'date').every(({ element }) => element.props.disabled === true));
 const closedSave = descendants(closedForm).find(({ element }) => element.props.children === '월별 운영 저장').element;

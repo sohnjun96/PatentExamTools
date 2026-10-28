@@ -19,13 +19,14 @@ assert(archived.months[0].methodIds.includes('chatgpt'), 'Existing confirmed cas
 assert(!archived.months[1].methodIds.includes('chatgpt'), 'Periods without confirmed history cannot generate new work for a deleted AI.');
 assert.deepEqual(archived.personnel.assignments, unusedDeleted.personnel.assignments);
 for (const key of ['cases', 'results', 'evaluations', 'rankings']) assert.deepEqual(archived[key], before[key]);
-assert.deepEqual(getStatistics(archived, '2026-10'), getStatistics(before, '2026-10'));
+assert.deepEqual(getStatistics(archived, '2026-10'), getStatistics(unusedDeleted, '2026-10'));
 assert.equal(getStatistics(archived, '2026-10').summary.complete, 20);
 assert.equal(aiMethods(archived, '2026-11').some(method => method.id === 'chatgpt'), false);
 assert.deepEqual(applyAction(archived, admin, { type: 'deleteMethod', methodId: 'chatgpt' }, new Date('2026-10-29')), archived, 'Repeated deletion is idempotent.');
 assert.throws(() => applyAction(archived, admin, { type: 'saveMethod', method: { ...archived.methods.find(method => method.id === 'chatgpt'), active: true, deletedAt: undefined } }), error => error.status === 409);
-assert.throws(() => applyAction(archived, admin, { type: 'saveMonth', month: { ...emptyMonth('2026-12') } }), /삭제된 AI/);
-assert.throws(() => applyAction(archived, admin, { type: 'saveMonth', month: { ...archived.months[1], methodIds: [...archived.months[1].methodIds, 'chatgpt'] } }), /삭제된 AI/);
+assert.doesNotThrow(() => applyAction(archived, admin, { type: 'saveMonth', month: emptyMonth('2026-12') }), 'Month creation is independent of the AI catalog.');
+const ignoredSelection = applyAction(archived, admin, { type: 'saveMonth', month: { ...archived.months[1], methodIds: ['chatgpt'] } });
+assert.deepEqual(ignoredSelection.months[1].methodIds, archived.months[1].methodIds);
 const preservedSettings = applyAction(archived, admin, { type: 'saveMonth', month: { ...archived.months[0], resultDeadline: '2026-11-15' } });
 assert(preservedSettings.months[0].methodIds.includes('chatgpt'));
 const result = archived.results.find(result => result.caseId === archived.cases[0].id && result.methodId === 'chatgpt');

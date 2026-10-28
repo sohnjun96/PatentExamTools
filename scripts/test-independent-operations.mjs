@@ -65,12 +65,12 @@ const octoberBefore = JSON.stringify(state.months.find(month => month.id === '20
 state = applyAction(state, admin, { type: 'saveMonth', month: { ...state.months.find(month => month.id === '2026-11'), methodIds: ['claude'], resultDeadline: '2026-11-20', caseLimit: 2 } });
 assert.equal(JSON.stringify(state.personnel), personnelBefore);
 assert.equal(JSON.stringify(state.months.find(month => month.id === '2026-10')), octoberBefore);
-assert.equal(canInputResult(state, { userId: 'two' }, november, 'chatgpt'), false);
+assert.equal(canInputResult(state, { userId: 'two' }, november, 'chatgpt'), true, 'Monthly settings cannot remove an assigned AI task.');
 assert.equal(canInputResult(state, { userId: 'two' }, november, 'claude'), true);
-assert.equal(getStatistics(state, '2026-11').accounts.find(entry => entry.id === 'two').aiTarget, 1);
+assert.equal(getStatistics(state, '2026-11').accounts.find(entry => entry.id === 'two').aiTarget, 2);
 state = applyAction(state, { userId: 'one' }, selection('2026-12'));
 assert(state.cases.some(item => item.monthId === '2026-12'));
-assert.equal(preferredOperationMonth(state.months, '2026-10'), '2026-12');
+assert.equal(preferredOperationMonth(state.months, '2026-10'), '2026-11');
 assert.equal(preferredOperationMonth(state.months, '2026-11'), '2026-11');
 for (const month of state.months) state = applyAction(state, admin, { type: 'setMonthClosed', monthId: month.id, closed: true });
 assert.doesNotThrow(() => applyAction(state, admin, { type: 'savePersonnel', personnel: { ...state.personnel, memberships: [] } }));
