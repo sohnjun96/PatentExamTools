@@ -1,7 +1,7 @@
 export type Role = 'admin' | 'examiner' | 'ai';
 export type EvaluationUser = { id: string; name: string; bureau: string; division: string; roles: Role[]; active: boolean };
 export type EvaluationGroup = { id: string; name: string; deletedAt?: string };
-export type InvestigationMethod = { id: string; name: string; kind: 'ai' | 'baseline'; active: boolean };
+export type InvestigationMethod = { id: string; name: string; kind: 'ai' | 'baseline'; active: boolean; deletedAt?: string };
 export type GroupMembership = { userId: string; groupId: string };
 export type MonthParticipant = GroupMembership;
 export type AIAssignment = { groupId: string; methodId: string; userId: string };
@@ -54,6 +54,7 @@ export type EvaluationAction =
   | { type: 'saveGroup'; group: { id?: string; name: string } }
   | { type: 'deleteGroup'; groupId: string }
   | { type: 'saveMethod'; method: Omit<InvestigationMethod, 'id'> & { id?: string } }
+  | { type: 'deleteMethod'; methodId: string }
   | { type: 'savePersonnel'; personnel: Personnel }
   | { type: 'saveMonth'; month: Omit<OperationMonth, 'confirmedUserIds'> & { confirmedUserIds?: string[] } }
   | { type: 'setMonthClosed'; monthId: string; closed: boolean }
@@ -247,6 +248,8 @@ function validateMonth(state: EvaluationState, value: OperationMonth) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value.id)) fail('운영월은 YYYY-MM 형식이어야 합니다.');
   if (!Array.isArray(value.methodIds) || new Set(value.methodIds).size !== value.methodIds.length || value.methodIds.some((id) => !state.methods.some((method) => method.id === id))) fail('비교 조사 방식을 확인해 주세요.');
   if (!value.methodIds.some((id) => state.methods.some((method) => method.id === id && method.kind === 'ai'))) fail('AI 조사 방식을 한 개 이상 선택해 주세요.');
+  const previous = state.months.find(month => month.id === value.id);
+  if (value.methodIds.some(id => state.methods.find(method => method.id === id)?.deletedAt && !previous?.methodIds.includes(id))) fail('삭제된 AI 종류는 새 비교 대상으로 선택할 수 없습니다.');
   if (value.stages !== undefined && (!value.stages || typeof value.stages !== 'object' || Array.isArray(value.stages) || Object.entries(value.stages).some(([stage, status]) => !OPERATION_STAGES.some(entry => entry.id === stage) || !['running', 'stopped', 'closed'].includes(status)))) fail('단계 운영 상태를 확인해 주세요.');
   for (const date of [value.selectionDeadline, value.resultDeadline, value.evaluationDeadline]) {
     if (typeof date !== 'string') fail('기한 날짜를 확인해 주세요.');
@@ -267,6 +270,7 @@ function validatePersonnel(state: EvaluationState, value: Personnel) {
   if (new Set(value.assignments.map((assignment) => `${assignment.groupId}:${assignment.methodId}`)).size !== value.assignments.length) fail('그룹·AI 종류별 담당자는 한 명이어야 합니다.');
   for (const assignment of value.assignments) {
     if (!state.users.some((user) => user.id === assignment.userId && user.roles.includes('ai')) || !state.groups.some((group) => group.id === assignment.groupId) || !state.methods.some((method) => method.id === assignment.methodId && method.kind === 'ai')) fail('AI 담당 배정을 확인해 주세요.');
+    if (state.methods.find(method => method.id === assignment.methodId)?.deletedAt && !personnelOf(state).assignments.some(old => old.methodId === assignment.methodId && old.groupId === assignment.groupId && old.userId === assignment.userId)) fail('삭제된 AI 종류에는 담당자를 새로 배정할 수 없습니다.');
   }
 }
 
@@ -352,12 +356,27 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       requireAdmin(actor);
       if (!['ai', 'baseline'].includes(action.method.kind)) fail('조사 방식 유형을 확인해 주세요.');
       const record = { ...action.method, id: action.method.id || uid(), name: text(action.method.name), active: Boolean(action.method.active) };
+      delete record.deletedAt;
       if (!record.name) fail('조사 방식 이름을 입력해 주세요.');
       const index = state.methods.findIndex((entry) => entry.id === record.id);
       if (index < 0) state.methods.push(record); else {
+        if (state.methods[index].deletedAt) fail('삭제된 AI 종류는 수정할 수 없습니다.', 409);
         if (state.methods[index].kind !== record.kind && state.results.some((result) => result.methodId === record.id)) fail('검색 결과가 있는 조사 방식의 유형을 바꿀 수 없습니다.');
         state.methods[index] = record;
       }
+      return state;
+    }
+    case 'deleteMethod': {
+      requireAdmin(actor);
+      const method = state.methods.find(entry => entry.id === action.methodId) ?? fail('AI 종류를 찾을 수 없습니다.', 404);
+      if (method.kind !== 'ai') fail('AI 종류만 삭제할 수 있습니다.');
+      if (method.deletedAt) return state;
+      method.deletedAt = now.toISOString();
+      method.active = false;
+      const historicalMonths = new Set(state.months.filter(month => month.methodIds.includes(method.id) && state.cases.some(item => item.monthId === month.id && item.status !== 'draft')).map(month => month.id));
+      for (const month of state.months) if (!historicalMonths.has(month.id)) month.methodIds = month.methodIds.filter(id => id !== method.id);
+      const personnel = personnelOf(state);
+      state.personnel = { ...personnel, assignments: personnel.assignments.filter(entry => entry.methodId !== method.id || state.cases.some(item => historicalMonths.has(item.monthId) && item.groupId === entry.groupId && item.status === 'confirmed')) };
       return state;
     }
     case 'savePersonnel': {

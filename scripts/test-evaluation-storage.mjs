@@ -278,6 +278,17 @@ try {
   assert.equal(uncappedFixture.state.cases.filter(item => item.monthId === '2025-01' && item.examinerId === 'demo-user-2' && item.status === 'confirmed').length, 2);
   const cleanedMonth = await store.mutateEvaluationState(uncappedFixture.revision, { admin: true }, { type: 'saveMonth', month: uncappedFixture.state.months.find(month => month.id === '2025-01') }, '화학국');
   assert.equal('caseLimit' in cleanedMonth.state.months.find(month => month.id === '2025-01'), false);
+  const methodDeleteBefore = await store.readEvaluationState('화학국');
+  const electricBeforeMethodDelete = await store.readEvaluationState('전기국');
+  const deleteMethodRequest = (revision, actor = { admin: true }) => request('?bureau=화학국', { revision, actor, action: { type: 'deleteMethod', methodId: 'chatgpt' } });
+  assert.equal((await api.POST(deleteMethodRequest(methodDeleteBefore.revision, { userId: 'demo-user-1' }))).status, 403);
+  assert.equal((await api.POST(deleteMethodRequest(methodDeleteBefore.revision))).status, 200);
+  const methodDeleted = await store.readEvaluationState('화학국');
+  assert(methodDeleted.state.methods.find(method => method.id === 'chatgpt').deletedAt);
+  assert.equal(methodDeleted.state.methods.find(method => method.id === 'chatgpt').active, false);
+  for (const key of ['cases', 'results', 'evaluations', 'rankings']) assert.deepEqual(methodDeleted.state[key], methodDeleteBefore.state[key]);
+  assert.deepEqual(await store.readEvaluationState('전기국'), electricBeforeMethodDelete);
+  assert.equal((await api.POST(deleteMethodRequest(methodDeleteBefore.revision))).status, 409);
   console.log('Evaluation storage: isolated D1 persistence/CAS; bureau-specific accounts, methods, data and revisions; cross-bureau read/write rejection; selective legacy import; untouched main; scoped demo; URL-only scope and concurrent independent writes verified.');
 } finally {
   await mf.dispose();

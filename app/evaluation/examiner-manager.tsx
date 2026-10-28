@@ -92,7 +92,7 @@ export default function ExaminerManager(props: Props) {
           <td>{responsibilities.length ? <ul className="adm-directory-ai">{responsibilities.map((entry) => {
             const assignedGroup = state.groups.find((group) => group.id === entry.groupId);
             const method = state.methods.find((method) => method.id === entry.methodId);
-            return <li key={cellKey(entry)}><span>{entry.groupId !== group?.id && <span className="adm-secondary">{assignedGroup?.name || '그룹 확인 필요'}{assignedGroup?.deletedAt && ' · 기존 출원'}</span>}{method?.name || 'AI 확인 필요'}</span></li>;
+            return <li key={cellKey(entry)}><span>{entry.groupId !== group?.id && <span className="adm-secondary">{assignedGroup?.name || '그룹 확인 필요'}{assignedGroup?.deletedAt && ' · 기존 출원'}</span>}{method?.name || 'AI 확인 필요'}{method?.deletedAt && <Pill inactive>삭제됨 · 기존 월</Pill>}</span></li>;
           })}</ul> : '—'}</td>
         </tr>;
       })}</tbody></table></div>
@@ -114,7 +114,7 @@ export function AccountEditor({ state, user, bureau, busy, save, dirty, onClose,
   useEffect(() => dirty(changed), [changed, dirty]);
   useEffect(() => { if (submitFailed && !busy) feedback.current?.focus(); }, [submitFailed, busy]);
   const personnel = personnelOf(state);
-  const methods = state.methods.filter((method) => method.kind === 'ai');
+  const methods = state.methods.filter((method) => method.kind === 'ai' && (!method.deletedAt || original.responsibilities.some(entry => entry.methodId === method.id)));
   const groups = currentGroups(state);
   const historicalGroups = state.groups.filter((group) => group.deletedAt && (original.responsibilities.some((entry) => entry.groupId === group.id) || state.cases.some((item) => item.groupId === group.id && item.status === 'confirmed' && !state.months.find((month) => month.id === item.monthId)?.closed)));
   const selectedKeys = new Set(form.responsibilities.map(cellKey));
@@ -133,13 +133,13 @@ export function AccountEditor({ state, user, bureau, busy, save, dirty, onClose,
     } finally { submitting.current = false; }
   }
   function assignmentTable(items: EvaluationGroup[]) {
-    return <div className="adm-table-wrap"><table className="adm-table adm-assignment-table"><caption className="sr-only">그룹과 AI 종류별 담당 업무 선택</caption><thead><tr><th scope="col">그룹</th>{methods.map((method) => <th key={method.id} scope="col">{method.name}{!method.active && <Pill inactive>비활성</Pill>}</th>)}</tr></thead><tbody>{items.map((group) => <tr key={group.id}><th scope="row">{group.name}{group.deletedAt && <Pill inactive>기존 출원</Pill>}</th>{methods.map((method) => {
+    return <div className="adm-table-wrap"><table className="adm-table adm-assignment-table"><caption className="sr-only">그룹과 AI 종류별 담당 업무 선택</caption><thead><tr><th scope="col">그룹</th>{methods.map((method) => <th key={method.id} scope="col">{method.name}{method.deletedAt ? <Pill inactive>삭제됨 · 기존 월</Pill> : !method.active && <Pill inactive>비활성</Pill>}</th>)}</tr></thead><tbody>{items.map((group) => <tr key={group.id}><th scope="row">{group.name}{group.deletedAt && <Pill inactive>기존 출원</Pill>}</th>{methods.map((method) => {
       const entry = { groupId: group.id, methodId: method.id };
       const key = cellKey(entry);
       const checked = selectedKeys.has(key);
       const owner = personnel.assignments.find((old) => cellKey(old) === key);
       const other = owner && owner.userId !== user?.id ? state.users.find((candidate) => candidate.id === owner.userId) : undefined;
-      return <td key={method.id}><label className="adm-assignment-choice"><input type="checkbox" aria-label={group.name + ' ' + method.name + ' 담당'} disabled={busy || (!form.active && !checked)} checked={checked} onChange={(event) => update({ responsibilities: event.target.checked ? [...form.responsibilities, entry] : form.responsibilities.filter((old) => cellKey(old) !== key) })} /><span>{other ? '현재: ' + other.name : owner ? '담당 중' : '미배정'}</span></label></td>;
+      return <td key={method.id}><label className="adm-assignment-choice"><input type="checkbox" aria-label={group.name + ' ' + method.name + ' 담당'} disabled={busy || ((!form.active || Boolean(method.deletedAt)) && !checked)} checked={checked} onChange={(event) => update({ responsibilities: event.target.checked ? [...form.responsibilities, entry] : form.responsibilities.filter((old) => cellKey(old) !== key) })} /><span>{other ? '현재: ' + other.name : owner ? '담당 중' : '미배정'}</span></label></td>;
     })}</tr>)}</tbody></table></div>;
   }
   return <AccessibleDialog labelledBy="adm-account-dialog-title" className="adm-form-modal adm-personnel-modal" onClose={requestClose}>

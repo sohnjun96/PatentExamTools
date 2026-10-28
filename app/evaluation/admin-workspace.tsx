@@ -79,7 +79,7 @@ export default function AdminWorkspace(props: AdminProps) {
 function MethodManager(props: FormProps) {
   const { state, busy, dirty, hasUnsaved } = props;
   const [query, setQuery] = useState(''); const [status, setStatus] = useState('all'); const [editing, setEditing] = useState<string | null>(null);
-  const ai = state.methods.filter((method) => method.kind === 'ai');
+  const ai = state.methods.filter((method) => method.kind === 'ai' && !method.deletedAt);
   const selected = ai.find((method) => method.id === editing);
   const visible = ai.filter((method) => (!queryValue(query) || method.name.toLocaleLowerCase().includes(queryValue(query))) && (status === 'all' || method.active === (status === 'active')));
   function open(id: string) { if (!busy && confirmDiscard(hasUnsaved)) { dirty(false); setEditing(id); } }
@@ -120,6 +120,13 @@ export function MethodEditor({ method, busy, dirty, save, onClose, saveFeedback 
   useEffect(() => { if (submitFailed && !busy) feedback.current?.focus(); }, [submitFailed, busy]);
   function update(patch: Partial<Pick<InvestigationMethod, 'name' | 'active'>>) { setForm((previous) => ({ ...previous, ...patch })); dirty(true); }
   function requestClose() { if (!busy && confirmDiscard(changed)) onClose(); }
+  async function requestDelete() {
+    if (!method || method.kind !== 'ai' || busy) return;
+    if (!window.confirm(`${method.name} AI 종류를 삭제하시겠습니까?\nAI 종류 목록과 새 운영월·신규 담당 배정에서 제외됩니다. 기존 확정 출원의 비교 설정과 검색 결과·평가는 보존됩니다.${changed ? '\n저장하지 않은 수정 내용은 버립니다.' : ''}`)) return;
+    setSubmitFailed(false);
+    if (await save({ type: 'deleteMethod', methodId: method.id }, `${method.name} AI 종류를 삭제했습니다.`)) { dirty(false); onClose(); }
+    else setSubmitFailed(true);
+  }
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (busy || !form.name.trim()) return;
@@ -140,7 +147,7 @@ export function MethodEditor({ method, busy, dirty, save, onClose, saveFeedback 
         <label className="adm-field">활성 상태<select className="krds-form-select" disabled={busy} value={form.active ? 'active' : 'inactive'} onChange={(event) => update({ active: event.target.value === 'active' })}><option value="active">활성</option><option value="inactive">비활성</option></select></label>
         {!form.active && <p className="adm-secondary">비활성화해도 기존 월의 비교 설정은 유지됩니다.</p>}
       </div>
-      <footer className="adm-actions adm-modal-actions">{changed && <span className="adm-dirty is-dirty" role="status">미저장 변경 있음</span>}<Button disabled={busy} onClick={requestClose}>취소</Button><button type="submit" className="krds-btn medium ev-button primary" disabled={busy || !form.name.trim() || (Boolean(method) && !changed)}>{busy ? '저장 중…' : method ? '변경 저장' : 'AI 종류 추가'}</button></footer>
+      <footer className="adm-actions adm-modal-actions">{method?.kind === 'ai' && <Button className="danger" style={{ marginRight: 'auto' }} disabled={busy} onClick={requestDelete}>AI 종류 삭제</Button>}{changed && <span className="adm-dirty is-dirty" role="status">미저장 변경 있음</span>}<Button disabled={busy} onClick={requestClose}>취소</Button><button type="submit" className="krds-btn medium ev-button primary" disabled={busy || !form.name.trim() || (Boolean(method) && !changed)}>{busy ? '저장 중…' : method ? '변경 저장' : 'AI 종류 추가'}</button></footer>
     </form>
   </AccessibleDialog>;
 }
@@ -153,7 +160,7 @@ export function MonthManager(props: AdminProps) {
   const [newMonth, setNewMonth] = useState('');
   const months = [...props.state.months].sort((a, b) => b.id.localeCompare(a.id));
   const openCount = months.filter((month) => !month.closed).length;
-  const activeMethods = props.state.methods.filter((method) => method.kind === 'baseline' || method.active);
+  const activeMethods = props.state.methods.filter((method) => !method.deletedAt && (method.kind === 'baseline' || method.active));
   const canCreate = activeMethods.some((method) => method.kind === 'ai');
   return <>
     <div className="adm-toolbar"><label className="adm-field">새 운영월<input className="krds-input" type="month" value={newMonth} disabled={props.busy} onChange={(event) => setNewMonth(event.target.value)} /></label><Button primary disabled={props.busy || props.hasUnsaved || !newMonth || !canCreate || months.some((month) => month.id === newMonth)} onClick={async () => {
@@ -188,6 +195,7 @@ export function MonthlyForm({ state, month, busy, dirty, save, onNavigate, hasUn
   const changed = !same(form, operatingSettings(month)); useEffect(() => dirty(changed), [changed, dirty]);
   function update(patch: Partial<OperatingSettings>) { setForm((previous) => ({ ...previous, ...patch })); dirty(true); }
   const selectedAI = state.methods.filter((method) => method.kind === 'ai' && form.methodIds.includes(method.id));
+  const selectableMethods = state.methods.filter(method => method.kind === 'ai' && (!method.deletedAt || form.methodIds.includes(method.id)));
   const disabled = busy || month.closed;
   const stageControlsDisabled = busy || month.closed || changed || hasUnsaved;
   return <>
@@ -211,7 +219,7 @@ export function MonthlyForm({ state, month, busy, dirty, save, onNavigate, hasUn
       {changed || hasUnsaved ? <p className="adm-secondary">설정 변경을 저장하거나 취소하면 단계 상태를 변경할 수 있습니다.</p> : month.closed ? <p className="adm-secondary">월 전체를 재개방하면 각 단계를 제어할 수 있습니다.</p> : null}
     </Step>
     <Step number={2} title="비교 AI 선택" status={'AI ' + selectedAI.length + '개 선택'} complete={selectedAI.length > 0} missing={!selectedAI.length}>
-      {state.methods.some((method) => method.kind === 'ai') ? <div className="adm-check-list">{state.methods.filter(method => method.kind === 'ai').map((method) => <label key={method.id} className="adm-check-row"><input type="checkbox" disabled={disabled} checked={form.methodIds.includes(method.id)} onChange={(event) => update({ methodIds: event.target.checked ? [...form.methodIds, method.id] : form.methodIds.filter((id) => id !== method.id) })} /><span>{method.name}</span>{!method.active && <Pill tone="is-inactive">비활성</Pill>}</label>)}</div> : <Empty title="비교할 AI 종류를 등록하세요." actions={<Button onClick={() => onNavigate('ai')}>AI 종류 추가</Button>} />}
+      {selectableMethods.length ? <div className="adm-check-list">{selectableMethods.map((method) => <label key={method.id} className="adm-check-row"><input type="checkbox" disabled={disabled} checked={form.methodIds.includes(method.id)} onChange={(event) => update({ methodIds: event.target.checked ? [...form.methodIds, method.id] : form.methodIds.filter((id) => id !== method.id) })} /><span>{method.name}</span>{method.deletedAt ? <Pill tone="is-inactive">삭제됨 · 기존 월</Pill> : !method.active && <Pill tone="is-inactive">비활성</Pill>}</label>)}</div> : <Empty title="비교할 AI 종류를 등록하세요." actions={<Button onClick={() => onNavigate('ai')}>AI 종류 추가</Button>} />}
       {!selectedAI.length && <p className="adm-inline-error">비교할 AI를 1개 이상 선택하세요.</p>}<Button onClick={() => onNavigate('ai')}>AI 종류 관리</Button>
     </Step>
 
