@@ -491,6 +491,13 @@ descendants(concurrentManagement).find(({element}) => element.props['aria-label'
 assert.equal(monthManagementAction.type, 'setMonthClosed'); assert.equal(monthManagementAction.monthId, '2026-10');
 const separatelyClosed = domain.applyAction(concurrentState, { admin: true }, monthManagementAction);
 assert.equal(separatelyClosed.months.find(month => month.id === '2026-11').closed, false);
+hookIndex = 0; hookOverrides = [];
+const newMonthControls = adminUI.MonthlyForm({ ...managerProps, state: concurrentState, month: concurrentState.months[1], busy: false, hasUnsaved: false });
+assert.equal(descendants(newMonthControls).find(({ element }) => element.props['aria-label'] === '대상 건 선정 시작').element.props.disabled, true);
+for (const label of ['AI 검색 결과 입력', '평가']) {
+  assert.equal(descendants(newMonthControls).find(({ element }) => element.props['aria-label'] === `${label} 시작`).element.props.disabled, false, 'A new month waits for the administrator to start downstream work.');
+  assert.equal(descendants(newMonthControls).find(({ element }) => element.props['aria-label'] === `${label} 중지`).element.props.disabled, true);
+}
 hookIndex = 0; hookOverrides = ['2026-12'];
 const pendingMonthlyDraft = adminUI.MonthManager({ ...managerProps, state: concurrentState, month: concurrentState.months[0], hasUnsaved: true });
 assert.equal(descendants(pendingMonthlyDraft).find(({element}) => element.props.children === '운영월 추가').element.props.disabled, true);

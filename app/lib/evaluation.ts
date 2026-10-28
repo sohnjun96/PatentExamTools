@@ -81,8 +81,12 @@ export function currentOperationMonth(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit' }).format(now).replace('/', '-');
 }
 
+function newMonthStageStatuses(): Record<OperationStage, OperationStageStatus> {
+  return { selection: 'running', result: 'stopped', evaluation: 'stopped' };
+}
+
 export function emptyMonth(id: string): OperationMonth {
-  return { id, methodIds: ['chatgpt', 'claude', 'baseline'], participants: [], assignments: [], closed: false, selectionDeadline: '', resultDeadline: '', evaluationDeadline: '', confirmedUserIds: [] };
+  return { id, methodIds: ['chatgpt', 'claude', 'baseline'], participants: [], assignments: [], closed: false, selectionDeadline: '', resultDeadline: '', evaluationDeadline: '', confirmedUserIds: [], stages: newMonthStageStatuses() };
 }
 
 export function createInitialState(monthId = currentOperationMonth()): EvaluationState {
@@ -375,6 +379,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
         if (old.stages) month.stages = { ...old.stages }; else delete month.stages;
       }
       validateMonth(state, month);
+      if (!old) month.stages = { ...newMonthStageStatuses(), ...month.stages };
       if (old?.closed && JSON.stringify(old.methodIds) !== JSON.stringify(month.methodIds)) fail('마감 월의 비교 AI 설정은 재개방한 후 변경해 주세요.', 409);
       if (old) state.months[state.months.indexOf(old)] = month; else state.months.push(month);
       return state;
@@ -566,6 +571,8 @@ export function createDemoState(monthId = currentOperationMonth()): EvaluationSt
   state.groups = [{ id: 'group-a', name: '가상 1그룹' }, { id: 'group-b', name: '가상 2그룹' }];
   state.users = Array.from({ length: 10 }, (_, index) => ({ id: `demo-user-${index + 1}`, name: `가상 심사관 ${index + 1}`, bureau: '가상 심사국', division: index < 5 ? '가상 심사1과' : '가상 심사2과', roles: (index === 0 || index === 1 || index === 5 || index === 6 ? ['examiner', 'ai'] : ['examiner']) as Role[], active: true }));
   const month = state.months[0];
+  // Completed demonstration data represents a workflow whose stages already started.
+  month.stages = { selection: 'running', result: 'running', evaluation: 'running' };
   state.personnel = { memberships: state.users.map((user, index) => ({ userId: user.id, groupId: index < 5 ? 'group-a' : 'group-b' })), assignments: [ { groupId: 'group-a', methodId: 'chatgpt', userId: 'demo-user-1' }, { groupId: 'group-a', methodId: 'claude', userId: 'demo-user-2' }, { groupId: 'group-b', methodId: 'chatgpt', userId: 'demo-user-6' }, { groupId: 'group-b', methodId: 'claude', userId: 'demo-user-7' } ] };
   month.confirmedUserIds = state.users.map((user) => user.id);
   state.users.forEach((user, index) => {

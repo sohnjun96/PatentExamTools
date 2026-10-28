@@ -1,21 +1,37 @@
 import assert from 'node:assert/strict';
-import { applyAction, createDemoState, emptyMonth, isOperationStageOpen, operationStageStatus, OPERATION_STAGES } from '../app/lib/evaluation.ts';
+import { applyAction, createDemoState, createInitialState, emptyMonth, isOperationStageOpen, operationStageStatus, OPERATION_STAGES } from '../app/lib/evaluation.ts';
 import { saveFailureGuidance } from '../app/lib/workspace-location.ts';
 
 const admin = { admin: true }, monthId = '2026-11';
 const afterDeadline = new Date('2027-01-01T00:00:00Z');
 let base = applyAction(createDemoState('2026-10'), admin, { type: 'saveMonth', month: { ...emptyMonth(monthId), selectionDeadline: '2026-11-01', resultDeadline: '2026-11-02', evaluationDeadline: '2026-11-03' } });
+const newDefaults = { selection: 'running', result: 'stopped', evaluation: 'stopped' };
+assert.deepEqual(emptyMonth('2030-01').stages, newDefaults);
+assert.deepEqual(createInitialState('2030-01').months[0].stages, newDefaults);
+const { stages: _newDefault, ...oldClientNewMonth } = emptyMonth('2030-01');
+const oldClientCreated = applyAction(base, admin, { type: 'saveMonth', month: oldClientNewMonth });
+assert.deepEqual(oldClientCreated.months.find(month => month.id === '2030-01').stages, newDefaults, 'The backend supplies defaults even when an older client omits them.');
+const partialCreated = applyAction(base, admin, { type: 'saveMonth', month: { ...emptyMonth('2030-02'), stages: { selection: 'running' } } });
+assert.deepEqual(partialCreated.months.find(month => month.id === '2030-02').stages, newDefaults);
 base = applyAction(base, { userId: 'demo-user-1' }, { type: 'saveSelection', monthId, rows: [{ applicationNumber: '10-2020-0000001', cpc: '' }], confirm: true }, afterDeadline);
 const item = base.cases.find(entry => entry.monthId === monthId);
 const result = { type: 'saveResult', caseId: item.id, methodId: 'chatgpt', documents: ['KR2020000000A'], publish: true };
+assert.throws(() => applyAction(base, { userId: 'demo-user-1' }, result), /단계가 중지/);
+assert.throws(() => applyAction(base, { userId: 'demo-user-1' }, { type: 'saveEvaluation', caseId: item.id, evaluations: [], rankings: {}, versions: {} }), /단계가 중지/);
+base = applyAction(base, admin, { type: 'setMonthStage', monthId, stage: 'result', status: 'running' });
 base = applyAction(base, { userId: 'demo-user-1' }, result, afterDeadline);
+assert.equal(operationStageStatus(base.months.find(month => month.id === monthId), 'evaluation'), 'stopped', 'Starting AI result entry never starts evaluation automatically.');
+base = applyAction(base, admin, { type: 'setMonthStage', monthId, stage: 'evaluation', status: 'running' });
 const actions = {
   selection: { actor: { userId: 'demo-user-2' }, action: { type: 'saveSelection', monthId, rows: [{ applicationNumber: '10-2020-0000002', cpc: '' }], confirm: false } },
   result: { actor: { userId: 'demo-user-1' }, action: result },
   evaluation: { actor: { userId: 'demo-user-1' }, action: { type: 'saveEvaluation', caseId: item.id, evaluations: [{ methodId: 'chatgpt', version: 1, documents: [{ number: result.documents[0], score: 3, cited: 'O', note: '' }] }], rankings: {}, versions: {}, overallComment: '단계별 평가' } },
 };
 const monthOf = state => state.months.find(entry => entry.id === monthId);
-assert.equal(monthOf(base).stages, undefined, 'Legacy and ordinary months remain open until an administrator controls a stage.');
+const legacyState = structuredClone(base); delete monthOf(legacyState).stages;
+for (const stage of OPERATION_STAGES) assert.equal(operationStageStatus(monthOf(legacyState), stage.id), 'running');
+const legacyEdited = applyAction(legacyState, admin, { type: 'saveMonth', month: { ...monthOf(legacyState), resultDeadline: '2026-12-01' } });
+assert.equal(monthOf(legacyEdited).stages, undefined, 'Existing legacy months are not stopped when ordinary settings are edited.');
 for (const stage of OPERATION_STAGES) {
   assert.equal(operationStageStatus(monthOf(base), stage.id), 'running');
   assert.equal(isOperationStageOpen(monthOf(base), stage.id), true);

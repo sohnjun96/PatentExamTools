@@ -35,7 +35,10 @@ state = applyAction(state, { userId: 'one' }, selection('2026-10'));
 state = applyAction(state, { userId: 'one' }, selection('2026-11'));
 const october = state.cases.find(item => item.monthId === '2026-10');
 const november = state.cases.find(item => item.monthId === '2026-11');
-for (const item of [october, november]) state = applyAction(state, { userId: 'one' }, { type: 'saveResult', caseId: item.id, methodId: 'chatgpt', documents: [item.monthId], publish: true });
+for (const item of [october, november]) {
+  state = applyAction(state, admin, { type: 'setMonthStage', monthId: item.monthId, stage: 'result', status: 'running' });
+  state = applyAction(state, { userId: 'one' }, { type: 'saveResult', caseId: item.id, methodId: 'chatgpt', documents: [item.monthId], publish: true });
+}
 assert.equal(resultFor(state, october.id, 'chatgpt').publishedDocuments[0], '2026-10');
 assert.equal(resultFor(state, november.id, 'chatgpt').publishedDocuments[0], '2026-11');
 state = applyAction(state, admin, { type: 'setMonthClosed', monthId: '2026-10', closed: true });

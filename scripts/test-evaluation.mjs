@@ -115,6 +115,7 @@ for (const timestamp of ['2026-10-27T14:59:59.999Z', '2026-10-27T15:00:00Z', '20
   const now = new Date(timestamp);
   const deadlines = { selectionDeadline: '2026-10-27', resultDeadline: '2026-10-27', evaluationDeadline: '2026-10-27' };
   let deadlineState = applyAction(createDemoState(monthId), { admin: true }, { type: 'saveMonth', month: { ...emptyMonth('2026-11'), ...deadlines } }, now);
+  for (const stage of ['result', 'evaluation']) deadlineState = applyAction(deadlineState, { admin: true }, { type: 'setMonthStage', monthId: '2026-11', stage, status: 'running' }, now);
   const selection = { type: 'saveSelection', monthId: '2026-11', rows: [rows[0]], confirm: true };
   deadlineState = applyAction(deadlineState, { userId: 'demo-user-1' }, { ...selection, confirm: false }, now);
   deadlineState = applyAction(deadlineState, { userId: 'demo-user-1' }, selection, now);
