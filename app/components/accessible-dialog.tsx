@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),iframe,[tabindex]:not([tabindex="-1"])';
 
 /** Existing modal appearance, with complete keyboard focus management. */
-export default function AccessibleDialog({ children, labelledBy, className = '', onClose }: {
-  children: ReactNode; labelledBy: string; className?: string; onClose: () => void;
+export default function AccessibleDialog({ children, labelledBy, className = '', onClose, fallbackFocusRef }: {
+  children: ReactNode; labelledBy: string; className?: string; onClose: () => void; fallbackFocusRef?: RefObject<HTMLElement | null>;
 }) {
   const panel = useRef<HTMLElement>(null);
   const close = useRef(onClose);
@@ -38,7 +38,8 @@ export default function AccessibleDialog({ children, labelledBy, className = '',
       document.removeEventListener('keydown', keyboard, true);
       document.removeEventListener('focusin', containFocus);
       if (previous?.isConnected) previous.focus();
+      else fallbackFocusRef?.current?.focus();
     };
-  }, []);
+  }, [fallbackFocusRef]);
   return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) close.current(); }}><section ref={panel} className={`modal ${className}`} role="dialog" aria-modal="true" aria-labelledby={labelledBy} tabIndex={-1}>{children}</section></div>;
 }

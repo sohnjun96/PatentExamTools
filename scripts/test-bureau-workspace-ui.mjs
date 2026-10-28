@@ -331,6 +331,46 @@ for (const [state, expected] of [[mixedSamples, [item.applicationNumber]], [{ ..
 for (const number of ['10-2024-9000000', '1020249000019', '10 2024 9000010']) assert.equal(domain.isDemoApplicationNumber(number), true);
 for (const number of [item.applicationNumber, '10-2024-9000020', '10-2023-9000000']) assert.equal(domain.isDemoApplicationNumber(number), false);
 
+// AI tasks open their own dialog; completed pending tasks must not switch to another case mid-save.
+const taskKey = `${archiveState.cases[0].id}:chatgpt`;
+function renderAITaskDialog({ selectedKey = '', unsaved = false, failed = false, filter = '', ...props } = {}) {
+  hookIndex = 0;
+  hookOverrides = [selectedKey, unsaved, { key: ui.workspaceSessionKey(`simsadesk-ai-filter:${archiveUser.id}:2026-10`, '기획국'), value: filter }, failed];
+  return ui.TestAIWorkspace({ state: archiveState, month: archiveState.months[0], user: archiveUser, bureau: '기획국', busy: false, dirty() {}, save: async () => true, notify() {}, ...props });
+}
+const dialogNode = tree => descendants(tree).find(({ element }) => element.props.labelledBy === 'ev-ai-result-dialog-title')?.element;
+const dialogEditor = tree => descendants(dialogNode(tree)).find(({ element }) => element.props.item && element.props.methodId && element.props.save).element;
+const taskList = renderAITaskDialog();
+assert.equal(dialogNode(taskList), undefined, 'The list must not open an editor automatically.');
+const firstTask = descendants(taskList).find(({ element }) => element.type === ui.AITaskCard).element;
+firstTask.props.onSelect();
+assert(hookWrites.some(write => write.index === 0 && write.value === taskKey), 'Choosing a row must open that task.');
+const modalTree = renderAITaskDialog({ selectedKey: taskKey, filter: 'pending' });
+assert(dialogNode(modalTree));
+assert.equal(dialogEditor(modalTree).props.item.id, archiveState.cases[0].id, 'Filtering a published task must not substitute another case in its open editor.');
+assert.equal(dialogEditor(modalTree).props.methodId, 'chatgpt');
+allowDiscard = false;
+const dirtyModal = renderAITaskDialog({ selectedKey: taskKey, unsaved: true });
+const writesBeforeClose = hookWrites.length;
+dialogNode(dirtyModal).props.onClose();
+assert.equal(hookWrites.length, writesBeforeClose, 'Declining discard must preserve the open form.');
+allowDiscard = true;
+dialogNode(dirtyModal).props.onClose();
+assert(hookWrites.slice(writesBeforeClose).some(write => write.index === 0 && write.value === ''));
+let finishModalSave;
+const pendingModal = renderAITaskDialog({ selectedKey: taskKey, unsaved: true, save: () => new Promise(resolve => { finishModalSave = resolve; }) });
+const pendingSave = dialogEditor(pendingModal).props.save({ type: 'saveResult', caseId: archiveState.cases[0].id, methodId: 'chatgpt', documents: ['Modal literature'], publish: true });
+const writesBeforeBusyClose = hookWrites.length;
+dialogNode(pendingModal).props.onClose();
+assert.equal(hookWrites.length, writesBeforeBusyClose, 'Closing must be blocked immediately while a save is in flight.');
+finishModalSave(false); assert.equal(await pendingSave, false);
+assert(!hookWrites.slice(writesBeforeBusyClose).some(write => write.index === 0 && write.value === ''), 'Failed saves must leave the form open.');
+const successfulModal = renderAITaskDialog({ selectedKey: taskKey, unsaved: true });
+const writesBeforeSuccess = hookWrites.length;
+assert.equal(await dialogEditor(successfulModal).props.save({ type: 'saveResult', caseId: archiveState.cases[0].id, methodId: 'chatgpt', documents: ['Modal literature'], publish: false }), true);
+assert(hookWrites.slice(writesBeforeSuccess).some(write => write.index === 0 && write.value === ''), 'Successful saves must return to the task list.');
+assert(JSON.stringify(renderAITaskDialog({ selectedKey: taskKey, failed: true, saveFeedback: '검증용 저장 오류' })).includes('검증용 저장 오류'), 'Errors must also appear inside the dialog.');
+
 assert.deepEqual(Array.from(adminUI.ADMIN_NAV, entry => entry.id), ['overview', 'examiners', 'ai', 'month', 'cases', 'notices']);
 assert.equal(adminUI.readAdminSection(null, '전기국', 'settings'), 'examiners');
 assert.equal(adminUI.readAdminSection(null, undefined, 'stats'), 'overview');
