@@ -232,20 +232,22 @@ const scheduleState = domain.createInitialState('2026-10');
 scheduleState.users = [{ id: 'schedule-reader', name: '일정 확인자', bureau: '기획국', division: '시험과', roles: ['examiner', 'ai'], active: true }];
 Object.assign(scheduleState.months[0], { selectionDeadline: '2026-10-24', resultDeadline: '2026-10-27', evaluationDeadline: '2026-10-30' });
 scheduleState.months.push({ ...domain.emptyMonth('2026-11'), selectionDeadline: '2026-11-05', resultDeadline: '2026-11-15', evaluationDeadline: '2026-11-25' });
-function schedulePage(monthId, { admin = false, view = 'review', selected = true } = {}) {
+function schedulePage(monthId, { admin = false, view = 'review', selected = true, roles = ['examiner', 'ai'] } = {}) {
   const scope = ui.workspaceSessionKey(`simsadesk-workspace-${admin ? 'admin' : 'user'}`, '기획국');
   hookIndex = 0; hookOverrides = [];
-  hookOverrides[0] = scheduleState; hookOverrides[1] = scope; hookOverrides[3] = selected ? 'schedule-reader' : '';
+  hookOverrides[0] = { ...scheduleState, users: [{ ...scheduleState.users[0], roles }] }; hookOverrides[1] = scope; hookOverrides[3] = selected ? 'schedule-reader' : '';
   hookOverrides[4] = monthId; hookOverrides[5] = view; hookOverrides[7] = false; hookOverrides[13] = scope;
   return ui.default({ bureau: '기획국', admin });
 }
 for (const monthId of ['2026-10', '2026-11']) {
-  const scheduleNode = descendants(schedulePage(monthId)).filter(({ element }) => element.type?.name === 'OperationSchedule');
-  assert.equal(scheduleNode.length, 1);
-  assert.equal(scheduleNode[0].element.props.month, scheduleState.months.find(month => month.id === monthId), 'The schedule must follow the selected month, including deadlines in another month.');
+  for (const mode of [{}, { view: 'ai' }, { view: 'ai', roles: ['ai'] }]) {
+    const scheduleNode = descendants(schedulePage(monthId, mode)).filter(({ element }) => element.type?.name === 'OperationSchedule');
+    assert.equal(scheduleNode.length, 1);
+    assert.equal(scheduleNode[0].element.props.month, scheduleState.months.find(month => month.id === monthId), 'Examiner and AI task schedules must follow the selected month, including deadlines in another month.');
+  }
 }
-for (const mode of [{ admin: true }, { view: 'ai' }, { selected: false }]) {
-  assert(!descendants(schedulePage('2026-10', mode)).some(({ element }) => element.type?.name === 'OperationSchedule'), 'Show the schedule only on the signed-in examiner workspace.');
+for (const mode of [{ admin: true }, { selected: false }, { view: 'ai', selected: false }]) {
+  assert(!descendants(schedulePage('2026-10', mode)).some(({ element }) => element.type?.name === 'OperationSchedule'), 'Show the schedule only on signed-in examiner or AI task workspaces.');
 }
 hookIndex = 0; hookOverrides = [new Date('2026-10-27T05:00:00Z')];
 const scheduleTree = OperationSchedule({ month: scheduleState.months[0] });
