@@ -108,7 +108,7 @@ try {
   await store.mutateEvaluationState(afterOperationRace.revision, { admin: true }, independentActions[losingIndex], '반도체단');
   const independentSaved = await store.readEvaluationState('반도체단');
   assert(independentSaved.state.months.some((month) => month.id === '2026-11' && !month.closed));
-  assert.equal(independentSaved.state.months.filter((month) => !month.closed).length, 3);
+  assert.equal(independentSaved.state.months.filter((month) => !month.closed).length, rules.DEFAULT_OPERATION_MONTHS.length);
   assert.deepEqual(independentSaved.state.months.find(month => month.id === '2026-11').stages, { selection: 'running', result: 'stopped', evaluation: 'stopped' }, 'A newly saved period keeps result entry and evaluation stopped after a D1 reload.');
   assert.deepEqual(independentSaved.state.personnel, { memberships: [], assignments: [] });
 

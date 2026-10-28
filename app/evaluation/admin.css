@@ -259,6 +259,13 @@
 .adm-historical-groups { margin-top:16px; }
 .adm-historical-groups summary { padding:10px 0; cursor:pointer; }
 .adm-stage-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
+.adm-operation-table { min-width:660px; }
+.adm-operation-table th[scope=row] { position:static; white-space:nowrap; }
+.adm-operation-table td { width:25%; }
+.adm-operation-table select { width:100%; min-width:140px; }
+.adm-month-link { padding:8px 0; border:0; background:transparent; color:var(--krds-color-light-primary-70); font:inherit; font-weight:700; text-align:left; text-decoration:underline; text-underline-offset:4px; }
+.adm-deadline-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; }
+@media(max-width:640px) { .adm-deadline-grid { grid-template-columns:minmax(0,1fr); } }
 .adm-stage-card { min-width:0; padding:18px; border:1px solid var(--ev-line); border-radius:10px; }
 .adm-stage-card h3 { font-size:17px; }
 .adm-stage-card .adm-name { flex-wrap:wrap; margin-bottom:16px; }
@@ -269,3 +276,5 @@
   .adm-group-grid,.adm-directory-toolbar { padding:16px; }
   .adm-form-modal.adm-personnel-modal { width:calc(100vw - 24px); }
 }
+
+.ev .adm-deadline-modal > header > .ev-button,.ev .adm-deadline-modal > header > .ev-button:is(:hover,:focus-visible) { color:var(--ev-ink); background:white; border:1px solid var(--krds-color-light-gray-60); }

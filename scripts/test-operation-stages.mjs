@@ -35,7 +35,7 @@ assert.equal(monthOf(legacyEdited).stages, undefined, 'Existing legacy months ar
 for (const stage of OPERATION_STAGES) {
   assert.equal(operationStageStatus(monthOf(base), stage.id), 'running');
   assert.equal(isOperationStageOpen(monthOf(base), stage.id), true);
-  for (const status of ['stopped', 'closed']) {
+  for (const status of ['pending', 'stopped', 'closed']) {
     const original = structuredClone(base);
     const controlled = applyAction(base, admin, { type: 'setMonthStage', monthId, stage: stage.id, status });
     assert.deepEqual(base, original, 'A stage action must not mutate the input snapshot.');
@@ -64,7 +64,9 @@ for (const stage of OPERATION_STAGES) {
     assert.deepEqual(monthOf(applyAction(controlled, admin, { type: 'saveMonth', month: oldClientMonth })).stages, monthOf(controlled).stages);
     const closedMonth = applyAction(controlled, admin, { type: 'setMonthClosed', monthId, closed: true });
     for (const entry of Object.values(actions)) assert.throws(() => applyAction(closedMonth, entry.actor, entry.action), /마감한 운영월/);
-    assert.throws(() => applyAction(closedMonth, admin, { type: 'setMonthStage', monthId, stage: stage.id, status: 'running' }), /마감한 운영월/);
+    const selectivelyReopened = applyAction(closedMonth, admin, { type: 'setMonthStage', monthId, stage: stage.id, status: 'running' });
+    assert.equal(monthOf(selectivelyReopened).closed, false);
+    for (const entry of OPERATION_STAGES) assert.equal(operationStageStatus(monthOf(selectivelyReopened), entry.id), entry.id === stage.id ? 'running' : 'closed');
     const reopenedMonth = applyAction(closedMonth, admin, { type: 'setMonthClosed', monthId, closed: false });
     assert.equal(operationStageStatus(monthOf(reopenedMonth), stage.id), status, 'Reopening a month must retain independently stopped/closed stages.');
     assert.equal(saveFailureGuidance(409, `${stage.label} 단계가 마감되었습니다. 관리자에게 단계 시작을 요청해 주세요.`).conflict, false);

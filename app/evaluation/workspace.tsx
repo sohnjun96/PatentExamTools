@@ -205,7 +205,7 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
   };
   const user = state?.users.find((candidate) => candidate.id === userId);
   const month = state?.months.find((candidate) => candidate.id === monthId);
-  const globalAdmin = admin && ['examiners', 'ai', 'notices'].includes(adminSection);
+  const globalAdmin = admin && ['examiners', 'ai', 'notices', 'month'].includes(adminSection);
   const activeAdmin = ADMIN_NAV.find((entry) => entry.id === adminSection) || ADMIN_NAV[0];
   const title = admin ? activeAdmin.label : view === 'ai' ? 'AI 검색 결과 입력' : '내 심사 업무';
   const loggedIn = admin || Boolean(user);

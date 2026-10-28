@@ -243,7 +243,7 @@ assert.deepEqual(Array.from(scheduleNodes.filter(({ element }) => element.type =
 assert.deepEqual(Array.from(scheduleNodes.filter(({ element }) => element.type === 'time'), ({ element }) => element.props.dateTime), ['2026-10-24', '2026-10-27', '2026-10-30']);
 assert.deepEqual(Array.from(scheduleNodes.filter(({ element }) => element.type === 'span' && element.props['aria-label']), ({ element }) => element.props.children), ['D+3', 'D-day', 'D-3']);
 hookIndex = 0; hookOverrides = [new Date('2026-10-27T05:00:00Z')];
-const noSchedule = OperationSchedule({ month: domain.emptyMonth('2026-10') });
+const noSchedule = OperationSchedule({ month: { ...domain.emptyMonth('2026-10'), selectionDeadline: '', resultDeadline: '', evaluationDeadline: '' } });
 assert.equal(descendants(noSchedule).filter(({ element }) => element.props.children === '기한 미설정').length, 3);
 hookIndex = 0; hookOverrides = [];
 const item = { id: 'case-2', applicationNumber: '10-2020-0093844', examinerName: '담당 심사관', groupName: '1그룹' };
@@ -517,11 +517,6 @@ const remainingAI = descendants(adminUI.TestMethodManager({ ...methodManagerProp
 assert.deepEqual(Array.from(remainingAI, ({ element }) => element.props['aria-label']), ['AI 종류 ChatGPT 수정', 'AI 종류 Gemini 수정', 'AI 종류 퍼플렉시티 수정', 'AI 종류 Grok 수정']);
 hookIndex = 0; hookOverrides = ['claude'];
 assert(!descendants(adminUI.TestMethodManager({ ...methodManagerProps, state: deletedCatalogState })).some(({ element }) => element.type === adminUI.MethodEditor));
-let postDeletionMonth;
-hookIndex = 0; hookOverrides = ['2030-01'];
-const afterDeleteManager = adminUI.MonthManager({ ...managerProps, state: deletedCatalogState, save: async action => { postDeletionMonth = action; return true; }, selectMonth() {} });
-await descendants(afterDeleteManager).find(({ element }) => element.props.children === '운영월 추가').element.props.onClick();
-assert(!postDeletionMonth.month.methodIds.includes('claude'));
 const historicalMethods = domain.applyAction(domain.createDemoState('2026-10'), { admin: true }, { type: 'deleteMethod', methodId: 'chatgpt' });
 hookIndex = 0; hookOverrides = [];
 const historicalOwner = adminUI.AccountEditor({ state: historicalMethods, user: historicalMethods.users[0], busy: false, dirty() {}, onClose() {}, save: async () => true });
@@ -579,34 +574,33 @@ const latestPersonnelMonth={...demo.months[0],assignments:demo.personnel.assignm
 const droppedAI=adminUI.mergeOperatingMonth(latestPersonnelMonth,{...settingsDraft,methodIds:['chatgpt','baseline']});
 assert.deepEqual(droppedAI.assignments,latestPersonnelMonth.assignments);
 assert.deepEqual(droppedAI.methodIds,latestPersonnelMonth.methodIds, 'Operating settings must not edit the legacy comparison list.');
-// Multiple operating cards and monthly actions carry their own month IDs.
+// The monthly table exposes independent phase states and deadline dialogs.
 const concurrentState = domain.applyAction(demo, { admin: true }, { type: 'saveMonth', month: domain.emptyMonth('2026-11') });
-let selectedOperatingMonth; let monthManagementAction;
+let monthManagementAction;
 hookIndex = 0; hookOverrides = [];
-const concurrentManagement = adminUI.MonthManager({ ...managerProps, state: concurrentState, month: concurrentState.months[1], selectMonth: id => { selectedOperatingMonth = id; }, save: async action => { monthManagementAction = action; return true; } });
-const cards = descendants(concurrentManagement).filter(({element}) => element.type === 'article');
-assert.equal(cards.length, 2);
+const concurrentManagement = adminUI.MonthManager({ ...managerProps, state: concurrentState, month: concurrentState.months[1], save: async action => { monthManagementAction = action; return true; } });
+assert.equal(descendants(concurrentManagement).filter(({element}) => element.type === 'article').length, 0);
+assert.equal(descendants(concurrentManagement).filter(({element}) => element.type === 'select').length, 6);
+assert(!descendants(concurrentManagement).some(({element}) => element.type === 'input' || element.type === adminUI.MonthlyForm));
+for(const stage of domain.OPERATION_STAGES) {
+ const control=descendants(concurrentManagement).find(({element})=>element.props['aria-label']==='2026년 10월 '+stage.label+' 상태').element;
+ assert.deepEqual(Array.from(control.props.children,option=>option.props.children),['시작 전','진행','중지','마감']);
+ await control.props.onChange({target:{value:'pending'}});
+ assert.equal(monthManagementAction.type,'setMonthStage');assert.equal(monthManagementAction.monthId,'2026-10');assert.equal(monthManagementAction.stage,stage.id);assert.equal(monthManagementAction.status,'pending');
+}
 hookIndex = 0; hookOverrides = [];
 const defaultMonthManager = adminUI.MonthManager({ ...managerProps, state: domain.createInitialState(), month: undefined });
-for (const label of ['2026년 11월', '2026년 12월', '2027년 1월']) assert(descendants(defaultMonthManager).some(({ element }) => element.type === 'h3' && element.props.children === label));
-const chooseOctober = descendants(concurrentManagement).find(({element}) => element.props['aria-label'] === '2026년 10월 일정·운영 설정').element;
-chooseOctober.props.onClick(); assert.equal(selectedOperatingMonth, '2026-10');
-assert.equal(descendants(concurrentManagement).find(({element}) => element.props['aria-label'] === '2026년 11월 일정·운영 설정').element.props.disabled, true);
-descendants(concurrentManagement).find(({element}) => element.props['aria-label'] === '2026년 10월 마감').element.props.onClick();
-assert.equal(monthManagementAction.type, 'setMonthClosed'); assert.equal(monthManagementAction.monthId, '2026-10');
-const separatelyClosed = domain.applyAction(concurrentState, { admin: true }, monthManagementAction);
-assert.equal(separatelyClosed.months.find(month => month.id === '2026-11').closed, false);
-hookIndex = 0; hookOverrides = [];
-const newMonthControls = adminUI.MonthlyForm({ ...managerProps, state: concurrentState, month: concurrentState.months[1], busy: false, hasUnsaved: false });
-assert.equal(descendants(newMonthControls).find(({ element }) => element.props['aria-label'] === '대상 건 선정 시작').element.props.disabled, true);
-for (const label of ['AI 검색 결과 입력', '평가']) {
-  assert.equal(descendants(newMonthControls).find(({ element }) => element.props['aria-label'] === `${label} 시작`).element.props.disabled, false, 'A new month waits for the administrator to start downstream work.');
-  assert.equal(descendants(newMonthControls).find(({ element }) => element.props['aria-label'] === `${label} 중지`).element.props.disabled, true);
+assert.deepEqual(Array.from(descendants(defaultMonthManager).filter(({element})=>element.type==='th'&&element.props.scope==='row'),({element})=>element.props.children.props.children),['2026년 10월','2026년 11월','2026년 12월','2027년 1월']);
+const chooseNovember=descendants(concurrentManagement).find(({element})=>element.props['aria-label']==='2026년 11월 기한 설정').element;
+chooseNovember.props.onClick();assert(hookWrites.some(write=>write.index===0&&write.value==='2026-11'));
+hookIndex=0;hookOverrides=['2026-11'];
+const openDeadlineManager=adminUI.MonthManager({...managerProps,state:concurrentState});
+assert.equal(descendants(openDeadlineManager).find(({element})=>element.type===adminUI.MonthlyForm).element.props.month.id,'2026-11');
+for(const patch of [{busy:true},{hasUnsaved:true}]) {
+ hookIndex=0;hookOverrides=[];
+ const blocked=adminUI.MonthManager({...managerProps,state:concurrentState,...patch});
+ assert(descendants(blocked).filter(({element})=>element.type==='select'||element.type==='button').every(({element})=>element.props.disabled));
 }
-hookIndex = 0; hookOverrides = ['2026-12'];
-const pendingMonthlyDraft = adminUI.MonthManager({ ...managerProps, state: concurrentState, month: concurrentState.months[0], hasUnsaved: true });
-assert.equal(descendants(pendingMonthlyDraft).find(({element}) => element.props.children === '운영월 추가').element.props.disabled, true);
-assert(descendants(pendingMonthlyDraft).filter(({element}) => / 마감$/.test(element.props['aria-label'] || '')).every(({element}) => element.props.disabled));
 const mixedReferences = ['KR1020200000000A', 'Attention Is All You Need', '10.48550/arXiv.1706.03762', 'https://arxiv.org/abs/1706.03762'];
 const mixedState = domain.applyAction(demo, { userId: 'demo-user-1' }, { type: 'saveResult', caseId: demo.cases[0].id, methodId: 'chatgpt', documents: mixedReferences, publish: true });
 const mixedProps = { state: mixedState, item: mixedState.cases[0], month: mixedState.months[0], methodId: 'chatgpt', busy: false, dirty() {}, save: async () => true };
@@ -717,13 +711,12 @@ const savingForm = renderMonthlyForm({ save: action => { concurrentMonthlyAction
 const savingDates = descendants(savingForm).filter(({ element }) => element.type === 'input' && element.props.type === 'date');
 const savingRequest = savingDates[0].element.props.onChange({ target: { value: '2026-11-02' } });
 await savingDates[1].element.props.onChange({ target: { value: '2026-11-12' } });
-await descendants(savingForm).find(({ element }) => element.props['aria-label'] === '평가 중지').element.props.onClick();
 assert.equal(concurrentMonthlyActions.length, 1, 'An in-flight date save must prevent overlapping date and stage writes before the busy render.');
 releaseSchedule(true); await savingRequest;
 const failedSchedule = renderMonthlyForm({ save: async () => false });
 const writesBeforeFailure = hookWrites.length;
 await descendants(failedSchedule).find(({ element }) => element.props['aria-label'] === '평가 예정 기한').element.props.onChange({ target: { value: '2026-11-25' } });
-const failureWrites = hookWrites.slice(writesBeforeFailure);
+const failureWrites = hookWrites.slice(writesBeforeFailure).filter(write => write.index === 0);
 assert.equal(failureWrites[0].value.evaluationDeadline, '2026-11-25');
 assert.equal(failureWrites.at(-1).value.evaluationDeadline, demo.months[0].evaluationDeadline, 'Failed auto-saves must show the last persisted date.');
 for (const patch of [{ busy: true }, { hasUnsaved: true }]) {
@@ -734,35 +727,11 @@ for (const patch of [{ busy: true }, { hasUnsaved: true }]) {
   await dates[0].element.props.onChange({ target: { value: '2026-11-30' } });
   assert.equal(disabledWrites, 0);
 }
-// Stage buttons immediately save their own operation without a manual-save dependency.
-let stageAction;
-hookIndex = 0; hookOverrides = [];
-const stageFormProps = { state: demo, month: demo.months[0], busy: false, hasUnsaved: false, dirty() {}, onNavigate() {}, save: async action => { stageAction = action; return true; } };
-const stageForm = adminUI.MonthlyForm(stageFormProps);
-for (const stage of domain.OPERATION_STAGES) {
-  const start = descendants(stageForm).find(({ element }) => element.props['aria-label'] === `${stage.label} 시작`).element;
-  assert.equal(start.props.disabled, true, 'Legacy stages start in their current running state.');
-  for (const [label, status] of [['중지', 'stopped'], ['마감', 'closed']]) {
-    const control = descendants(stageForm).find(({ element }) => element.props['aria-label'] === `${stage.label} ${label}`).element;
-    assert.equal(control.props.disabled, false); await control.props.onClick();
-    assert.equal(JSON.stringify(stageAction), JSON.stringify({ type: 'setMonthStage', monthId: demo.months[0].id, stage: stage.id, status }));
-  }
-}
-for (const patch of [{ busy: true }, { hasUnsaved: true }, { month: { ...demo.months[0], closed: true } }]) {
-  hookIndex = 0; hookOverrides = [];
-  const blocked = adminUI.MonthlyForm({ ...stageFormProps, ...patch });
-  const controls = descendants(blocked).filter(({ element }) => domain.OPERATION_STAGES.some(stage => [`${stage.label} 시작`, `${stage.label} 중지`, `${stage.label} 마감`].includes(element.props['aria-label'])));
-  assert.equal(controls.length, 9); assert(controls.every(({ element }) => element.props.disabled));
-}
 const mixedStages = { ...demo.months[0], stages: { selection: 'closed', result: 'stopped', evaluation: 'running' } };
 hookIndex = 0; hookOverrides = [];
-const stoppedStageForm = adminUI.MonthlyForm({ ...stageFormProps, month: mixedStages });
-const restart = descendants(stoppedStageForm).find(({ element }) => element.props['aria-label'] === 'AI 검색 결과 입력 시작').element;
-assert.equal(restart.props.disabled, false); await restart.props.onClick(); assert.equal(stageAction.status, 'running');
-hookIndex = 0; hookOverrides = [];
 const mixedSchedule = OperationSchedule({ month: mixedStages });
-assert.equal(JSON.stringify(descendants(mixedSchedule).filter(({ element }) => /operation-stage-status/.test(element.props.className || '')).map(({ element }) => element.props.children)), JSON.stringify(['마감', '중지', '진행 중']));
-for (const status of ['stopped', 'closed']) {
+assert.equal(JSON.stringify(descendants(mixedSchedule).filter(({ element }) => /operation-stage-status/.test(element.props.className || '')).map(({ element }) => element.props.children)), JSON.stringify(['마감', '중지', '진행']));
+for (const status of ['pending', 'stopped', 'closed']) {
   const controlledMonth = { ...demo.months[0], stages: { selection: status, result: status, evaluation: status } };
   for (const [stage, render] of [
     ['selection', () => ui.TestSelectionEditor({ state: demo, month: controlledMonth, user: demo.users[1], busy: false, dirty() {}, save: async () => true })],

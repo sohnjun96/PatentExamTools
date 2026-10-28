@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  caseStatus, emptyMonth, getStatistics, personnelOf, operationGroups, operationStageStatus, OPERATION_STAGES, OPERATION_STAGE_STATUS_LABELS,
+  caseStatus, DEFAULT_OPERATION_MONTHS, getStatistics, personnelOf, operationGroups, operationStageStatus, OPERATION_STAGES, OPERATION_STAGE_STATUS_LABELS,
   type EvaluationAction, type EvaluationState,
-  type InvestigationMethod, type OperationMonth,
+  type InvestigationMethod, type OperationMonth, type OperationStage, type OperationStageStatus,
 } from '@/app/lib/evaluation';
 import { getAdminReadiness } from '@/app/lib/admin-guidance';
 import { exportWorkbook } from '@/app/lib/export-workbook';
@@ -69,7 +69,7 @@ export default function AdminWorkspace(props: AdminProps) {
       : section === 'month' ? <MonthManager {...props} />
       : section === 'notices' ? <NoticeManager {...props} />
       : month ? <CaseManager key={caseFocus} {...props} month={month} initialStatus={caseFocus} /> : <Empty title="운영월을 등록하세요." actions={<Button onClick={() => onNavigate('month')}>월별 운영</Button>} />}
-    {section !== 'notices' && !state.users.length && !state.groups.length && !state.cases.length && <section className="adm-demo ev-notice">
+    {section !== 'notices' && section !== 'month' && !state.users.length && !state.groups.length && !state.cases.length && <section className="adm-demo ev-notice">
       <strong>가상 자료로 업무 흐름 확인</strong><p>가상 자료: 사용자 10명·그룹 2개·출원 20건</p>
       <Button disabled={props.busy} onClick={() => { if (window.confirm('가상 검증 자료를 불러오시겠습니까? 실제 출원과 실적이 아닌 예시가 저장됩니다.')) void props.save({ type: 'loadDemo' }, '가상 검증 자료를 불러왔습니다.'); }}>가상 검증 자료 불러오기</Button>
     </section>}
@@ -139,29 +139,27 @@ export function MethodEditor({ method, busy, dirty, save, onClose, saveFeedback 
   </AccessibleDialog>;
 }
 
-function Step({ number, title, status, children, complete = false, missing = false }: { number: number; title: string; status: string; children: React.ReactNode; complete?: boolean; missing?: boolean }) {
-  return <section className={`adm-step ${complete ? 'is-complete' : ''} ${missing ? 'has-missing' : ''}`} id={`adm-step-${number}`}><div className="adm-step-head"><div><span className="adm-step-number">{number}</span><h2>{title}</h2></div><span className="adm-step-count">{status}</span></div><div className="adm-step-body">{children}</div></section>;
-}
-
 export function MonthManager(props: AdminProps) {
-  const [newMonth, setNewMonth] = useState('');
-  const months = [...props.state.months].sort((a, b) => b.id.localeCompare(a.id));
-  const openCount = months.filter((month) => !month.closed).length;
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const saving = useRef(false);
+  const months = [...props.state.months].sort((left, right) => {
+    const leftOrder = (DEFAULT_OPERATION_MONTHS as readonly string[]).indexOf(left.id);
+    const rightOrder = (DEFAULT_OPERATION_MONTHS as readonly string[]).indexOf(right.id);
+    return (leftOrder < 0 ? 4 : leftOrder) - (rightOrder < 0 ? 4 : rightOrder) || left.id.localeCompare(right.id);
+  });
+  const editing = props.state.months.find(month => month.id === editingId);
+  async function changeStatus(month: OperationMonth, stage: OperationStage, status: OperationStageStatus) {
+    if (props.busy || props.hasUnsaved || saving.current || status === (month.closed ? 'closed' : operationStageStatus(month, stage))) return;
+    saving.current = true;
+    try { await props.save({ type: 'setMonthStage', monthId: month.id, stage, status }, monthLabel(month.id) + ' ' + OPERATION_STAGES.find(entry => entry.id === stage)!.label + ' 상태를 변경했습니다: ' + OPERATION_STAGE_STATUS_LABELS[status] + '.'); }
+    finally { saving.current = false; }
+  }
   return <>
-    <div className="adm-toolbar"><label className="adm-field">새 운영월<input className="krds-input" type="month" value={newMonth} disabled={props.busy} onChange={(event) => setNewMonth(event.target.value)} /></label><Button primary disabled={props.busy || props.hasUnsaved || !newMonth || months.some((month) => month.id === newMonth)} onClick={async () => {
-      if (props.busy || props.hasUnsaved || !newMonth || months.some((month) => month.id === newMonth)) return;
-      if (await props.save({ type: 'saveMonth', month: emptyMonth(newMonth) }, monthLabel(newMonth) + ' 운영을 추가했습니다.')) { props.selectMonth(newMonth); setNewMonth(''); }
-    }}>운영월 추가</Button></div>
-    <section className="adm-months" aria-labelledby="adm-months-title"><div className="adm-list-head"><h2 id="adm-months-title">운영 월</h2><span className="adm-secondary">운영 중 {openCount}개 · 마감 {months.length - openCount}개</span></div>
-      <div className="adm-month-grid">{months.map((month) => <article key={month.id} className={'adm-month-card ' + (props.month?.id === month.id ? 'is-selected' : '')}>
-        <div className="adm-name"><h3>{monthLabel(month.id)}</h3><Pill tone={month.closed ? 'is-inactive' : 'is-active'}>{month.closed ? '마감' : '운영 중'}</Pill></div>
-        <p className="adm-secondary">확정 출원 {props.state.cases.filter((item) => item.monthId === month.id && item.status === 'confirmed').length}건</p>
-        <div className="adm-actions"><Button disabled={props.busy || props.month?.id === month.id} aria-label={monthLabel(month.id) + ' 일정·운영 설정'} aria-pressed={props.month?.id === month.id} onClick={() => props.selectMonth(month.id)}>일정·운영 설정</Button><Button disabled={props.busy || props.hasUnsaved} aria-label={monthLabel(month.id) + (month.closed ? ' 재개방' : ' 마감')} onClick={() => {
-          if (window.confirm(monthLabel(month.id) + (month.closed ? ' 운영을 재개방하시겠습니까?' : ' 운영을 마감하시겠습니까? 해당 월의 업무 입력이 중단됩니다.'))) void props.save({ type: 'setMonthClosed', monthId: month.id, closed: !month.closed }, monthLabel(month.id) + (month.closed ? ' 운영을 재개방했습니다.' : ' 운영을 마감했습니다.'));
-        }}>{month.closed ? '재개방' : '마감'}</Button></div>
-      </article>)}</div>
-    </section>
-    {props.month && <MonthlyForm key={props.month.id} {...props} month={props.month} />}
+    <section className="adm-list adm-operation-months"><div className="adm-table-wrap"><table className="adm-table adm-operation-table"><caption className="sr-only">운영월별 단계 운영 상태</caption>
+      <thead><tr><th scope="col">운영월</th>{OPERATION_STAGES.map(stage => <th scope="col" key={stage.id}>{stage.id === 'evaluation' ? '평가 단계' : stage.label}</th>)}</tr></thead>
+      <tbody>{months.map(month => <tr key={month.id}><th scope="row"><button type="button" className="adm-month-link" aria-haspopup="dialog" aria-label={monthLabel(month.id) + ' 기한 설정'} disabled={props.busy || props.hasUnsaved} onClick={() => setEditingId(month.id)}>{monthLabel(month.id)}</button></th>{OPERATION_STAGES.map(stage => <td key={stage.id}><select className="krds-form-select" aria-label={monthLabel(month.id) + ' ' + stage.label + ' 상태'} value={month.closed ? 'closed' : operationStageStatus(month, stage.id)} disabled={props.busy || props.hasUnsaved} onChange={event => changeStatus(month, stage.id, event.target.value as OperationStageStatus)}>{Object.entries(OPERATION_STAGE_STATUS_LABELS).map(([status,label]) => <option key={status} value={status}>{label}</option>)}</select></td>)}</tr>)}</tbody>
+    </table></div></section>
+    {editing && <MonthlyForm {...props} month={editing} onClose={() => { if (!props.busy) setEditingId(null); }} />}
   </>;
 }
 
@@ -175,45 +173,31 @@ export function mergeOperatingMonth(month: OperationMonth, settings: OperatingSe
   return merged;
 }
 
-export function MonthlyForm({ month, busy, save, hasUnsaved }: MonthFormProps) {
+export function MonthlyForm({ month, busy, save, hasUnsaved, onClose, saveFeedback }: MonthFormProps & { onClose?: () => void }) {
   const [form, setForm] = useState<OperatingSettings>(() => operatingSettings(month));
+  const [failed, setFailed] = useState(false);
   const saving = useRef(false);
+  const feedback = useRef<HTMLDivElement>(null);
   useEffect(() => setForm(operatingSettings(month)), [month]);
+  useEffect(() => { if (failed && !busy) feedback.current?.focus(); }, [failed, busy]);
   const disabled = busy || hasUnsaved;
-  async function persist(action: EvaluationAction, message: string) {
-    if (disabled || saving.current) return false;
-    saving.current = true;
-    try { return await save(action, message); }
-    finally { saving.current = false; }
-  }
+  function close() { if (!busy && !saving.current) onClose?.(); }
   async function update(deadline: keyof OperatingSettings, value: string) {
     if (disabled || saving.current || value === form[deadline]) return;
+    saving.current = true; setFailed(false);
     const settings = { ...operatingSettings(month), [deadline]: value };
     setForm(settings);
-    if (!await persist({ type: 'saveMonth', month: mergeOperatingMonth(month, settings) }, monthLabel(month.id) + ' 운영 기한을 저장했습니다.')) setForm(operatingSettings(month));
+    try {
+      if (!await save({ type: 'saveMonth', month: mergeOperatingMonth(month, settings) }, monthLabel(month.id) + ' 운영 기한을 저장했습니다.')) { setForm(operatingSettings(month)); setFailed(true); }
+    } finally { saving.current = false; }
   }
-  const stageControlsDisabled = disabled || month.closed;
-  return <>
-
-    <Step number={1} title="기본 설정" status={month.closed ? '마감 · 일정 수정 가능' : '기한 선택 사항'} complete>
-      <div className="adm-stage-grid">{OPERATION_STAGES.map(stage => {
-        const status = operationStageStatus(month, stage.id);
-        return <section className="adm-stage-card" key={stage.id} aria-labelledby={`adm-stage-${stage.id}`}>
-          <div className="adm-name"><h3 id={`adm-stage-${stage.id}`}>{stage.label}</h3><Pill tone={month.closed || status === 'closed' ? 'is-inactive' : status === 'running' ? 'is-active' : 'is-warning'}>{month.closed ? '월 전체 마감' : OPERATION_STAGE_STATUS_LABELS[status]}</Pill></div>
-          <label className="adm-field">예정 기한<input className="krds-input" type="date" aria-label={`${stage.label} 예정 기한`} disabled={disabled} value={form[stage.deadline]} onChange={event => update(stage.deadline, event.target.value)} /></label>
-          <div className="adm-actions" role="group" aria-label={`${stage.label} 운영 제어`}>{([
-            { status: 'running', label: '시작', message: '시작했습니다.' },
-            { status: 'stopped', label: '중지', message: '중지했습니다.' },
-            { status: 'closed', label: '마감', message: '마감했습니다.' },
-          ] as const).map(action => <Button key={action.status} primary={action.status === 'running' && status !== 'running'} aria-label={`${stage.label} ${action.label}`} aria-pressed={status === action.status} disabled={stageControlsDisabled || status === action.status} onClick={() => {
-            if (stageControlsDisabled || status === action.status) return;
-            return persist({ type: 'setMonthStage', monthId: month.id, stage: stage.id, status: action.status }, `${monthLabel(month.id)} ${stage.label} 단계를 ${action.message}`);
-          }}>{action.label}</Button>)}</div>
-        </section>;
-      })}</div>
-      {month.closed && <p className="adm-secondary">월 전체를 재개방하면 각 단계를 제어할 수 있습니다.</p>}
-    </Step>
-  </>;
+  return <AccessibleDialog labelledBy="adm-month-deadlines-title" className="adm-form-modal adm-deadline-modal" onClose={close}>
+    <header><div><h2 id="adm-month-deadlines-title">{monthLabel(month.id)} 기한 설정</h2><p>날짜를 변경하면 바로 저장됩니다.</p></div><Button disabled={busy} onClick={close} aria-label="운영월 기한 설정 닫기">닫기</Button></header>
+    <div className="adm-editor-body adm-modal-fields" aria-busy={busy}>
+      {failed && <div ref={feedback} tabIndex={-1}>{saveFeedback || <div className="ev-alert" role="alert">기한을 저장하지 못했습니다. 기존 날짜를 표시합니다. 다시 선택해 주세요.</div>}</div>}
+      <div className="adm-deadline-grid">{OPERATION_STAGES.map((stage, index) => <label className="adm-field" key={stage.id}>{stage.label}<input className="krds-input" type="date" aria-label={stage.label + ' 예정 기한'} disabled={disabled} value={form[stage.deadline]} onChange={event => update(stage.deadline, event.target.value)} /><span className="adm-secondary">기본: {['첫째', '둘째', '셋째'][index]} 금요일</span></label>)}</div>
+    </div>
+  </AccessibleDialog>;
 }
 
 export function filterTargetCases(state: EvaluationState, monthId: string, options: { query?: string; status?: string; examinerId?: string; groupId?: string } = {}) {

@@ -7,7 +7,7 @@ import {
 
 const admin = { admin: true };
 assert.deepEqual(createInitialState().months.map(month => month.id), [...DEFAULT_OPERATION_MONTHS]);
-assert.equal(preferredOperationMonth(createInitialState().months, '2026-10'), '2026-11');
+assert.equal(preferredOperationMonth(createInitialState().months, '2026-10'), '2026-10');
 assert.equal(preferredOperationMonth(createInitialState().months, '2026-12'), '2026-12');
 const existing = createInitialState('2026-10');
 existing.months.push({ ...emptyMonth('2026-11'), closed: true, selectionDeadline: '2026-11-03' });
