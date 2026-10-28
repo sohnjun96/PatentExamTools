@@ -265,11 +265,29 @@ assert.equal(downloads, 1, 'An unselected real case can download its own PDF.');
 assert.equal(selections, 0, 'Downloading a PDF must not change the selected task or its editor.');
 selection.element.props.onClick();
 assert.equal(selections, 1);
-const demoCard = ui.AITaskCard({ item, methodName: 'AI', selected: false, complete: true, demo: true, onSelect: () => selections++ });
+const fakeItem = { ...item, applicationNumber: '10-2024-9000000' };
+const demoCard = ui.AITaskCard({ item: fakeItem, methodName: 'AI', selected: false, complete: true, demo: true, onSelect: () => selections++ });
 const demoPdf = descendants(demoCard).find(({ element }) => element.type === TargetStub);
 assert.equal(demoPdf.element.props.disabled, true);
 TargetStub(demoPdf.element.props).props.onClick();
 assert.equal(downloads, 1, 'A fictional case must not request a real PDF.');
+const realSampleCard = ui.AITaskCard({ item, methodName: 'AI', selected: false, complete: false, demo: true, onSelect: () => selections++ });
+const realSampleNodes = descendants(realSampleCard);
+const realSamplePdf = realSampleNodes.find(({ element }) => element.type === TargetStub).element;
+assert.equal(realSamplePdf.props.disabled, false, 'A real application in a sample workspace must allow PDF downloads.');
+assert(!JSON.stringify(realSampleCard).includes('가상 출원번호는 PDF'), 'Real samples must not display the fictional-number warning.');
+TargetStub(realSamplePdf.props).props.onClick();
+assert.equal(downloads, 2);
+assert.equal(selections, 1, 'A sample PDF download must not change task selection.');
+for (const ai of [false, true]) {
+  for (const [applicationNumber, disabled] of [[item.applicationNumber, false], ['10-2024-9000019', true], ['1020249000000', true]]) {
+    const resource = ui.TestCaseResource({ item: { ...item, applicationNumber }, demo: true, ai });
+    const controls = descendants(resource).filter(({ element }) => element.type === PdfStub || element.type === TargetStub);
+    assert(controls.length > 0);
+    assert(controls.every(({ element }) => element.props.disabled === disabled), 'Detail downloads must distinguish real samples and generated numbers.');
+    assert.equal(JSON.stringify(resource).includes('가상 출원번호 · PDF 다운로드 불가'), disabled);
+  }
+}
 const detailResource = ui.TestCaseResource({ item, demo: false });
 const detailPdfControls = descendants(detailResource).filter(({ element }) => element.type === PdfStub);
 assert.equal(detailPdfControls.length, 2);
@@ -295,11 +313,23 @@ for (const filter of ['', 'pending']) {
   assert.equal(JSON.stringify(archive.props.applicationNumbers), JSON.stringify(expectedTargets));
   assert.equal(archive.props.monthId, '2026-10'); assert.equal(archive.props.bureau, '기획국'); assert.equal(archive.props.disabled, false);
 }
-for (const options of [{ state: { ...archiveState, isDemo: true }, busy: false }, { state: archiveState, busy: true }]) {
+for (const options of [{ state: archiveState, busy: true }]) {
   hookIndex = 0; hookOverrides = [];
   const tree = ui.TestAIWorkspace({ ...options, month: archiveState.months[0], user: archiveUser, dirty() {}, save: async () => true, notify() {} });
   assert.equal(descendants(tree).find(({ element }) => element.type === TargetArchiveStub).element.props.disabled, true);
 }
+const mixedSamples = structuredClone(archiveState);
+mixedSamples.isDemo = true;
+mixedSamples.cases[0].applicationNumber = item.applicationNumber;
+for (const [state, expected] of [[mixedSamples, [item.applicationNumber]], [{ ...archiveState, isDemo: true }, []]]) {
+  hookIndex = 0; hookOverrides = [];
+  const tree = ui.TestAIWorkspace({ state, month: state.months[0], user: archiveUser, busy: false, dirty() {}, save: async () => true, notify() {} });
+  const archive = descendants(tree).find(({ element }) => element.type === TargetArchiveStub).element;
+  assert.equal(JSON.stringify(archive.props.applicationNumbers), JSON.stringify(expected), 'Sample ZIP targets must contain only real application numbers.');
+  assert.equal(archive.props.disabled, false, 'The ZIP component handles empty target lists itself.');
+}
+for (const number of ['10-2024-9000000', '1020249000019', '10 2024 9000010']) assert.equal(domain.isDemoApplicationNumber(number), true);
+for (const number of [item.applicationNumber, '10-2024-9000020', '10-2023-9000000']) assert.equal(domain.isDemoApplicationNumber(number), false);
 
 assert.deepEqual(Array.from(adminUI.ADMIN_NAV, entry => entry.id), ['overview', 'examiners', 'ai', 'month', 'cases', 'notices']);
 assert.equal(adminUI.readAdminSection(null, '전기국', 'settings'), 'examiners');

@@ -75,6 +75,10 @@ export class EvaluationError extends Error {
 const fail = (message: string, status = 400): never => { throw new EvaluationError(message, status); };
 const uid = () => crypto.randomUUID();
 const identity = (value: string) => value.replace(/[\s\-.,]/g, '').toUpperCase();
+/** Only the original generated placeholders have no real patent documents. */
+export function isDemoApplicationNumber(value: string) {
+  return /^10202490000[01]\d$/.test(identity(value));
+}
 const text = (value: unknown, max = 200) => typeof value === 'string' && value.length <= max ? value.trim() : fail('입력한 텍스트의 형식이나 길이를 확인해 주세요.');
 const requireAdmin = (actor: EvaluationActor) => { if (!actor.admin) fail('관리자용 진입점에서 처리해 주세요.', 403); };
 const sameSet = (a: string[], b: string[]) => a.length === b.length && a.map(identity).sort().every((value, i) => value === b.map(identity).sort()[i]);
