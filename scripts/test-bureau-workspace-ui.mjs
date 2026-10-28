@@ -98,11 +98,10 @@ hookOverrides = [];
 hookOverrides[0] = { users: [{ id: 'prior-user', name: '이전국비공개이름', roles: ['examiner', 'ai'], active: true }], months: [], cases: [], groups: [], methods: [], results: [], evaluations: [], rankings: [], notice: { markdown: '이전국공지내용', updatedAt: '2026-10-27T10:00:00.000Z' } };
 hookOverrides[1] = oldScopeKey;
 hookOverrides[3] = 'prior-user';
-hookOverrides[4] = 'prior-user';
-hookOverrides[8] = false;
-hookOverrides[11] = '이전국저장오류';
-hookOverrides[12] = '이전국저장안내';
-hookOverrides[14] = oldScopeKey;
+hookOverrides[7] = false;
+hookOverrides[10] = '이전국저장오류';
+hookOverrides[11] = '이전국저장안내';
+hookOverrides[13] = oldScopeKey;
 const beforeScopeEffects = JSON.stringify(ui.default({ bureau: '전기국' }));
 assert(!beforeScopeEffects.includes('이전국비공개이름'), 'The first render after a bureau prop change must not disclose the previous user.');
 assert(!beforeScopeEffects.includes('이전국저장오류'));
@@ -122,16 +121,16 @@ const noticeTime = noticeNodes.find(({ element }) => element.type === 'time').el
 assert.equal(noticeTime.props.dateTime, publicNotice.updatedAt);
 assert(JSON.stringify(noticeTime).includes('19:00'), 'Notice dates must use Asia/Seoul time.');
 
-function renderWorkspaceWithNotice(bureau, { admin = false, selected = false, closed = false, error = '', conflict = false } = {}) {
+function renderWorkspaceWithNotice(bureau, { admin = false, selected = false, closed = false, error = '', conflict = false, users } = {}) {
   const state = domain.createInitialState('2026-10');
   state.notice = publicNotice;
-  state.users = [{ id: 'notice-reader', name: '공지 확인자', bureau, division: '시험과', roles: ['examiner'], active: true, groupId: '', responsibilities: [] }];
+  state.users = users ?? [{ id: 'notice-reader', name: '공지 확인자', bureau, division: '시험과', roles: ['examiner'], active: true, groupId: '', responsibilities: [] }];
   state.months[0].closed = closed;
   const scope = ui.workspaceSessionKey(`simsadesk-workspace-${admin ? 'admin' : 'user'}`, bureau);
   hookIndex = 0; hookOverrides = [];
   hookOverrides[0] = state; hookOverrides[1] = scope; hookOverrides[3] = selected ? 'notice-reader' : '';
-  hookOverrides[5] = '2026-10'; hookOverrides[7] = 'notices'; hookOverrides[8] = false; hookOverrides[14] = scope;
-  hookOverrides[11] = error; hookOverrides[15] = conflict;
+  hookOverrides[4] = '2026-10'; hookOverrides[6] = 'notices'; hookOverrides[7] = false; hookOverrides[13] = scope;
+  hookOverrides[10] = error; hookOverrides[14] = conflict;
   return ui.default({ bureau, admin });
 }
 for (const bureau of BUREAUS) {
@@ -141,7 +140,40 @@ for (const bureau of BUREAUS) {
     assert.equal(mainNotice.length, 1, 'Show one notice before and after user selection.');
     assert.equal(mainNotice[0].element.props.bureau, bureau);
     assert.equal(mainNotice[0].element.props.notice, publicNotice);
+    const mainNodes = descendants(mainTree);
+    assert(!mainNodes.some(({ element }) => element.type === 'a' && /\/(?:rhksfl|admin)(?:[?#]|$)/.test(element.props.href || '')), 'General users must access administration by address only.');
+    if (!selected) {
+      assert(!mainNodes.some(({ element }) => element.type === 'select' || element.type === 'aside' || element.props.className === 'ev-topbar'), 'The initial page must contain the notice and selection list without workspace navigation or dropdowns.');
+      const directory = mainNodes.find(({ element }) => element.type === 'ul').element;
+      const choices = descendants(directory).filter(({ element }) => element.type === 'button');
+      assert.equal(choices.length, 1);
+      assert.equal(choices[0].element.props.type, 'button');
+      assert.equal(choices[0].element.props.disabled, false);
+      assert.equal(choices[0].element.props.children[0].props.children.join(''), '시험과 - 공지 확인자');
+      hookWrites.length = 0;
+      choices[0].element.props.onClick();
+      assert(hookWrites.some(write => write.index === 3 && write.value === 'notice-reader'), 'One list click must select the examiner without a second start action.');
+      assert(hookWrites.some(write => write.index === 5 && write.value === 'review'));
+    }
   }
+}
+const directoryUsers = [
+  { id: 'ai-reader', division: '가과', name: '나영', roles: ['ai'], active: true },
+  { id: 'unassigned-reader', division: '', name: '소속 없음', roles: ['examiner'], active: true },
+  { id: 'inactive-reader', division: '가과', name: '비활성', roles: ['examiner'], active: false },
+  { id: 'first-reader', division: '가과', name: '가람', roles: ['examiner'], active: true },
+];
+const directoryPage = renderWorkspaceWithNotice('기획국', { users: directoryUsers });
+const directoryChoices = descendants(directoryPage).filter(({ element }) => element.type === 'button');
+assert.deepEqual(directoryChoices.map(({ element }) => element.props.children[0].props.children.join('')), ['가과 - 가람', '가과 - 나영', '소속 미지정 - 소속 없음'], 'Show active users sorted by division and name, including AI-only accounts and the missing-division fallback.');
+hookWrites.length = 0;
+directoryChoices[1].element.props.onClick();
+assert(hookWrites.some(write => write.index === 3 && write.value === 'ai-reader'));
+assert(hookWrites.some(write => write.index === 5 && write.value === 'ai'), 'AI-only users must still enter their assigned AI workspace.');
+for (const users of [[], directoryUsers.filter(user => !user.active)]) {
+  const emptyDirectory = renderWorkspaceWithNotice('기획국', { users });
+  assert(descendants(emptyDirectory).some(({ element }) => element.type?.name === 'Empty' && element.props.title === '선택할 수 있는 심사관이 없습니다.'));
+  assert(!descendants(emptyDirectory).some(({ element }) => element.type === 'a' && /\/(?:rhksfl|admin)(?:[?#]|$)/.test(element.props.href || '')), 'An empty directory must not reveal an administration link.');
 }
 const noticeAdminTree = renderWorkspaceWithNotice('기획국', { admin: true, closed: true });
 const failedSaveTree = renderWorkspaceWithNotice('기획국', { admin: true, error: '저장 충돌', conflict: true });
@@ -162,7 +194,7 @@ function schedulePage(monthId, { admin = false, view = 'review', selected = true
   const scope = ui.workspaceSessionKey(`simsadesk-workspace-${admin ? 'admin' : 'user'}`, '기획국');
   hookIndex = 0; hookOverrides = [];
   hookOverrides[0] = scheduleState; hookOverrides[1] = scope; hookOverrides[3] = selected ? 'schedule-reader' : '';
-  hookOverrides[5] = monthId; hookOverrides[6] = view; hookOverrides[8] = false; hookOverrides[14] = scope;
+  hookOverrides[4] = monthId; hookOverrides[5] = view; hookOverrides[7] = false; hookOverrides[13] = scope;
   return ui.default({ bureau: '기획국', admin });
 }
 for (const monthId of ['2026-10', '2026-11']) {
@@ -502,7 +534,6 @@ assert(modifyingInputs.filter(({ element }) => element.props.type !== 'date').ev
 const closedSave = descendants(closedForm).find(({ element }) => element.props.children === '월별 운영 저장').element;
 assert.equal(closedSave.props.disabled, true);
 const monthParagraphs = descendants(closedForm).filter(({ element }) => element.type === 'p').map(({ element }) => element.props.children);
-assert(monthParagraphs.includes('예정 기한 이후에도 제출 가능'));
 assert(monthParagraphs.includes('상한 0은 제한 없음'));
 const revisedSchedule = { ...adminUI.operatingSettings(closedMonth), selectionDeadline: '2026-11-01', resultDeadline: '2026-11-10', evaluationDeadline: '2026-11-20' };
 hookIndex = 0; hookOverrides = [revisedSchedule];

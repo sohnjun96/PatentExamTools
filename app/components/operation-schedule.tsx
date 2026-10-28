@@ -33,7 +33,7 @@ export default function OperationSchedule({ month }: { month: OperationMonth }) 
   }, []);
   const title = `${month.id.slice(0, 4)}년 ${Number(month.id.slice(5))}월 업무 일정`;
   return <section className="operation-schedule" aria-labelledby="operation-schedule-title">
-    <div className="operation-schedule-heading"><h2 id="operation-schedule-title">{title}</h2><p>한국 시간 기준 · 예정 기한 이후에도 제출 가능</p></div>
+    <div className="operation-schedule-heading"><h2 id="operation-schedule-title">{title}</h2></div>
     <ul className="operation-schedule-grid">{stages.map(({ key, label }) => {
       const info = deadlineInfo(month[key], now);
       return <li className={`operation-schedule-item is-${info.status}`} key={key}>
