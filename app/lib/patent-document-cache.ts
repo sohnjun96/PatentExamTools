@@ -20,7 +20,13 @@ type Manifest = {
   byte_length: number; content_hash: string; chunk_count: number; fetched_at: string;
 };
 type DownloadedFile = { applicationNumber: string; kind: PatentDocumentKind; fileName: string; bytes: Uint8Array };
+type LoadedFile = { file: DownloadedFile; persisted: boolean };
 type Chunk = { chunk_index: number; data_base64: string };
+
+function assertDownloadedFile(request: PatentDocumentRequest, file: DownloadedFile) {
+  assertPdfBytes(file.bytes);
+  if (file.bytes.byteLength > MAX_BYTES || file.kind !== request.kind || !/^(10|20)\d{11}$/.test(file.applicationNumber) || request.numberType === 'application' && file.applicationNumber !== request.number) throw new Error('Invalid PDF cache input');
+}
 
 function keyFor(request: PatentDocumentRequest) { return `${request.kind}:${request.numberType}:${request.number}`; }
 function encode(bytes: Uint8Array) {
@@ -33,7 +39,7 @@ function decode(value: string) { return Uint8Array.from(atob(value), character =
 /** Store PDF bytes, rather than expiring upstream URLs. Chunks stay below D1's row limit. */
 export function createPatentDocumentCache(getDatabase: () => Promise<D1Database>) {
   let ready: Promise<void> | undefined;
-  const pending = new Map<string, Promise<void>>();
+  const pending = new Map<string, Promise<LoadedFile>>();
   async function database() {
     const db = await getDatabase();
     ready ??= db.batch(SCHEMA.map(sql => db.prepare(sql))).then(() => undefined).catch(error => { ready = undefined; throw error; });
@@ -73,8 +79,7 @@ export function createPatentDocumentCache(getDatabase: () => Promise<D1Database>
     };
   }
   async function put(request: PatentDocumentRequest, file: DownloadedFile) {
-    assertPdfBytes(file.bytes);
-    if (file.bytes.byteLength > MAX_BYTES || file.kind !== request.kind || !/^(10|20)\d{11}$/.test(file.applicationNumber) || request.numberType === 'application' && file.applicationNumber !== request.number) throw new Error('Invalid PDF cache input');
+    assertDownloadedFile(request, file);
     const db = await database();
     const key = keyFor(request);
     const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', file.bytes as BufferSource)), value => value.toString(16).padStart(2, '0')).join('');
@@ -97,18 +102,39 @@ export function createPatentDocumentCache(getDatabase: () => Promise<D1Database>
     await db.batch(statements); // The pointer and all chunks commit together, or all roll back.
   }
   async function get(request: PatentDocumentRequest, load: () => Promise<DownloadedFile>, refresh = false) {
-    const cached = await find(request);
+    let cached;
+    try { cached = await find(request); }
+    catch { console.warn('PDF_CACHE_BYPASS: read failed'); }
     if (cached && !refresh) return { ...cached, cacheStatus: 'HIT' as const };
     const key = keyFor(request);
     let task = pending.get(key);
     if (!task) {
-      task = (async () => { await put(request, await load()); })();
+      task = (async () => {
+        const file = await load();
+        // Source validation must succeed before any cache-error recovery.
+        assertDownloadedFile(request, file);
+        try { await put(request, file); return { file, persisted: true }; }
+        catch { console.warn('PDF_CACHE_BYPASS: write failed'); return { file, persisted: false }; }
+      })();
       pending.set(key, task);
     }
-    try { await task; } finally { if (pending.get(key) === task) pending.delete(key); }
-    const saved = await find(request);
-    if (!saved) throw new Error('PDF cache write did not persist');
-    return { ...saved, cacheStatus: refresh ? 'REFRESH' as const : 'MISS' as const };
+    let loaded;
+    try { loaded = await task; } finally { if (pending.get(key) === task) pending.delete(key); }
+    if (loaded.persisted) {
+      try {
+        const saved = await find(request);
+        if (saved) return { ...saved, cacheStatus: refresh ? 'REFRESH' as const : 'MISS' as const };
+      } catch { /* The verified source remains available if the read-back fails. */ }
+      console.warn('PDF_CACHE_BYPASS: read-back failed');
+    }
+    const { file } = loaded;
+    return {
+      applicationNumber: file.applicationNumber, kind: file.kind, fileName: file.fileName,
+      byteLength: file.bytes.byteLength, fetchedAt: new Date().toISOString(), cacheStatus: 'BYPASS' as const,
+      body() {
+        return new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(file.bytes); controller.close(); } });
+      },
+    };
   }
   return { find, get };
 }

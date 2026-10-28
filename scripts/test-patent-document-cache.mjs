@@ -106,8 +106,31 @@ try {
   // A transaction failure must roll back its manifest and preserve an older good document.
   await db.exec("CREATE TRIGGER fail_cache_chunk BEFORE INSERT ON patent_document_chunks WHEN NEW.cache_key = 'publication:application:1020200000003' BEGIN SELECT RAISE(ABORT, 'simulated storage failure'); END");
   const failingRequest = { ...bigRequest, number: '1020200000003' };
-  await assert.rejects(cache.get(failingRequest, async () => ({ ...file, applicationNumber: failingRequest.number })));
+  let fallbackLoads = 0;
+  const fallbackLoader = async () => { fallbackLoads++; return { ...file, applicationNumber: failingRequest.number }; };
+  const fallbacks = await Promise.all([cache.get(failingRequest, fallbackLoader), cache.get(failingRequest, fallbackLoader)]);
+  assert.equal(fallbackLoads, 1, 'Cache failures must still share the source download.');
+  for (const fallback of fallbacks) {
+    assert.equal(fallback.cacheStatus, 'BYPASS');
+    assert.deepEqual(new Uint8Array(await new Response(fallback.body()).arrayBuffer()), bytes, 'A failed cache write must deliver the verified original PDF.');
+  }
   assert.equal(await cache.find(failingRequest), null);
+  const fallbackResponse = await route.GET(request(query.replace('10-2020-0093844', '10-2020-0000003')));
+  assert.equal(fallbackResponse.status, 200);
+  assert.equal(fallbackResponse.headers.get('X-Document-Cache'), 'BYPASS');
+  assert.equal(await fallbackResponse.text(), payload);
+  await db.exec("CREATE TRIGGER fail_refresh_chunk BEFORE INSERT ON patent_document_chunks WHEN NEW.cache_key = 'publication:application:1020200000001' BEGIN SELECT RAISE(ABORT, 'simulated refresh failure'); END");
+  const freshBytes = changedBytes.slice(); freshBytes[100] = 67;
+  const failedWriteRefresh = await cache.get(bigRequest, async () => ({ ...file, bytes: freshBytes }), true);
+  assert.equal(failedWriteRefresh.cacheStatus, 'BYPASS');
+  assert.deepEqual(new Uint8Array(await new Response(failedWriteRefresh.body()).arrayBuffer()), freshBytes, 'A failed refresh must deliver the new source rather than the stale cache.');
+  assert.deepEqual(new Uint8Array(await new Response((await cache.find(bigRequest)).body()).arrayBuffer()), changedBytes, 'A failed refresh must preserve the previous cached version.');
+  const unavailableCache = cacheModule.createPatentDocumentCache(async () => { throw new Error('storage unavailable'); });
+  const unavailable = await unavailableCache.get(failingRequest, fallbackLoader);
+  assert.equal(unavailable.cacheStatus, 'BYPASS');
+  assert.deepEqual(new Uint8Array(await new Response(unavailable.body()).arrayBuffer()), bytes);
+  await assert.rejects(unavailableCache.get(failingRequest, async () => ({ ...file, applicationNumber: '1020209999999' })), /Invalid PDF cache input/);
+  await assert.rejects(unavailableCache.get(failingRequest, async () => { throw new Error('source unavailable'); }), /source unavailable/);
   await assert.rejects(cache.get(bigRequest, async () => ({ ...file, bytes: new TextEncoder().encode('<html>not pdf</html>') }), true), /다른 형식/);
   assert.deepEqual(new Uint8Array(await new Response((await cache.find(bigRequest)).body()).arrayBuffer()), changedBytes);
   console.log('PDF cache passed: real D1 chunked persistence, cross-worker reuse, zero upstream calls on hits, metadata, forced refresh, failure/transaction safety, concurrent readers and separate gazette kinds.');
