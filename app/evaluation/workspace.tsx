@@ -26,7 +26,6 @@ import './evaluation.css';
 type ActionHandler = (action: EvaluationAction, message?: string) => Promise<boolean>;
 type Shared = { state: EvaluationState; month: OperationMonth; save: ActionHandler; busy: boolean; dirty: (value: boolean) => void; hasUnsaved?: boolean; bureau?: Bureau };
 type View = 'review' | 'ai' | 'stats' | 'settings';
-const percent = (value: number | null) => value === null ? '—' : `${(value * 100).toFixed(1)}%`;
 const normalized = (value: string) => value.replace(/[\s\-.,]/g, '').toUpperCase();
 const numberLabel = (value: string) => { const digits = value.replace(/\D/g, ''); return digits.length === 13 ? `${digits.slice(0, 2)}-${digits.slice(2, 6)}-${digits.slice(6)}` : value; };
 const monthLabel = (value: string) => `${value.slice(0, 4)}년 ${Number(value.slice(5))}월`;
@@ -65,7 +64,6 @@ function useRememberedSelection(key: string) {
 function Badge({ children, color = '' }: { children: React.ReactNode; color?: string }) { return <span className={`ev-badge ${color}`}>{children}</span>; }
 function Empty({ title, children }: { title: string; children?: React.ReactNode }) { return <div className="ev-empty"><div className="ev-empty-icon">▤</div><h3>{title}</h3>{children}</div>; }
 function Status({ state, item }: { state: EvaluationState; item: EvaluationCase }) { const status = caseStatus(state, item); return <><Badge color={status.inputComplete ? 'green' : ''}>{status.inputComplete ? '입력 완료' : '대기 중'}</Badge><Badge color={status.complete ? 'green' : status.stale ? 'orange' : ''}>{status.evaluationStatus}</Badge></>; }
-function Stat({ label, value, unit = '건', note, accent = false }: { label: string; value: string | number; unit?: string; note?: string; accent?: boolean }) { return <div className={`ev-stat ${accent ? 'accent' : ''}`}><div className="ev-stat-label">{label}</div><div className="ev-stat-value">{value}<small>{unit}</small></div><div className="ev-stat-foot">{note || '\u00a0'}</div></div>; }
 function Panel({ title, description, action, children }: { title: string; description?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) { return <section className="ev-panel"><div className="ev-panel-head"><div><h2>{title}</h2>{description && <p>{description}</p>}</div>{action}</div>{children}</section>; }
 function StageNotice({ month, stage }: { month: OperationMonth; stage: OperationStage }) {
   const reason = operationStageBlockReason(month, stage);
@@ -264,21 +262,41 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
           <div className="ev-page-heading"><div><h1>{title}</h1></div>{!globalAdmin && <div className="ev-month"><select className="krds-form-select" aria-label="운영월" value={monthId} onChange={(event) => navigate(() => setMonthId(event.target.value))}>{[...state.months].sort((a, b) => b.id.localeCompare(a.id)).map((candidate) => <option key={candidate.id} value={candidate.id}>{monthLabel(candidate.id)} · {OPERATION_MONTH_STATUS_LABELS[operationMonthStatus(candidate)]}</option>)}</select><Badge color={monthStatus === 'running' ? 'green' : monthStatus === 'closed' ? 'orange' : ''}>{OPERATION_MONTH_STATUS_LABELS[monthStatus]}</Badge></div>}</div>
           {!admin && user && (view === 'review' || view === 'ai') && month && <OperationSchedule month={month} />}{state.isDemo && !(admin && adminSection === 'notices') && <div className="ev-notice warning">가상 검증 자료 · 실제 업무 자료가 아닙니다.</div>}
           {month?.closed && !globalAdmin && <div className="ev-notice warning"><p>마감된 월의 업무는 수정할 수 없습니다.</p>{admin && <button className="krds-btn medium ev-button" onClick={() => navigate(() => { setAdminSection('month'); setView('settings'); })}>월별 운영에서 재개방</button>}</div>}
-          {(admin ? <AdminWorkspace key={`${bureau || 'legacy'}:${globalAdmin ? 'global' : monthId}:${loadSerial}`} bureau={bureau} state={state} month={month} save={save} busy={busy} dirty={setDirty} hasUnsaved={dirty} section={adminSection} onNavigate={(section) => navigate(() => { setAdminSection(section); setView(section === 'overview' ? 'stats' : 'settings'); })} selectMonth={(id) => navigate(() => setMonthId(id))} notify={setNotice} saveFeedback={errorFeedback} /> : month && user && view === 'ai' && user.roles.includes('ai') ? <AIWorkspace key={`${bureau || 'legacy'}:${userId}:${monthId}:${loadSerial}`} bureau={bureau} state={state} month={month} save={save} busy={busy} dirty={setDirty} user={user} notify={setNotice} saveFeedback={errorFeedback} /> : month && user ? <ReviewWorkspace key={`${bureau || 'legacy'}:${userId}:${monthId}:${loadSerial}`} bureau={bureau} state={state} month={month} save={save} busy={busy} dirty={setDirty} user={user} notify={setNotice} /> : null)}
+          {(admin ? <AdminWorkspace key={`${bureau || 'legacy'}:${globalAdmin ? 'global' : monthId}:${loadSerial}`} bureau={bureau} state={state} month={month} save={save} busy={busy} dirty={setDirty} hasUnsaved={dirty} section={adminSection} onNavigate={(section) => navigate(() => { setAdminSection(section); setView(section === 'overview' ? 'stats' : 'settings'); })} selectMonth={(id) => navigate(() => setMonthId(id))} notify={setNotice} saveFeedback={errorFeedback} /> : month && user && view === 'ai' && user.roles.includes('ai') ? <AIWorkspace key={`${bureau || 'legacy'}:${userId}:${monthId}:${loadSerial}`} bureau={bureau} state={state} month={month} save={save} busy={busy} dirty={setDirty} user={user} notify={setNotice} saveFeedback={errorFeedback} /> : month && user ? <ReviewWorkspace key={`${bureau || 'legacy'}:${userId}:${monthId}:${loadSerial}`} bureau={bureau} state={state} month={month} save={save} busy={busy} dirty={setDirty} user={user} notify={setNotice} saveFeedback={errorFeedback} /> : null)}
         </>}
       </div></main>
   </div></div>;
 }
 
-function ReviewWorkspace(props: Shared & { user: EvaluationUser; notify: (text: string) => void }) {
-  const { state, month, user, save, busy, dirty, notify, bureau } = props;
-  const [selectedId, setSelectedId] = useRememberedSelection(workspaceSessionKey(`simsadesk-case:${user.id}:${month.id}`, bureau));
+function ReviewWorkspace(props: Shared & { user: EvaluationUser; notify: (text: string) => void; saveFeedback?: React.ReactNode }) {
+  const { state, month, user, save, busy, dirty, notify, bureau, saveFeedback } = props;
+  const [selectedId, setSelectedId] = useState('');
   const [unsaved, setUnsaved] = useState(false);
   const [editingSelection, setEditingSelection] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const caseListHeading = useRef<HTMLDivElement>(null);
+  const submitting = useRef(false);
+  const feedback = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (saveFailed && !busy) feedback.current?.focus(); }, [saveFailed, busy]);
   const cases = state.cases.filter((item) => item.monthId === month.id && item.examinerId === user.id && item.status === 'confirmed');
-  const selected = cases.find((item) => item.id === selectedId) || cases[0];
+  const selected = cases.find((item) => item.id === selectedId);
   const confirmed = month.confirmedUserIds.includes(user.id);
   const mark = (value: boolean) => { setUnsaved(value); dirty(value); };
+  function closeEditor() {
+    if (busy || submitting.current) return;
+    if (unsaved && !window.confirm('저장하지 않은 평가가 있습니다. 입력을 버리고 닫으시겠습니까?')) return;
+    mark(false); setSelectedId(''); setSaveFailed(false);
+  }
+  async function saveEditor(action: EvaluationAction, message?: string) {
+    if (busy || submitting.current) return false;
+    submitting.current = true; setSaveFailed(false);
+    try {
+      const ok = await save(action, message);
+      if (ok) { mark(false); setSelectedId(''); }
+      else setSaveFailed(true);
+      return ok;
+    } finally { submitting.current = false; }
+  }
   async function downloadOwnWork() {
     const result = await exportPersonal(state, month.id, cases, bureau);
     if (result) notify(result);
@@ -300,10 +318,22 @@ function ReviewWorkspace(props: Shared & { user: EvaluationUser; notify: (text: 
     </table></div> : <Empty title="제출한 출원이 없습니다." />}
     <div className="ev-panel-body ev-actions end"><button type="button" className="krds-btn medium ev-button" onClick={downloadOwnWork}>내 업무 자료 엑셀 저장</button></div>
   </Panel>;
-  const complete = cases.filter((item) => caseStatus(state, item).complete).length;
-  return <><div className="ev-stats"><Stat label="내 평가 대상" value={cases.length} note="선정 확정한 출원" /><Stat label="AI 결과 입력 완료" value={cases.filter((item) => caseStatus(state, item).inputComplete).length} note="배정된 AI 검색 결과를 모두 공개한 출원" /><Stat label="평가 완료" value={complete} note={cases.length ? `완료율 ${percent(complete / cases.length)}` : '평가 대상이 없습니다.'} accent /><Stat label="재확인 필요" value={cases.filter((item) => caseStatus(state, item).stale).length} note="평가 후 AI 결과가 바뀐 출원" /></div>
-    <div className="ev-actions end" style={{ marginTop: -7, marginBottom: 15 }}>{editSelection}<button className="krds-btn medium ev-button" onClick={downloadOwnWork}>내 업무 자료 엑셀 저장</button></div>
-    <div className="ev-case-layout"><section className="ev-panel ev-case-list"><div className="ev-case-list-head">내 평가 대상 건 <span className="ev-count">{cases.length}</span></div><div className="ev-case-list-items">{cases.map((item) => <button key={item.id} className={`ev-case ${selected?.id === item.id ? 'active' : ''}`} aria-pressed={selected?.id === item.id} onClick={() => { if (!unsaved || window.confirm('저장하지 않은 평가가 있습니다. 다른 출원으로 이동하시겠습니까?')) { mark(false); setSelectedId(item.id); } }}><strong>{numberLabel(item.applicationNumber)}</strong><span className="ev-muted">{item.cpc || 'CPC 미입력'}</span><div className="ev-case-status"><Status state={state} item={item} /></div></button>)}</div></section><div>{selected ? <EvaluationEditor key={selected.id} state={state} month={month} save={async (action, message) => { const ok = await save(action, message); if (ok) mark(false); return ok; }} busy={busy} dirty={mark} item={selected} /> : <Panel title="AI 검색 결과 평가"><Empty title="선정 확정한 출원이 없습니다." /></Panel>}</div></div>
+  return <>
+    <div className="ev-actions end" style={{ marginBottom: 15 }}>{editSelection}<button type="button" className="krds-btn medium ev-button" onClick={downloadOwnWork}>내 업무 자료 엑셀 저장</button></div>
+    <section className="ev-panel ev-review-case-list">
+      <div ref={caseListHeading} tabIndex={-1} className="ev-case-list-head">내 평가 대상 건 <span className="ev-count">{cases.length}</span></div>
+      <ul className="ev-review-case-items">{cases.map((item) => <li key={item.id}><button type="button" className="ev-review-case" aria-haspopup="dialog" disabled={busy} onClick={() => {
+        if (!busy && (!unsaved || window.confirm('저장하지 않은 평가가 있습니다. 다른 출원으로 이동하시겠습니까?'))) { mark(false); setSaveFailed(false); setSelectedId(item.id); }
+      }}><strong>{numberLabel(item.applicationNumber)}</strong><span className="ev-muted ev-review-case-cpc">{item.cpc || 'CPC 미입력'}</span><span className="ev-case-status"><Status state={state} item={item} /></span><span className="ev-review-case-action">평가 입력 <span aria-hidden="true">→</span></span></button></li>)}</ul>
+      {!cases.length && <Empty title="선정 확정한 출원이 없습니다." />}
+    </section>
+    {selected && <AccessibleDialog labelledBy="ev-evaluation-dialog-title" className="ev-evaluation-dialog" onClose={closeEditor} fallbackFocusRef={caseListHeading}>
+      <header><div><h2 id="ev-evaluation-dialog-title">AI 검색 결과 평가</h2><p>{numberLabel(selected.applicationNumber)}</p></div><button type="button" className="krds-btn medium ev-button" disabled={busy} onClick={closeEditor} aria-label="평가 입력 닫기">닫기</button></header>
+      <div className="ev-evaluation-dialog-body" aria-busy={busy}>
+        {saveFailed && <div ref={feedback} tabIndex={-1} className="ev-evaluation-feedback">{saveFeedback || <div className="ev-alert" role="alert">저장하지 못했습니다. 입력 내용은 유지되어 있습니다. 잠시 후 다시 시도해 주세요.</div>}</div>}
+        <EvaluationEditor key={selected.id} state={state} month={month} save={saveEditor} busy={busy} dirty={mark} item={selected} />
+      </div>
+    </AccessibleDialog>}
   </>;
 }
 

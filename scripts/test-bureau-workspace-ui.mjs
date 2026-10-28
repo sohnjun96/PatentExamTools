@@ -765,9 +765,9 @@ const submitted = reviewState.cases.filter(item => item.examinerId === reviewUse
 reviewState.months.push(domain.emptyMonth('2026-11'));
 reviewState.cases.push({ ...submitted[0], id: 'other-month-case', monthId: '2026-11', applicationNumber: '10-2020-0000001' }, { ...submitted[0], id: 'draft-case', status: 'draft', applicationNumber: '10-2020-0000002' }, { ...submitted[0], id: 'cancelled-case', status: 'cancelled', applicationNumber: '10-2020-0000003' });
 reviewState.results = reviewState.results.filter(result => result.caseId !== submitted[0].id);
-function renderReview(month) {
-  hookIndex = 0; hookOverrides = [];
-  return ui.TestReviewWorkspace({ state: reviewState, month, user: reviewUser, bureau: '기획국', busy: false, dirty() {}, save: async () => true, notify() {} });
+function renderReview(month, { selectedId = '', unsaved = false, failed = false, ...props } = {}) {
+  hookIndex = 0; hookOverrides = [selectedId, unsaved, false, failed];
+  return ui.TestReviewWorkspace({ state: reviewState, month, user: reviewUser, bureau: '기획국', busy: false, dirty() {}, save: async () => true, notify() {}, ...props });
 }
 for (const month of [
   { ...reviewState.months[0], stages: { evaluation: 'stopped' } },
@@ -786,8 +786,49 @@ for (const month of [
   assert.equal(exportedWorkbook.sheets.find(sheet => sheet.name === '출원별 현황').rows.length, submitted.length + 1);
 }
 for (const month of [reviewState.months[0], { ...reviewState.months[0], stages: { evaluation: 'running' } }]) {
-  assert(descendants(renderReview(month)).some(({ element }) => element.type === ui.TestEvaluationEditor), 'Starting or restarting evaluation restores the existing case editor.');
+  const list = renderReview(month);
+  const nodes = descendants(list);
+  assert(!nodes.some(({ element }) => element.type === ui.TestEvaluationEditor), 'Evaluation opens as a list without automatically selecting a case.');
+  assert(!nodes.some(({ element }) => element.props.className === 'ev-stats'), 'Remove the four aggregate evaluation cards.');
+  const rows = nodes.filter(({ element }) => element.props.className === 'ev-review-case');
+  assert.equal(rows.length, submitted.length, 'Only this examiner’s confirmed cases in the selected month belong in the list.');
+  hookWrites.length = 0;
+  rows.at(-1).element.props.onClick();
+  assert(hookWrites.some(write => write.index === 0 && write.value === submitted.at(-1).id));
+  const selectedTree = renderReview(month, { selectedId: submitted.at(-1).id });
+  const selectedEditor = descendants(selectedTree).find(({ element }) => element.type === ui.TestEvaluationEditor).element;
+  assert.equal(selectedEditor.props.item, submitted.at(-1), 'Open the chosen case without substituting the first case.');
 }
+const reviewDialog = tree => descendants(tree).find(({ element }) => element.props.labelledBy === 'ev-evaluation-dialog-title')?.element;
+const reviewEditor = tree => descendants(reviewDialog(tree)).find(({ element }) => element.type === ui.TestEvaluationEditor).element;
+const activeReviewMonth = { ...reviewState.months[0], stages: { evaluation: 'running' } };
+assert.equal(reviewDialog(renderReview(activeReviewMonth, { selectedId: 'other-month-case' })), undefined);
+const dirtyReview = renderReview(activeReviewMonth, { selectedId: submitted[0].id, unsaved: true });
+allowDiscard = false;
+hookWrites.length = 0;
+reviewDialog(dirtyReview).props.onClose();
+assert.equal(hookWrites.length, 0, 'Declining discard preserves the evaluation form and dirty state.');
+allowDiscard = true;
+reviewDialog(dirtyReview).props.onClose();
+assert(hookWrites.some(write => write.index === 0 && write.value === ''));
+assert(reviewDialog(dirtyReview).props.fallbackFocusRef, 'Return keyboard focus to the list if its trigger disappears.');
+let finishReviewSave; let reviewSaveRequests = 0;
+const savingReview = renderReview(activeReviewMonth, { selectedId: submitted[0].id, unsaved: true, save: () => { reviewSaveRequests++; return new Promise(resolve => { finishReviewSave = resolve; }); } });
+const evaluationAction = { type: 'saveEvaluation', caseId: submitted[0].id, evaluations: [], rankings: {}, versions: {} };
+const savingReviewRequest = reviewEditor(savingReview).props.save(evaluationAction);
+hookWrites.length = 0;
+reviewDialog(savingReview).props.onClose();
+assert.equal(hookWrites.length, 0, 'Block closing the evaluation immediately while its save is pending.');
+assert.equal(await reviewEditor(savingReview).props.save(evaluationAction), false);
+assert.equal(reviewSaveRequests, 1, 'Avoid duplicate evaluation requests while saving.');
+finishReviewSave(false); assert.equal(await savingReviewRequest, false);
+assert(!hookWrites.some(write => write.index === 0 && write.value === ''), 'A failed save must preserve the selected case and its form.');
+assert(hookWrites.some(write => write.index === 3 && write.value === true));
+assert(JSON.stringify(renderReview(activeReviewMonth, { selectedId: submitted[0].id, failed: true, saveFeedback: '평가 저장 오류' })).includes('평가 저장 오류'), 'Show actionable errors inside the evaluation dialog.');
+const savedReview = renderReview(activeReviewMonth, { selectedId: submitted[0].id, unsaved: true });
+hookWrites.length = 0;
+assert.equal(await reviewEditor(savedReview).props.save(evaluationAction), true);
+assert(hookWrites.some(write => write.index === 0 && write.value === ''), 'A successful save returns to the evaluation list.');
 const noSubmissions = { ...reviewState, cases: reviewState.cases.filter(item => item.examinerId !== reviewUser.id) };
 hookIndex = 0; hookOverrides = [];
 const emptyReview = ui.TestReviewWorkspace({ state: noSubmissions, month: { ...reviewState.months[0], stages: { evaluation: 'stopped' } }, user: reviewUser, busy: false, dirty() {}, save: async () => true, notify() {} });
