@@ -372,9 +372,9 @@ const catalog = adminUI.TestMethodManager(methodManagerProps);
 const aiCards = descendants(catalog).filter(({ element }) => element.type === 'button' && element.props.className?.startsWith('adm-ai-card '));
 assert.deepEqual(Array.from(aiCards, ({ element }) => element.props['aria-label']), ['AI 종류 ChatGPT 수정', 'AI 종류 클로드 수정']);
 assert(aiCards.every(({ element }) => element.props['aria-haspopup'] === 'dialog'));
-assert(!aiCards.some(({ element }) => JSON.stringify(element).includes('선행기술조사')), 'Rank-only comparison methods must be separate from the registered AI cards.');
+assert(!aiCards.some(({ element }) => JSON.stringify(element).includes('선행기술조사')), 'The AI catalog only manages actual AI tools.');
 assert(!descendants(catalog).some(({ element }) => element.type === adminUI.MethodEditor), 'The catalog must not show an inline or initially open editor.');
-for (const editing of ['new', 'claude', 'baseline']) {
+for (const editing of ['new', 'claude']) {
   hookIndex = 0; hookOverrides = ['', 'all', editing];
   const tree = adminUI.TestMethodManager(methodManagerProps);
   const editor = descendants(tree).find(({ element }) => element.type === adminUI.MethodEditor).element;
