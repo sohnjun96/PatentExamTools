@@ -62,7 +62,7 @@ function loadModule(relative, append = '') {
   vm.runInNewContext(outputText, { module, exports: module.exports, require: localRequire, URL, URLSearchParams, console, structuredClone, crypto: webcrypto, window: { confirm(message) { confirmations.push(message); return allowDiscard; } } }, { filename });
   return module.exports;
 }
-const ui = loadModule('app/evaluation/workspace.tsx', '\nexport { CaseResource as TestCaseResource, EvaluationEditor as TestEvaluationEditor, AIResultEditor as TestAIResultEditor, AIWorkspace as TestAIWorkspace };');
+const ui = loadModule('app/evaluation/workspace.tsx', '\nexport { CaseResource as TestCaseResource, EvaluationEditor as TestEvaluationEditor, AIResultEditor as TestAIResultEditor, AIWorkspace as TestAIWorkspace, SelectionEditor as TestSelectionEditor, StageNotice as TestStageNotice, ReviewWorkspace as TestReviewWorkspace };');
 const adminUI = loadModule('app/evaluation/admin-workspace.tsx', '\nexport { AccountManager as TestAccountManager, MethodManager as TestMethodManager };');
 const domain = loadModule('app/lib/evaluation.ts');
 const { BUREAUS } = loadModule('app/lib/bureaus.ts');
@@ -569,6 +569,88 @@ hookIndex = 0; hookOverrides = [revisedSchedule];
 const savingSchedule = adminUI.MonthlyForm({ state: demo, month: closedMonth, busy: true, dirty() {}, onNavigate() {}, save: async () => true });
 assert(descendants(savingSchedule).filter(({ element }) => element.type === 'input').every(({ element }) => element.props.disabled));
 assert.equal(descendants(savingSchedule).find(({ element }) => element.props.children === '월별 운영 저장').element.props.disabled, true);
+// Admin actions carry the chosen month and stage, independently of the date draft.
+let stageAction;
+hookIndex = 0; hookOverrides = [];
+const stageFormProps = { state: demo, month: demo.months[0], busy: false, hasUnsaved: false, dirty() {}, onNavigate() {}, save: async action => { stageAction = action; return true; } };
+const stageForm = adminUI.MonthlyForm(stageFormProps);
+for (const stage of domain.OPERATION_STAGES) {
+  const start = descendants(stageForm).find(({ element }) => element.props['aria-label'] === `${stage.label} 시작`).element;
+  assert.equal(start.props.disabled, true, 'Legacy stages start in their current running state.');
+  for (const [label, status] of [['중지', 'stopped'], ['마감', 'closed']]) {
+    const control = descendants(stageForm).find(({ element }) => element.props['aria-label'] === `${stage.label} ${label}`).element;
+    assert.equal(control.props.disabled, false); control.props.onClick();
+    assert.equal(JSON.stringify(stageAction), JSON.stringify({ type: 'setMonthStage', monthId: demo.months[0].id, stage: stage.id, status }));
+  }
+}
+for (const patch of [{ busy: true }, { hasUnsaved: true }, { month: { ...demo.months[0], closed: true } }]) {
+  hookIndex = 0; hookOverrides = [];
+  const blocked = adminUI.MonthlyForm({ ...stageFormProps, ...patch });
+  const controls = descendants(blocked).filter(({ element }) => domain.OPERATION_STAGES.some(stage => [`${stage.label} 시작`, `${stage.label} 중지`, `${stage.label} 마감`].includes(element.props['aria-label'])));
+  assert.equal(controls.length, 9); assert(controls.every(({ element }) => element.props.disabled));
+}
+hookIndex = 0; hookOverrides = [{ ...adminUI.operatingSettings(demo.months[0]), resultDeadline: '2026-11-05' }];
+const draftStageForm = adminUI.MonthlyForm(stageFormProps);
+assert(descendants(draftStageForm).filter(({ element }) => domain.OPERATION_STAGES.some(stage => [`${stage.label} 시작`, `${stage.label} 중지`, `${stage.label} 마감`].includes(element.props['aria-label']))).every(({ element }) => element.props.disabled));
+const mixedStages = { ...demo.months[0], stages: { selection: 'closed', result: 'stopped', evaluation: 'running' } };
+hookIndex = 0; hookOverrides = [];
+const stoppedStageForm = adminUI.MonthlyForm({ ...stageFormProps, month: mixedStages });
+const restart = descendants(stoppedStageForm).find(({ element }) => element.props['aria-label'] === 'AI 검색 결과 입력 시작').element;
+assert.equal(restart.props.disabled, false); restart.props.onClick(); assert.equal(stageAction.status, 'running');
+hookIndex = 0; hookOverrides = [];
+const mixedSchedule = OperationSchedule({ month: mixedStages });
+assert.equal(JSON.stringify(descendants(mixedSchedule).filter(({ element }) => /operation-stage-status/.test(element.props.className || '')).map(({ element }) => element.props.children)), JSON.stringify(['마감', '중지', '진행 중']));
+for (const status of ['stopped', 'closed']) {
+  const controlledMonth = { ...demo.months[0], stages: { selection: status, result: status, evaluation: status } };
+  for (const [stage, render] of [
+    ['selection', () => ui.TestSelectionEditor({ state: demo, month: controlledMonth, user: demo.users[1], busy: false, dirty() {}, save: async () => true })],
+    ['result', () => ui.TestAIResultEditor({ state: demo, month: controlledMonth, item: demo.cases[0], methodId: 'chatgpt', busy: false, dirty() {}, save: async () => true })],
+    ['evaluation', () => ui.TestEvaluationEditor({ state: demo, month: controlledMonth, item: demo.cases[0], busy: false, dirty() {}, save: async () => true })],
+  ]) {
+    hookIndex = 0; hookOverrides = [];
+    const editor = render();
+    const inputs = descendants(editor).filter(({ element }) => ['input', 'select', 'textarea', 'button'].includes(element.type));
+    assert(inputs.length > 0); assert(inputs.every(({ element }) => element.props.disabled));
+    assert(ui.TestStageNotice({ month: controlledMonth, stage }).props.children.includes('단계가'));
+  }
+}
+// Before evaluation opens, display the examiner's submitted list instead of an editor.
+const reviewState = structuredClone(demo);
+const reviewUser = reviewState.users[0];
+const submitted = reviewState.cases.filter(item => item.examinerId === reviewUser.id);
+reviewState.months.push(domain.emptyMonth('2026-11'));
+reviewState.cases.push({ ...submitted[0], id: 'other-month-case', monthId: '2026-11', applicationNumber: '10-2020-0000001' }, { ...submitted[0], id: 'draft-case', status: 'draft', applicationNumber: '10-2020-0000002' }, { ...submitted[0], id: 'cancelled-case', status: 'cancelled', applicationNumber: '10-2020-0000003' });
+reviewState.results = reviewState.results.filter(result => result.caseId !== submitted[0].id);
+function renderReview(month) {
+  hookIndex = 0; hookOverrides = [];
+  return ui.TestReviewWorkspace({ state: reviewState, month, user: reviewUser, bureau: '기획국', busy: false, dirty() {}, save: async () => true, notify() {} });
+}
+for (const month of [
+  { ...reviewState.months[0], stages: { evaluation: 'stopped' } },
+  { ...reviewState.months[0], stages: { evaluation: 'closed' } },
+  { ...reviewState.months[0], closed: true },
+]) {
+  const tree = renderReview(month);
+  assert.equal(tree.props.title, '제출한 출원 목록');
+  const nodes = descendants(tree);
+  const shown = nodes.filter(({ element }) => element.type === 'tbody').flatMap(({ element }) => element.props.children.map(row => row.props.children[0].props.children));
+  assert.equal(JSON.stringify(shown), JSON.stringify(submitted.map(item => item.applicationNumber)));
+  assert(!nodes.some(({ element }) => element.type === ui.TestEvaluationEditor), 'An inactive evaluation stage must not render disabled evaluation forms.');
+  const searchStatuses = nodes.filter(({ element }) => ['입력 대기', '입력 완료'].includes(element.props.children)).map(({ element }) => element.props.children);
+  assert.equal(JSON.stringify(searchStatuses), JSON.stringify(['입력 대기', '입력 완료']));
+  await nodes.find(({ element }) => element.props.children === '내 업무 자료 엑셀 저장').element.props.onClick();
+  assert.equal(exportedWorkbook.sheets.find(sheet => sheet.name === '출원별 현황').rows.length, submitted.length + 1);
+}
+for (const month of [reviewState.months[0], { ...reviewState.months[0], stages: { evaluation: 'running' } }]) {
+  assert(descendants(renderReview(month)).some(({ element }) => element.type === ui.TestEvaluationEditor), 'Starting or restarting evaluation restores the existing case editor.');
+}
+const noSubmissions = { ...reviewState, cases: reviewState.cases.filter(item => item.examinerId !== reviewUser.id) };
+hookIndex = 0; hookOverrides = [];
+const emptyReview = ui.TestReviewWorkspace({ state: noSubmissions, month: { ...reviewState.months[0], stages: { evaluation: 'stopped' } }, user: reviewUser, busy: false, dirty() {}, save: async () => true, notify() {} });
+assert(descendants(emptyReview).some(({ element }) => element.props.title === '제출한 출원이 없습니다.'));
+hookIndex = 0; hookOverrides = [];
+const selectingReview = ui.TestReviewWorkspace({ state: noSubmissions, month: { ...reviewState.months[0], confirmedUserIds: [], stages: { evaluation: 'stopped' } }, user: reviewUser, busy: false, dirty() {}, save: async () => true, notify() {} });
+assert.equal(selectingReview.type, ui.TestSelectionEditor, 'Before submission, selection remains the primary task.');
 await adminUI.exportAdminStatistics(demo, '2026-10', 'group-a', '', '전기국');
 assert(exportedWorkbook.filename.includes('전기국'));
 assert.deepEqual(Array.from(exportedWorkbook.sheets, sheet => sheet.name), ['그룹별 통계','계정별 현황','출원별 현황','조사 방식별 통계','AI 검색 결과 평가','조회 기준']);

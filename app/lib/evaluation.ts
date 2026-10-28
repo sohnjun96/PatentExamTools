@@ -6,11 +6,20 @@ export type GroupMembership = { userId: string; groupId: string };
 export type MonthParticipant = GroupMembership;
 export type AIAssignment = { groupId: string; methodId: string; userId: string };
 export type Personnel = { memberships: GroupMembership[]; assignments: AIAssignment[] };
+export const OPERATION_STAGES = [
+  { id: 'selection', label: '대상 건 선정', deadline: 'selectionDeadline' },
+  { id: 'result', label: 'AI 검색 결과 입력', deadline: 'resultDeadline' },
+  { id: 'evaluation', label: '평가', deadline: 'evaluationDeadline' },
+] as const;
+export type OperationStage = typeof OPERATION_STAGES[number]['id'];
+export type OperationStageStatus = 'running' | 'stopped' | 'closed';
+export const OPERATION_STAGE_STATUS_LABELS: Record<OperationStageStatus, string> = { running: '진행 중', stopped: '중지', closed: '마감' };
 export type OperationMonth = {
   // Legacy month-level allocations are retained for migration/audit only.
   id: string; methodIds: string[]; participants: MonthParticipant[]; assignments: AIAssignment[];
   closed: boolean; caseLimit: number; selectionDeadline: string; resultDeadline: string; evaluationDeadline: string;
   confirmedUserIds: string[];
+  stages?: Partial<Record<OperationStage, OperationStageStatus>>;
 };
 export type SelectionRow = { applicationNumber: string; cpc: string };
 export type EvaluationCase = SelectionRow & {
@@ -46,6 +55,7 @@ export type EvaluationAction =
   | { type: 'savePersonnel'; personnel: Personnel }
   | { type: 'saveMonth'; month: Omit<OperationMonth, 'confirmedUserIds'> & { confirmedUserIds?: string[] } }
   | { type: 'setMonthClosed'; monthId: string; closed: boolean }
+  | { type: 'setMonthStage'; monthId: string; stage: OperationStage; status: OperationStageStatus }
   | { type: 'saveSelection'; monthId: string; rows: SelectionRow[]; confirm: boolean }
   | { type: 'adminAddCase'; monthId: string; examinerId: string; row: SelectionRow }
   | { type: 'cancelCase'; caseId: string }
@@ -120,8 +130,29 @@ function actorUser(state: EvaluationState, actor: EvaluationActor) {
   return state.users.find((user) => user.id === actor.userId && user.active) ?? fail('활성 사용자를 선택해 주세요.', 403);
 }
 
-function editable(month: OperationMonth) {
+/** Missing statuses belong to legacy months and preserve their existing open workflow. */
+export function operationStageStatus(month: OperationMonth, stage: OperationStage): OperationStageStatus {
+  return month.stages?.[stage] ?? 'running';
+}
+
+export function isOperationStageOpen(month: OperationMonth, stage: OperationStage) {
+  return !month.closed && operationStageStatus(month, stage) === 'running';
+}
+
+export function operationStageBlockReason(month: OperationMonth, stage: OperationStage) {
+  if (month.closed) return '마감한 운영월입니다. 관리자 재개방 후 수정할 수 있습니다.';
+  const status = operationStageStatus(month, stage);
+  if (status === 'running') return null;
+  const label = OPERATION_STAGES.find(entry => entry.id === stage)!.label;
+  return `${label} 단계가 ${status === 'closed' ? '마감' : '중지'}되었습니다. 관리자에게 단계 시작을 요청해 주세요.`;
+}
+
+function editable(month: OperationMonth, stage?: OperationStage) {
   if (month.closed) fail('마감한 운영월입니다. 관리자 재개방 후 수정할 수 있습니다.', 409);
+  if (stage) {
+    const reason = operationStageBlockReason(month, stage);
+    if (reason) fail(reason, 409);
+  }
 }
 
 export function aiMethods(state: EvaluationState, monthId: string) {
@@ -211,6 +242,7 @@ function validateMonth(state: EvaluationState, value: OperationMonth) {
   if (!Array.isArray(value.methodIds) || new Set(value.methodIds).size !== value.methodIds.length || value.methodIds.some((id) => !state.methods.some((method) => method.id === id))) fail('비교 조사 방식을 확인해 주세요.');
   if (!value.methodIds.some((id) => state.methods.some((method) => method.id === id && method.kind === 'ai'))) fail('AI 조사 방식을 한 개 이상 선택해 주세요.');
   if (!Number.isInteger(value.caseLimit) || value.caseLimit < 0 || value.caseLimit > 500) fail('건수 상한은 0~500 정수로 입력해 주세요.');
+  if (value.stages !== undefined && (!value.stages || typeof value.stages !== 'object' || Array.isArray(value.stages) || Object.entries(value.stages).some(([stage, status]) => !OPERATION_STAGES.some(entry => entry.id === stage) || !['running', 'stopped', 'closed'].includes(status)))) fail('단계 운영 상태를 확인해 주세요.');
   for (const date of [value.selectionDeadline, value.resultDeadline, value.evaluationDeadline]) {
     if (typeof date !== 'string') fail('기한 날짜를 확인해 주세요.');
     if (date) {
@@ -336,6 +368,10 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
         if (action.month[key] && JSON.stringify(action.month[key]) !== JSON.stringify(old?.[key] ?? [])) fail('심사관·AI 담당 배정은 심사관 관리에서 저장해 주세요.');
       }
       const month: OperationMonth = { ...action.month, participants: old?.participants ?? [], assignments: old?.assignments ?? [], closed: old?.closed ?? false, confirmedUserIds: old?.confirmedUserIds ?? [] };
+      // Ordinary settings saves, including older clients, cannot reopen stopped stages.
+      if (old) {
+        if (old.stages) month.stages = { ...old.stages }; else delete month.stages;
+      }
       validateMonth(state, month);
       if (old?.closed && (old.caseLimit !== month.caseLimit || JSON.stringify(old.methodIds) !== JSON.stringify(month.methodIds))) fail('마감 월의 건수·비교 AI 설정은 재개방한 후 변경해 주세요.', 409);
       if (old) state.months[state.months.indexOf(old)] = month; else state.months.push(month);
@@ -346,11 +382,19 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       monthOf(state, action.monthId).closed = Boolean(action.closed);
       return state;
     }
+    case 'setMonthStage': {
+      requireAdmin(actor);
+      if (!OPERATION_STAGES.some(entry => entry.id === action.stage) || !['running', 'stopped', 'closed'].includes(action.status)) fail('단계와 운영 상태를 확인해 주세요.');
+      const month = monthOf(state, action.monthId);
+      editable(month);
+      month.stages = { ...month.stages, [action.stage]: action.status };
+      return state;
+    }
     case 'saveSelection': {
       const user = actorUser(state, actor);
       if (!user.roles.includes('examiner')) fail('심사관 역할이 필요합니다.', 403);
       const month = monthOf(state, action.monthId);
-      editable(month);
+      editable(month, 'selection');
       if (month.confirmedUserIds.includes(user.id)) fail('선정 확정한 목록은 관리자만 변경할 수 있습니다.', 409);
       const rows = selectionRows(action.rows);
       if (month.caseLimit && rows.length > month.caseLimit) fail(`해당 월의 선정 상한은 ${month.caseLimit}건입니다.`);
@@ -386,7 +430,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       const user = actorUser(state, actor);
       const item = state.cases.find((entry) => entry.id === action.caseId && entry.status === 'confirmed') ?? fail('확정 출원이 없습니다.');
       const month = monthOf(state, item.monthId);
-      editable(month);
+      editable(month, 'result');
       if (!canInputResult(state, actor, item, action.methodId)) fail('배정받은 그룹과 AI 조사 방식만 입력할 수 있습니다.', 403);
       const documents = documentsFrom(action.documents, !action.publish);
       let result = resultFor(state, item.id, action.methodId);
@@ -406,7 +450,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       const item = state.cases.find((entry) => entry.id === action.caseId && entry.status === 'confirmed') ?? fail('확정 출원이 없습니다.');
       if (item.examinerId !== user.id || !user.roles.includes('examiner')) fail('본인이 선정한 출원만 평가할 수 있습니다.', 403);
       const month = monthOf(state, item.monthId);
-      editable(month);
+      editable(month, 'evaluation');
       if (action.overallComment !== undefined && (typeof action.overallComment !== 'string' || action.overallComment.length > OVERALL_COMMENT_MAX_LENGTH)) fail('총평은 4,000자 이내의 텍스트로 입력해 주세요.');
       const overallComment = action.overallComment === undefined
         ? state.rankings.find((entry) => entry.caseId === item.id)?.overallComment ?? ''

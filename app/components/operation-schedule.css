@@ -16,5 +16,8 @@
 .ev .operation-schedule-date.is-unset { color:var(--ev-muted); font-size:16px; font-weight:400; }
 .ev .operation-schedule-status { margin-top:8px; font-size:14px; color:var(--krds-color-light-danger-70); }
 .operation-schedule-item.is-today .operation-schedule-status { color:var(--krds-color-light-warning-80); }
+.operation-stage-status { display:inline-block; margin-top:10px; padding:3px 8px; border-radius:4px; color:var(--ev-muted); background:var(--krds-color-light-gray-10); font-size:13px; font-weight:600; }
+.operation-stage-status.is-running { color:var(--krds-color-light-primary-70); background:var(--krds-color-light-primary-10); }
+.operation-stage-status.is-stopped { color:var(--krds-color-light-warning-80); background:var(--krds-color-light-warning-10); }
 @media(max-width:1100px) { .operation-schedule-grid { grid-template-columns:minmax(0,1fr); gap:12px; } .operation-schedule-item { padding:16px 18px; } }
 @media(max-width:640px) { .operation-schedule { padding:20px; } .operation-schedule-heading { margin-bottom:16px; } .ev .operation-schedule-heading h2 { font-size:20px; } .ev .operation-schedule-date { font-size:17px; } }

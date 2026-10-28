@@ -240,15 +240,20 @@
 .adm-member-link:hover { border-color:var(--krds-color-light-primary-40); color:var(--krds-color-light-primary-70); }
 .adm-member-inactive { color:var(--ev-muted); font-size:12px; }
 .adm-directory-toolbar { padding:20px 24px; }
-.adm-directory-table { min-width:800px; }
-.adm-directory-table td:first-child { min-width:140px; }
-.adm-directory-table td { overflow-wrap:anywhere; }
+.adm-directory-table { min-width:920px; font-size:18px; line-height:1.65; }
+.adm-directory-table th { padding:18px 20px; font-size:17px; font-weight:600; }
+.adm-directory-table td:first-child { min-width:160px; }
+.adm-directory-table td { padding:18px 20px; overflow-wrap:anywhere; }
+.adm-directory-table .adm-person-name { font-size:19px; }
+.adm-directory-table .adm-pill { padding:5px 10px; font-size:16px; }
 .adm-directory-table .adm-personnel-tags { margin:0; }
 .adm-directory-table td > .adm-pill { margin:6px 0 0 8px; }
+.adm-personnel-directory .adm-section-title .adm-secondary { font-size:16px; }
+.adm-directory-toolbar input,.adm-directory-toolbar select { font-size:17px; }
 .adm-person-name { min-height:44px; padding:4px 0; border:0; color:var(--krds-color-light-primary-70); background:transparent; text-align:left; text-decoration:underline; text-underline-offset:4px; font:inherit; font-weight:700; cursor:pointer; }
 .adm-directory-ai { display:flex; flex-wrap:wrap; gap:8px; margin:0; padding:0; list-style:none; }
-.adm-directory-ai li { padding:5px 10px; border:1px solid var(--ev-line); border-radius:6px; font-size:14px; }
-.adm-directory-ai .adm-secondary { margin:0; font-size:12px; }
+.adm-directory-ai li { padding:6px 12px; border:1px solid var(--ev-line); border-radius:6px; font-size:17px; }
+.adm-directory-ai .adm-secondary { margin:0; font-size:15px; }
 .adm-form-modal.adm-personnel-modal { width:min(920px,calc(100vw - 40px)); }
 .adm-personnel-modal .adm-fieldset { min-width:0; }
 .adm-personnel-modal .adm-table-wrap { max-height:320px; }
@@ -260,6 +265,14 @@
 .adm-assignment-choice span { min-width:76px; color:var(--ev-muted); font-size:13px; }
 .adm-historical-groups { margin-top:16px; }
 .adm-historical-groups summary { padding:10px 0; cursor:pointer; }
+.adm-stage-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
+.adm-stage-card { min-width:0; padding:18px; border:1px solid var(--ev-line); border-radius:10px; }
+.adm-stage-card h3 { font-size:17px; }
+.adm-stage-card .adm-name { flex-wrap:wrap; margin-bottom:16px; }
+.adm-stage-card .adm-actions { margin-top:16px; gap:8px; flex-wrap:wrap; }
+.adm-stage-card .adm-actions>.ev-button { flex:1; min-width:56px; padding:10px; }
+.adm-stage-limit { max-width:320px; margin-top:20px; }
+@media(max-width:1100px) { .adm-stage-grid { grid-template-columns:minmax(0,1fr); } }
 @media(max-width:600px) {
   .adm-group-grid,.adm-directory-toolbar { padding:16px; }
   .adm-form-modal.adm-personnel-modal { width:calc(100vw - 24px); }
