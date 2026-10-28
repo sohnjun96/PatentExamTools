@@ -275,6 +275,14 @@ function createCase(state: EvaluationState, month: OperationMonth, user: Evaluat
   return { ...row, id: uid(), monthId: month.id, examinerId: user.id, examinerName: user.name, bureau: user.bureau, division: user.division, groupId: group.id, groupName: group.name, status };
 }
 
+function cancelEvaluationCase(state: EvaluationState, item: EvaluationCase) {
+  item.status = 'cancelled';
+  if (state.groups.some(group => group.id === item.groupId && group.deletedAt) && !state.cases.some(entry => entry.groupId === item.groupId && entry.status === 'confirmed')) {
+    const personnel = personnelOf(state);
+    state.personnel = { ...personnel, assignments: personnel.assignments.filter(entry => entry.groupId !== item.groupId) };
+  }
+}
+
 function documentsFrom(values: string[], allowEmpty: boolean) {
   if (!Array.isArray(values) || values.length > 7) fail('출원 1건 × AI 방식 1개당 최대 7문헌을 입력할 수 있습니다.');
   const documents = values.map((value) => {
@@ -458,12 +466,26 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       if (!user.roles.includes('examiner')) fail('심사관 역할이 필요합니다.', 403);
       const month = monthOf(state, action.monthId);
       editable(month, 'selection');
-      if (month.confirmedUserIds.includes(user.id)) fail('선정 확정한 목록은 관리자만 변경할 수 있습니다.', 409);
+      const previous = state.cases.filter(entry => entry.monthId === month.id && entry.examinerId === user.id && entry.status === 'confirmed');
+      const submitted = month.confirmedUserIds.includes(user.id) || previous.length > 0;
+      if (submitted && !action.confirm) fail('선정 확정한 목록은 수정 사항 저장으로 반영해 주세요.', 409);
       const rows = selectionRows(action.rows);
-      if (action.confirm && !rows.length) fail('확정할 출원을 한 건 이상 입력해 주세요.');
+      if (action.confirm && !rows.length && !submitted) fail('확정할 출원을 한 건 이상 입력해 주세요.');
       state.cases = state.cases.filter((entry) => !(entry.monthId === month.id && entry.examinerId === user.id && entry.status === 'draft'));
-      state.cases.push(...rows.map((row) => createCase(state, month, user, row, action.confirm ? 'confirmed' : 'draft')));
-      if (action.confirm) month.confirmedUserIds.push(user.id);
+      if (submitted) {
+        const retained = new Set<string>();
+        for (const row of rows) {
+          const existing = previous.find(entry => identity(entry.applicationNumber) === identity(row.applicationNumber));
+          if (existing) {
+            existing.applicationNumber = row.applicationNumber;
+            existing.cpc = row.cpc;
+            retained.add(existing.id);
+          } else state.cases.push(createCase(state, month, user, row, 'confirmed'));
+        }
+        // Removed/replaced applications retain their original results and evaluations for history.
+        for (const item of previous) if (!retained.has(item.id)) cancelEvaluationCase(state, item);
+      } else state.cases.push(...rows.map((row) => createCase(state, month, user, row, action.confirm ? 'confirmed' : 'draft')));
+      if (action.confirm && !month.confirmedUserIds.includes(user.id)) month.confirmedUserIds.push(user.id);
       return state;
     }
     case 'adminAddCase': {
@@ -481,11 +503,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       requireAdmin(actor);
       const item = state.cases.find((entry) => entry.id === action.caseId) ?? fail('출원이 없습니다.');
       editable(monthOf(state, item.monthId));
-      item.status = 'cancelled';
-      if (state.groups.some((group) => group.id === item.groupId && group.deletedAt) && !state.cases.some((entry) => entry.groupId === item.groupId && entry.status === 'confirmed')) {
-        const personnel = personnelOf(state);
-        state.personnel = { ...personnel, assignments: personnel.assignments.filter((entry) => entry.groupId !== item.groupId) };
-      }
+      cancelEvaluationCase(state, item);
       return state;
     }
     case 'saveResult': {

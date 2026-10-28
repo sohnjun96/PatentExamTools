@@ -813,6 +813,30 @@ assert(descendants(emptyReview).some(({ element }) => element.props.title === '�
 hookIndex = 0; hookOverrides = [];
 const selectingReview = ui.TestReviewWorkspace({ state: noSubmissions, month: { ...reviewState.months[0], confirmedUserIds: [], stages: { evaluation: 'stopped' } }, user: reviewUser, busy: false, dirty() {}, save: async () => true, notify() {} });
 assert.equal(selectingReview.type, ui.TestSelectionEditor, 'Before submission, selection remains the primary task.');
+const editableSubmittedMonth = { ...reviewState.months[0], stages: { selection: 'running', evaluation: 'stopped' } };
+const submittedReview = renderReview(editableSubmittedMonth);
+const editSubmitted = descendants(submittedReview.props.action).find(({ element }) => element.props.children === '제출 목록 수정').element;
+editSubmitted.props.onClick();
+assert(hookWrites.some(write => write.index === 2 && write.value === true));
+for (const status of ['stopped', 'closed']) {
+  const lockedReview = renderReview({ ...editableSubmittedMonth, stages: { selection: status, evaluation: 'stopped' } });
+  assert(!descendants(lockedReview.props.action).some(({ element }) => element.props.children === '제출 목록 수정'));
+}
+hookIndex = 0; hookOverrides = ['', false, true];
+const revisingReview = ui.TestReviewWorkspace({ state: reviewState, month: editableSubmittedMonth, user: reviewUser, busy: false, dirty() {}, save: async () => true, notify() {} });
+assert.equal(revisingReview.type, ui.TestSelectionEditor);
+let revisedAction;
+hookIndex = 0; hookOverrides = [];
+const revisedForm = ui.TestSelectionEditor({ ...revisingReview.props, save: async action => { revisedAction = action; return true; } });
+assert.equal(revisedForm.props.title, '제출한 출원 목록 수정');
+assert.equal(descendants(revisedForm).filter(({ element }) => /^출원번호 \d+$/.test(element.props['aria-label'] || '')).length, submitted.length);
+assert(!descendants(revisedForm).some(({ element }) => element.props.children === '임시저장'), 'Submitted edits must not silently turn published tasks into drafts.');
+descendants(revisedForm).find(({ element }) => element.props.children === '수정 사항 저장').element.props.onClick();
+assert.equal(revisedAction.confirm, true);
+assert.equal(revisedAction.rows.length, submitted.length);
+hookIndex = 0; hookOverrides = [[]];
+const withdrawnForm = ui.TestSelectionEditor({ ...revisingReview.props, save: async () => true });
+assert.equal(descendants(withdrawnForm).find(({ element }) => element.props.children === '수정 사항 저장').element.props.disabled, false);
 await adminUI.exportAdminStatistics(demo, '2026-10', 'group-a', '', '전기국');
 assert(exportedWorkbook.filename.includes('전기국'));
 assert.deepEqual(Array.from(exportedWorkbook.sheets, sheet => sheet.name), ['그룹별 통계','계정별 현황','출원별 현황','조사 방식별 통계','AI 검색 결과 평가','조회 기준']);
