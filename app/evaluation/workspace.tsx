@@ -249,7 +249,7 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
       <div className="ev-side-tools">
         {!admin && user && <section className="ev-side-account" aria-label="선택한 사용자">
           <div className="ev-side-user"><span className="ev-avatar" aria-hidden="true">{user.name.slice(0, 1)}</span><div><strong>{user.name}</strong><span>{user.division || '소속 미지정'}</span></div></div>
-          <button type="button" className="krds-btn medium ev-button link" onClick={() => navigate(() => { setUserId(''); setView('review'); })}>사용자 변경</button>
+          <button type="button" className="krds-btn medium ev-button link" onClick={() => navigate(() => { setUserId(''); setView('review'); })}>로그아웃</button>
         </section>}
         {admin && <a className="ev-nav" href={bureauPath(bureau)}><span aria-hidden="true">↗</span>일반사용자 화면</a>}
       </div>
