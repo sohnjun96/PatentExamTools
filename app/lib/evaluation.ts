@@ -2,6 +2,24 @@ export type Role = 'admin' | 'examiner' | 'ai';
 export type EvaluationUser = { id: string; name: string; bureau: string; division: string; roles: Role[]; active: boolean };
 export type EvaluationGroup = { id: string; name: string; deletedAt?: string };
 export type InvestigationMethod = { id: string; name: string; kind: 'ai' | 'baseline'; active: boolean; deletedAt?: string };
+export const DEFAULT_AI_METHODS: readonly InvestigationMethod[] = [
+  { id: 'chatgpt', name: 'ChatGPT', kind: 'ai', active: true },
+  { id: 'claude', name: '클로드', kind: 'ai', active: true },
+  { id: 'gemini', name: 'Gemini', kind: 'ai', active: false },
+  { id: 'perplexity', name: '퍼플렉시티', kind: 'ai', active: false },
+  { id: 'grok', name: 'Grok', kind: 'ai', active: false },
+];
+const DEFAULT_AI_ALIASES: Record<string, readonly string[]> = {
+  chatgpt: ['chatgpt'], claude: ['클로드', 'claude'], gemini: ['gemini', '제미나이'],
+  perplexity: ['퍼플렉시티', 'perplexity'], grok: ['grok', '그록'],
+};
+
+/** Backfill a legacy catalog without replacing IDs, edits, or deletion markers. */
+export function withDefaultAIMethods(methods: InvestigationMethod[]) {
+  const missing = DEFAULT_AI_METHODS.filter((preset) => !methods.some((method) => method.id === preset.id
+    || method.kind === 'ai' && DEFAULT_AI_ALIASES[preset.id].includes(method.name.trim().toLowerCase())));
+  return missing.length ? [...methods, ...missing.map((method) => ({ ...method }))] : methods;
+}
 export type GroupMembership = { userId: string; groupId: string };
 export type MonthParticipant = GroupMembership;
 export type AIAssignment = { groupId: string; methodId: string; userId: string };
@@ -44,6 +62,8 @@ export const LITERATURE_MAX_LENGTH = 2_000;
 export const OVERALL_COMMENT_MAX_LENGTH = 4_000;
 export type EvaluationState = {
   schemaVersion: 1; users: EvaluationUser[]; groups: EvaluationGroup[]; methods: InvestigationMethod[];
+  /** One-time catalog backfill; later administrator edits remain authoritative. */
+  defaultAiCatalogVersion?: 1;
   months: OperationMonth[]; cases: EvaluationCase[]; results: AIResult[]; evaluations: MethodEvaluation[];
   rankings: QualityRanking[]; isDemo: boolean; notice?: EvaluationNotice | null; personnel?: Personnel;
 };
@@ -103,9 +123,8 @@ export function withDefaultOperationMonths(state: EvaluationState): EvaluationSt
 }
 
 export function createInitialState(monthId?: string): EvaluationState {
-  return { schemaVersion: 1, users: [], groups: [], methods: [
-    { id: 'chatgpt', name: 'ChatGPT', kind: 'ai', active: true },
-    { id: 'claude', name: '클로드', kind: 'ai', active: true },
+  return { schemaVersion: 1, defaultAiCatalogVersion: 1, users: [], groups: [], methods: [
+    ...DEFAULT_AI_METHODS.map((method) => ({ ...method })),
     { id: 'baseline', name: '선행기술조사', kind: 'baseline', active: true },
   ], months: (monthId ? [monthId] : DEFAULT_OPERATION_MONTHS).map(emptyMonth), cases: [], results: [], evaluations: [], rankings: [], isDemo: false, notice: null, personnel: { memberships: [], assignments: [] } };
 }
@@ -123,6 +142,7 @@ export function personnelOf(state: EvaluationState): Personnel {
 }
 
 export function normalizeEvaluationState(state: EvaluationState): EvaluationState {
+  if (state.defaultAiCatalogVersion !== 1) state = { ...state, defaultAiCatalogVersion: 1, methods: withDefaultAIMethods(state.methods) };
   return state.personnel ? state : { ...state, personnel: personnelOf(state) };
 }
 
@@ -610,7 +630,7 @@ export function createDemoState(monthId = currentOperationMonth()): EvaluationSt
   state.groups = [{ id: 'group-a', name: '가상 1그룹' }, { id: 'group-b', name: '가상 2그룹' }];
   state.users = Array.from({ length: 10 }, (_, index) => ({ id: `demo-user-${index + 1}`, name: `가상 심사관 ${index + 1}`, bureau: '가상 심사국', division: index < 5 ? '가상 심사1과' : '가상 심사2과', roles: (index === 0 || index === 1 || index === 5 || index === 6 ? ['examiner', 'ai'] : ['examiner']) as Role[], active: true }));
   const month = state.months[0];
-  month.methodIds = state.methods.map((method) => method.id);
+  month.methodIds = state.methods.filter((method) => method.active).map((method) => method.id);
   // Completed demonstration data represents a workflow whose stages already started.
   month.stages = { selection: 'running', result: 'running', evaluation: 'running' };
   state.personnel = { memberships: state.users.map((user, index) => ({ userId: user.id, groupId: index < 5 ? 'group-a' : 'group-b' })), assignments: [ { groupId: 'group-a', methodId: 'chatgpt', userId: 'demo-user-1' }, { groupId: 'group-a', methodId: 'claude', userId: 'demo-user-2' }, { groupId: 'group-b', methodId: 'chatgpt', userId: 'demo-user-6' }, { groupId: 'group-b', methodId: 'claude', userId: 'demo-user-7' } ] };

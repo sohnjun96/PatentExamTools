@@ -444,7 +444,8 @@ const methodManagerProps = { ...managerProps, state: emptyState };
 hookIndex = 0; hookOverrides = [];
 const catalog = adminUI.TestMethodManager(methodManagerProps);
 const aiCards = descendants(catalog).filter(({ element }) => element.type === 'button' && element.props.className?.startsWith('adm-ai-card '));
-assert.deepEqual(Array.from(aiCards, ({ element }) => element.props['aria-label']), ['AI 종류 ChatGPT 수정', 'AI 종류 클로드 수정']);
+assert.deepEqual(Array.from(aiCards, ({ element }) => element.props['aria-label']), ['AI 종류 ChatGPT 수정', 'AI 종류 클로드 수정', 'AI 종류 Gemini 수정', 'AI 종류 퍼플렉시티 수정', 'AI 종류 Grok 수정']);
+assert.deepEqual(Array.from(aiCards, ({ element }) => element.props.className.includes('is-inactive')), [false, false, true, true, true]);
 assert(aiCards.every(({ element }) => element.props['aria-haspopup'] === 'dialog'));
 assert(!aiCards.some(({ element }) => JSON.stringify(element).includes('선행기술조사')), 'The AI catalog only manages actual AI tools.');
 assert(!descendants(catalog).some(({ element }) => element.type === adminUI.MethodEditor), 'The catalog must not show an inline or initially open editor.');
@@ -513,7 +514,7 @@ assert.equal(deleteClosed, 1); assert.equal(JSON.stringify(deletedMethodAction),
 const deletedCatalogState = domain.applyAction(emptyState, { admin: true }, deletedMethodAction);
 hookIndex = 0; hookOverrides = [null];
 const remainingAI = descendants(adminUI.TestMethodManager({ ...methodManagerProps, state: deletedCatalogState })).filter(({ element }) => element.props.className?.startsWith('adm-ai-card '));
-assert.equal(remainingAI.length, 1); assert.equal(remainingAI[0].element.props['aria-label'], 'AI 종류 ChatGPT 수정');
+assert.deepEqual(Array.from(remainingAI, ({ element }) => element.props['aria-label']), ['AI 종류 ChatGPT 수정', 'AI 종류 Gemini 수정', 'AI 종류 퍼플렉시티 수정', 'AI 종류 Grok 수정']);
 hookIndex = 0; hookOverrides = ['claude'];
 assert(!descendants(adminUI.TestMethodManager({ ...methodManagerProps, state: deletedCatalogState })).some(({ element }) => element.type === adminUI.MethodEditor));
 let postDeletionMonth;

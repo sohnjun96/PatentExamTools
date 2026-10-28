@@ -1,4 +1,4 @@
-import { createInitialState, personnelOf, type EvaluationState } from '@/app/lib/evaluation';
+import { createInitialState, personnelOf, withDefaultAIMethods, type EvaluationState } from '@/app/lib/evaluation';
 import type { Bureau } from '@/app/lib/bureaus';
 
 /** Copy only records with an unambiguous legacy bureau, leaving main untouched. */
@@ -28,12 +28,13 @@ export function migrateEvaluationBureau(legacy: EvaluationState, bureau: Bureau)
     ...months.flatMap((month) => month.methodIds),
     ...legacy.results.filter((result) => caseIds.has(result.caseId)).map((result) => result.methodId),
   ]);
-  const methods = [
-    ...initial.methods.filter((method) => !methodIds.has(method.id)),
+  const methods = withDefaultAIMethods([
+    ...initial.methods.filter((method) => method.kind === 'baseline' && !methodIds.has(method.id)),
     ...legacy.methods.filter((method) => methodIds.has(method.id)),
-  ];
+  ]);
   const state: EvaluationState = {
     schemaVersion: 1,
+    defaultAiCatalogVersion: 1,
     personnel: { memberships, assignments: personnel.assignments.filter((entry) => userIds.has(entry.userId) && groupIds.has(entry.groupId)) },
     users,
     groups: legacy.groups.filter((group) => groupIds.has(group.id)),

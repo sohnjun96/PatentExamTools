@@ -8,7 +8,7 @@ assert.equal(stats.summary.participants, 10);
 assert.equal(stats.summary.cases, 20);
 assert.equal(stats.summary.complete, 20);
 assert.equal(stats.rows.length, 280);
-for (const method of stats.methods.filter((entry) => entry.kind === 'ai')) {
+for (const method of stats.methods.filter((entry) => ['chatgpt', 'claude'].includes(entry.id))) {
   assert.equal(method.documents, 140);
   assert.equal(method.averageScore.toFixed(2), '2.86');
   assert.equal((method.citationRate * 100).toFixed(1), '28.6');
@@ -16,6 +16,11 @@ for (const method of stats.methods.filter((entry) => entry.kind === 'ai')) {
 assert.equal(stats.methods.find((entry) => entry.id === 'chatgpt').firstPlace, 20);
 assert.equal(stats.methods.find((entry) => entry.id === 'baseline').documents, 0);
 assert.equal(stats.methods.find((entry) => entry.id === 'baseline').pending, 0);
+for (const id of ['gemini', 'perplexity', 'grok']) {
+  const method = stats.methods.find((entry) => entry.id === id);
+  assert.equal(method.documents, 0, 'Inactive presets must not create sample search results.');
+  assert.equal(method.averageScore, null);
+}
 assert.equal(getStatistics(state, monthId, 'group-a').rows.length, 140);
 assert.equal(getStatistics(state, monthId, '', 'demo-user-1').rows.length, 28);
 assert.equal(getStatistics(state, '2026-11').summary.inputRate, null);

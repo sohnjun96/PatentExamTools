@@ -293,7 +293,38 @@ try {
   for (const key of ['cases', 'results', 'evaluations', 'rankings']) assert.deepEqual(methodDeleted.state[key], methodDeleteBefore.state[key]);
   assert.deepEqual(await store.readEvaluationState('전기국'), electricBeforeMethodDelete);
   assert.equal((await api.POST(deleteMethodRequest(methodDeleteBefore.revision))).status, 409);
-  console.log('Evaluation storage: isolated D1 persistence/CAS; bureau-specific accounts, methods, data and revisions; cross-bureau read/write rejection; selective legacy import; untouched main; scoped demo; URL-only scope and concurrent independent writes verified.');
+  // Legacy UUID-based AI entries must be reused when copying a bureau's work.
+  const catalogLegacy = rules.createDemoState('2026-10');
+  delete catalogLegacy.defaultAiCatalogVersion;
+  catalogLegacy.users.forEach(user => { user.bureau = '기획국'; });
+  catalogLegacy.cases.forEach(item => { item.bureau = '기획국'; });
+  catalogLegacy.methods = catalogLegacy.methods.filter(method => method.id !== 'gemini');
+  catalogLegacy.methods.push({ id: 'existing-gemini', name: 'Gemini', kind: 'ai', active: true });
+  catalogLegacy.personnel.assignments.push({ userId: 'demo-user-1', groupId: 'group-a', methodId: 'existing-gemini' });
+  const scopedCatalog = bureauMigration.migrateEvaluationBureau(catalogLegacy, '기획국');
+  assert.equal(scopedCatalog.methods.filter(method => method.name === 'Gemini').length, 1);
+  assert.equal(scopedCatalog.methods.find(method => method.name === 'Gemini').id, 'existing-gemini');
+  assert.equal(scopedCatalog.methods.filter(method => method.kind === 'ai').length, 5);
+  assert.equal(scopedCatalog.defaultAiCatalogVersion, 1);
+
+  // A normal administrative save persists the catalog backfill exactly once.
+  const oldCatalog = rules.createInitialState('2026-10');
+  delete oldCatalog.defaultAiCatalogVersion;
+  oldCatalog.methods = oldCatalog.methods.filter(method => ['chatgpt', 'claude', 'baseline'].includes(method.id));
+  oldCatalog.methods.push({ id: 'existing-gemini', name: 'Gemini', kind: 'ai', active: true });
+  await db.prepare('UPDATE evaluation_workspace SET payload_json = ?, revision = 97 WHERE id = ?').bind(JSON.stringify(oldCatalog), 'main').run();
+  let catalogRead = await store.readEvaluationState();
+  assert.equal(catalogRead.state.methods.filter(method => method.kind === 'ai').length, 5);
+  assert.equal(catalogRead.state.methods.filter(method => method.name === 'Gemini').length, 1);
+  assert.equal(catalogRead.state.methods.find(method => method.id === 'existing-gemini').active, true);
+  catalogRead = await store.mutateEvaluationState(catalogRead.revision, { admin: true }, { type: 'saveMethod', method: { ...catalogRead.state.methods.find(method => method.id === 'existing-gemini'), name: '기관 Gemini', active: false } });
+  const rawCatalog = await db.prepare('SELECT payload_json FROM evaluation_workspace WHERE id = ?').bind('main').first();
+  assert.equal(JSON.parse(rawCatalog.payload_json).defaultAiCatalogVersion, 1);
+  const catalogReload = await store.readEvaluationState();
+  assert.equal(catalogReload.state.methods.filter(method => method.kind === 'ai').length, 5);
+  assert(!catalogReload.state.methods.some(method => method.id === 'gemini'), 'A renamed UUID entry must not be duplicated on reload.');
+  assert.equal(catalogReload.state.methods.find(method => method.id === 'existing-gemini').active, false);
+  console.log('Evaluation storage: isolated D1/CAS, bureau isolation, selective legacy import, one-time default AI backfill, UUID preset reuse, and preserved administrator edits verified.');
 } finally {
   await mf.dispose();
 }
