@@ -175,11 +175,24 @@ export function mergeOperatingMonth(month: OperationMonth, settings: OperatingSe
   return merged;
 }
 
-export function MonthlyForm({ month, busy, dirty, save, hasUnsaved }: MonthFormProps) {
+export function MonthlyForm({ month, busy, save, hasUnsaved }: MonthFormProps) {
   const [form, setForm] = useState<OperatingSettings>(() => operatingSettings(month));
-  const changed = !same(form, operatingSettings(month)); useEffect(() => dirty(changed), [changed, dirty]);
-  function update(patch: Partial<OperatingSettings>) { setForm((previous) => ({ ...previous, ...patch })); dirty(true); }
-  const stageControlsDisabled = busy || month.closed || changed || hasUnsaved;
+  const saving = useRef(false);
+  useEffect(() => setForm(operatingSettings(month)), [month]);
+  const disabled = busy || hasUnsaved;
+  async function persist(action: EvaluationAction, message: string) {
+    if (disabled || saving.current) return false;
+    saving.current = true;
+    try { return await save(action, message); }
+    finally { saving.current = false; }
+  }
+  async function update(deadline: keyof OperatingSettings, value: string) {
+    if (disabled || saving.current || value === form[deadline]) return;
+    const settings = { ...operatingSettings(month), [deadline]: value };
+    setForm(settings);
+    if (!await persist({ type: 'saveMonth', month: mergeOperatingMonth(month, settings) }, monthLabel(month.id) + ' 운영 기한을 저장했습니다.')) setForm(operatingSettings(month));
+  }
+  const stageControlsDisabled = disabled || month.closed;
   return <>
 
     <Step number={1} title="기본 설정" status={month.closed ? '마감 · 일정 수정 가능' : '기한 선택 사항'} complete>
@@ -187,21 +200,19 @@ export function MonthlyForm({ month, busy, dirty, save, hasUnsaved }: MonthFormP
         const status = operationStageStatus(month, stage.id);
         return <section className="adm-stage-card" key={stage.id} aria-labelledby={`adm-stage-${stage.id}`}>
           <div className="adm-name"><h3 id={`adm-stage-${stage.id}`}>{stage.label}</h3><Pill tone={month.closed || status === 'closed' ? 'is-inactive' : status === 'running' ? 'is-active' : 'is-warning'}>{month.closed ? '월 전체 마감' : OPERATION_STAGE_STATUS_LABELS[status]}</Pill></div>
-          <label className="adm-field">예정 기한<input className="krds-input" type="date" aria-label={`${stage.label} 예정 기한`} disabled={busy} value={form[stage.deadline]} onChange={event => update({ [stage.deadline]: event.target.value })} /></label>
+          <label className="adm-field">예정 기한<input className="krds-input" type="date" aria-label={`${stage.label} 예정 기한`} disabled={disabled} value={form[stage.deadline]} onChange={event => update(stage.deadline, event.target.value)} /></label>
           <div className="adm-actions" role="group" aria-label={`${stage.label} 운영 제어`}>{([
             { status: 'running', label: '시작', message: '시작했습니다.' },
             { status: 'stopped', label: '중지', message: '중지했습니다.' },
             { status: 'closed', label: '마감', message: '마감했습니다.' },
           ] as const).map(action => <Button key={action.status} primary={action.status === 'running' && status !== 'running'} aria-label={`${stage.label} ${action.label}`} aria-pressed={status === action.status} disabled={stageControlsDisabled || status === action.status} onClick={() => {
             if (stageControlsDisabled || status === action.status) return;
-            void save({ type: 'setMonthStage', monthId: month.id, stage: stage.id, status: action.status }, `${monthLabel(month.id)} ${stage.label} 단계를 ${action.message}`);
+            return persist({ type: 'setMonthStage', monthId: month.id, stage: stage.id, status: action.status }, `${monthLabel(month.id)} ${stage.label} 단계를 ${action.message}`);
           }}>{action.label}</Button>)}</div>
         </section>;
       })}</div>
-      {changed || hasUnsaved ? <p className="adm-secondary">설정 변경을 저장하거나 취소하면 단계 상태를 변경할 수 있습니다.</p> : month.closed ? <p className="adm-secondary">월 전체를 재개방하면 각 단계를 제어할 수 있습니다.</p> : null}
+      {month.closed && <p className="adm-secondary">월 전체를 재개방하면 각 단계를 제어할 수 있습니다.</p>}
     </Step>
-
-    <div className="adm-save-bar"><div><strong>{monthLabel(month.id)} 운영 설정</strong>{changed && <p className="adm-secondary adm-dirty is-dirty" role="status">운영 설정 미저장</p>}</div><div className="adm-actions"><Button disabled={busy || !changed} onClick={() => { if (confirmDiscard(changed)) { setForm(operatingSettings(month)); dirty(false); } }}>설정 변경 취소</Button><Button primary disabled={busy || !changed} onClick={() => void save({ type: 'saveMonth', month: mergeOperatingMonth(month, form) }, monthLabel(month.id) + ' 운영 기한을 저장했습니다.')}>월별 운영 저장</Button></div></div>
   </>;
 }
 

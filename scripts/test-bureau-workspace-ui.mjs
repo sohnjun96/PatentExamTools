@@ -607,41 +607,63 @@ assert.equal(adminUI.filterTargetCases(demo, '2026-10', { status: 'complete' }).
 assert.equal(adminUI.filterTargetCases(demo, '2026-11').length, 0);
 assert.equal(adminUI.filterTargetCases(demo, '2026-10', { query: demo.cases[0].applicationNumber.replace(/\D/g, '') }).length, 1);
 assert.equal(adminUI.filterTargetCases(demo, '2026-10', { examinerId: demo.users[0].id }).length, 2);
-const changed = adminUI.operatingSettings(demo.months[0]); changed.selectionDeadline = '2026-11-05';
-hookIndex = 0; hookOverrides = [changed, ''];
-let monthAction;
-const monthForm = adminUI.MonthlyForm({ state: demo, month: demo.months[0], busy: false, dirty() {}, onNavigate() {}, save: async action => { monthAction = action; return true; } });
+function renderMonthlyForm(props = {}) {
+  hookIndex = 0; hookOverrides = [];
+  return adminUI.MonthlyForm({ state: demo, month: demo.months[0], busy: false, hasUnsaved: false, dirty() {}, onNavigate() {}, save: async () => true, ...props });
+}
+let monthAction; const monthlyDirty = [];
+const monthForm = renderMonthlyForm({ dirty: value => monthlyDirty.push(value), save: async action => { monthAction = action; return true; } });
 assert(!descendants(monthForm).some(({ element }) => element.props.title === '비교 AI 선택' || element.type === 'input' && element.props.type === 'checkbox'), 'Monthly operation settings must not require comparison AI selection.');
 assert(!descendants(monthForm).some(({ element }) => element.type === 'select' && /이달 참여 그룹|담당자$/.test(element.props['aria-label'] || '')), 'Personnel controls must appear only in the unified examiner tab.');
-const monthSave = descendants(monthForm).find(({ element }) => element.props.children === '월별 운영 저장').element;
-assert.equal(monthSave.props.disabled, false, 'Missing assignments are guidance; draft month settings remain saveable.');
-monthSave.props.onClick();
+assert(!descendants(monthForm).some(({ element }) => element.props.className === 'adm-save-bar' || ['월별 운영 저장', '설정 변경 취소'].includes(element.props.children)), 'Monthly operations must not show a save/cancel footer.');
+await descendants(monthForm).find(({ element }) => element.props['aria-label'] === '대상 건 선정 예정 기한').element.props.onChange({ target: { value: '2026-11-05' } });
 assert.equal(monthAction.type, 'saveMonth');
+assert.equal(monthAction.month.selectionDeadline, '2026-11-05', 'Changing the date must immediately submit it.');
 assert.equal(monthAction.month.assignments.length, demo.months[0].assignments.length, 'Operating settings must preserve personnel assignments.');
+assert.deepEqual(monthAction.month.stages, demo.months[0].stages);
+assert.deepEqual(monthlyDirty, [], 'Immediate saves must not create manual-save drafts.');
+let liveSchedule = demo;
+for (const [label, deadline, value] of [['대상 건 선정', 'selectionDeadline', '2026-11-01'], ['AI 검색 결과 입력', 'resultDeadline', '2026-11-10'], ['평가', 'evaluationDeadline', '2026-11-20'], ['대상 건 선정', 'selectionDeadline', '']]) {
+  const liveForm = renderMonthlyForm({ state: liveSchedule, month: liveSchedule.months[0], save: async action => { liveSchedule = domain.applyAction(liveSchedule, { admin: true }, action); return true; } });
+  await descendants(liveForm).find(({ element }) => element.props['aria-label'] === `${label} 예정 기한`).element.props.onChange({ target: { value } });
+  assert.equal(liveSchedule.months[0][deadline], value);
+}
+assert.equal(liveSchedule.months[0].resultDeadline, '2026-11-10', 'Later date changes must retain earlier immediate saves.');
+assert.equal(liveSchedule.months[0].evaluationDeadline, '2026-11-20');
+assert.deepEqual(liveSchedule.months[0].stages, demo.months[0].stages);
 const closedMonth = { ...demo.months[0], closed: true };
-hookIndex = 0; hookOverrides = [];
-const closedForm = adminUI.MonthlyForm({ state: demo, month: closedMonth, busy: false, dirty() {}, onNavigate() {}, save: async () => true });
+let scheduleAction;
+const closedForm = renderMonthlyForm({ month: closedMonth, save: async action => { scheduleAction = action; return true; } });
 const modifyingInputs = descendants(closedForm).filter(({ element }) => element.type === 'input' && ['checkbox','date','number'].includes(element.props.type));
 assert.equal(modifyingInputs.length, 3);
 assert(modifyingInputs.filter(({ element }) => element.props.type === 'date').every(({ element }) => element.props.disabled === false));
-assert(modifyingInputs.filter(({ element }) => element.props.type !== 'date').every(({ element }) => element.props.disabled === true));
-const closedSave = descendants(closedForm).find(({ element }) => element.props.children === '월별 운영 저장').element;
-assert.equal(closedSave.props.disabled, true);
-const revisedSchedule = { ...adminUI.operatingSettings(closedMonth), selectionDeadline: '2026-11-01', resultDeadline: '2026-11-10', evaluationDeadline: '2026-11-20' };
-hookIndex = 0; hookOverrides = [revisedSchedule];
-let scheduleAction;
-const scheduleForm = adminUI.MonthlyForm({ state: demo, month: closedMonth, busy: false, dirty() {}, onNavigate() {}, save: async action => { scheduleAction = action; return true; } });
-const scheduleSave = descendants(scheduleForm).find(({ element }) => element.props.children === '월별 운영 저장').element;
-assert.equal(scheduleSave.props.disabled, false, 'Administrators can save schedule changes for an existing closed month.');
-scheduleSave.props.onClick();
-assert.equal(scheduleAction.month.evaluationDeadline, revisedSchedule.evaluationDeadline);
+await modifyingInputs.find(({ element }) => element.props['aria-label'] === '평가 예정 기한').element.props.onChange({ target: { value: '2026-11-20' } });
+assert.equal(scheduleAction.month.evaluationDeadline, '2026-11-20', 'Closed-month dates must also save immediately.');
 assert.equal(scheduleAction.month.closed, true);
 assert.deepEqual(scheduleAction.month.confirmedUserIds, closedMonth.confirmedUserIds);
-hookIndex = 0; hookOverrides = [revisedSchedule];
-const savingSchedule = adminUI.MonthlyForm({ state: demo, month: closedMonth, busy: true, dirty() {}, onNavigate() {}, save: async () => true });
-assert(descendants(savingSchedule).filter(({ element }) => element.type === 'input').every(({ element }) => element.props.disabled));
-assert.equal(descendants(savingSchedule).find(({ element }) => element.props.children === '월별 운영 저장').element.props.disabled, true);
-// Admin actions carry the chosen month and stage, independently of the date draft.
+let releaseSchedule; const concurrentMonthlyActions = [];
+const savingForm = renderMonthlyForm({ save: action => { concurrentMonthlyActions.push(action); return new Promise(resolve => { releaseSchedule = resolve; }); } });
+const savingDates = descendants(savingForm).filter(({ element }) => element.type === 'input' && element.props.type === 'date');
+const savingRequest = savingDates[0].element.props.onChange({ target: { value: '2026-11-02' } });
+await savingDates[1].element.props.onChange({ target: { value: '2026-11-12' } });
+await descendants(savingForm).find(({ element }) => element.props['aria-label'] === '평가 중지').element.props.onClick();
+assert.equal(concurrentMonthlyActions.length, 1, 'An in-flight date save must prevent overlapping date and stage writes before the busy render.');
+releaseSchedule(true); await savingRequest;
+const failedSchedule = renderMonthlyForm({ save: async () => false });
+const writesBeforeFailure = hookWrites.length;
+await descendants(failedSchedule).find(({ element }) => element.props['aria-label'] === '평가 예정 기한').element.props.onChange({ target: { value: '2026-11-25' } });
+const failureWrites = hookWrites.slice(writesBeforeFailure);
+assert.equal(failureWrites[0].value.evaluationDeadline, '2026-11-25');
+assert.equal(failureWrites.at(-1).value.evaluationDeadline, demo.months[0].evaluationDeadline, 'Failed auto-saves must show the last persisted date.');
+for (const patch of [{ busy: true }, { hasUnsaved: true }]) {
+  let disabledWrites = 0;
+  const blockedSchedule = renderMonthlyForm({ ...patch, save: async () => { disabledWrites++; return true; } });
+  const dates = descendants(blockedSchedule).filter(({ element }) => element.type === 'input');
+  assert(dates.every(({ element }) => element.props.disabled));
+  await dates[0].element.props.onChange({ target: { value: '2026-11-30' } });
+  assert.equal(disabledWrites, 0);
+}
+// Stage buttons immediately save their own operation without a manual-save dependency.
 let stageAction;
 hookIndex = 0; hookOverrides = [];
 const stageFormProps = { state: demo, month: demo.months[0], busy: false, hasUnsaved: false, dirty() {}, onNavigate() {}, save: async action => { stageAction = action; return true; } };
@@ -651,7 +673,7 @@ for (const stage of domain.OPERATION_STAGES) {
   assert.equal(start.props.disabled, true, 'Legacy stages start in their current running state.');
   for (const [label, status] of [['중지', 'stopped'], ['마감', 'closed']]) {
     const control = descendants(stageForm).find(({ element }) => element.props['aria-label'] === `${stage.label} ${label}`).element;
-    assert.equal(control.props.disabled, false); control.props.onClick();
+    assert.equal(control.props.disabled, false); await control.props.onClick();
     assert.equal(JSON.stringify(stageAction), JSON.stringify({ type: 'setMonthStage', monthId: demo.months[0].id, stage: stage.id, status }));
   }
 }
@@ -661,14 +683,11 @@ for (const patch of [{ busy: true }, { hasUnsaved: true }, { month: { ...demo.mo
   const controls = descendants(blocked).filter(({ element }) => domain.OPERATION_STAGES.some(stage => [`${stage.label} 시작`, `${stage.label} 중지`, `${stage.label} 마감`].includes(element.props['aria-label'])));
   assert.equal(controls.length, 9); assert(controls.every(({ element }) => element.props.disabled));
 }
-hookIndex = 0; hookOverrides = [{ ...adminUI.operatingSettings(demo.months[0]), resultDeadline: '2026-11-05' }];
-const draftStageForm = adminUI.MonthlyForm(stageFormProps);
-assert(descendants(draftStageForm).filter(({ element }) => domain.OPERATION_STAGES.some(stage => [`${stage.label} 시작`, `${stage.label} 중지`, `${stage.label} 마감`].includes(element.props['aria-label']))).every(({ element }) => element.props.disabled));
 const mixedStages = { ...demo.months[0], stages: { selection: 'closed', result: 'stopped', evaluation: 'running' } };
 hookIndex = 0; hookOverrides = [];
 const stoppedStageForm = adminUI.MonthlyForm({ ...stageFormProps, month: mixedStages });
 const restart = descendants(stoppedStageForm).find(({ element }) => element.props['aria-label'] === 'AI 검색 결과 입력 시작').element;
-assert.equal(restart.props.disabled, false); restart.props.onClick(); assert.equal(stageAction.status, 'running');
+assert.equal(restart.props.disabled, false); await restart.props.onClick(); assert.equal(stageAction.status, 'running');
 hookIndex = 0; hookOverrides = [];
 const mixedSchedule = OperationSchedule({ month: mixedStages });
 assert.equal(JSON.stringify(descendants(mixedSchedule).filter(({ element }) => /operation-stage-status/.test(element.props.className || '')).map(({ element }) => element.props.children)), JSON.stringify(['마감', '중지', '진행 중']));
