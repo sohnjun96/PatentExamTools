@@ -14,7 +14,7 @@ import BureauNotice from '@/app/components/bureau-notice';
 import OperationSchedule from '@/app/components/operation-schedule';
 import LiteratureLink from '@/app/components/literature-link';
 import { literatureLink } from '@/app/lib/literature-link';
-import { personnelOf, preferredOperationMonth } from '@/app/lib/evaluation';
+import { currentGroups, personnelOf, preferredOperationMonth } from '@/app/lib/evaluation';
 import AdminWorkspace, { ADMIN_NAV, readAdminSection, type AdminSection } from './admin-workspace';
 import { exportWorkbook } from '@/app/lib/export-workbook';
 import { readWorkspaceLocation, saveFailureGuidance, viewForRoles } from '@/app/lib/workspace-location';
@@ -211,6 +211,14 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
     const candidates = state?.users.filter((candidate) => candidate.active).sort((a, b) =>
       (a.division || '소속 미지정').localeCompare(b.division || '소속 미지정', 'ko-KR') || a.name.localeCompare(b.name, 'ko-KR'),
     ) || [];
+    const memberships = new Map(state ? personnelOf(state).memberships.map((entry) => [entry.userId, entry.groupId]) : []);
+    const groups = state ? currentGroups(state).sort((a, b) => a.name.localeCompare(b.name, 'ko-KR', { numeric: true })) : [];
+    const groupIds = new Set(groups.map((group) => group.id));
+    const unassigned = candidates.filter((candidate) => !groupIds.has(memberships.get(candidate.id) || ''));
+    const groupedCandidates = [
+      ...groups.map((group) => ({ key: `group:${group.id}`, name: group.name, members: candidates.filter((candidate) => memberships.get(candidate.id) === group.id) })),
+      { key: 'unassigned', name: '그룹 미배정', members: unassigned },
+    ].filter((group) => group.members.length);
     return <div className="ev ev-entry"><a className="ev-skip-link" href="#evaluation-main">본문 바로가기</a>
       <main className="ev-entry-main" id="evaluation-main" tabIndex={-1}>
         <header className="ev-entry-header"><a href="/">AI 선행기술 검색 포털</a><h1>{bureau || '업무 시작'}</h1></header>
@@ -220,23 +228,35 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
           <BureauNotice notice={state.notice} bureau={bureau} />
           <section className="ev-panel ev-examiner-directory" aria-labelledby="examiner-directory-title">
             <div className="ev-panel-head"><h2 id="examiner-directory-title">심사관 선택</h2></div>
-            {candidates.length ? <ul className="ev-examiner-list">{candidates.map((candidate) => <li key={candidate.id}>
-              <button type="button" className="ev-examiner-choice" disabled={loading || busy} onClick={() => { setUserId(candidate.id); setView(viewForRoles(candidate.roles)); }}>
-                <span>{candidate.division || '소속 미지정'} - {candidate.name}</span>{candidate.roles.includes('ai') && <span className="ev-examiner-role">AI 담당자</span>}<span aria-hidden="true">→</span>
-              </button>
-            </li>)}</ul> : <Empty title="선택할 수 있는 심사관이 없습니다.">관리자에게 심사관 등록을 요청해 주세요.</Empty>}
+            {candidates.length ? <div className="ev-examiner-groups">{groupedCandidates.map((group, index) => <section className="ev-examiner-group" key={group.key} aria-labelledby={`examiner-group-${index}`}>
+              <h3 id={`examiner-group-${index}`}>{group.name}</h3>
+              <ul className="ev-examiner-list">{group.members.map((candidate) => <li key={candidate.id}>
+                <button type="button" className="ev-examiner-choice" disabled={loading || busy} onClick={() => { setUserId(candidate.id); setView(viewForRoles(candidate.roles)); }}>
+                  <span>{candidate.division || '소속 미지정'} - {candidate.name}</span>{candidate.roles.includes('ai') && <span className="ev-examiner-role">AI 담당자</span>}<span aria-hidden="true">→</span>
+                </button>
+              </li>)}</ul>
+            </section>)}</div> : <Empty title="선택할 수 있는 심사관이 없습니다.">관리자에게 심사관 등록을 요청해 주세요.</Empty>}
           </section>
         </>}
       </main>
     </div>;
   }
   return <div className="ev"><a className="ev-skip-link" href="#evaluation-main">본문 바로가기</a><div className="ev-shell">
-    <aside className="ev-sidebar"><a className="ev-brand" href={bureauPath(bureau)}><span className="ev-brand-mark" aria-hidden="true">AI</span><span><strong>AI 선행기술 검색 포털</strong><small>{bureau ? `${bureau} AI 검색 결과 평가` : 'AI 검색 결과 평가'}</small></span></a>{bureau && <div className="ev-bureau-context"><strong>{bureau}</strong><span>{admin ? '관리자 업무' : '국별 평가 업무'}</span></div>}
+    <aside className="ev-sidebar"><a className="ev-brand" href={bureauPath(bureau)}><span className="ev-brand-mark" aria-hidden="true">AI</span><span><strong>AI 선행기술 검색 포털</strong><small>{bureau ? `${bureau} AI 검색 결과 평가` : 'AI 검색 결과 평가'}</small></span></a>{(bureau || admin) && <div className="ev-bureau-context"><strong>{bureau || '공용 관리'}</strong><span>{admin ? '관리자 업무' : '국별 평가 업무'}</span></div>}
       <div className="ev-side-label">업무 메뉴</div><nav aria-label="주요 메뉴">
         {admin ? <>{ADMIN_NAV.map((entry) => <button type="button" key={entry.id} className={`ev-nav ${adminSection === entry.id ? 'active' : ''}`} aria-current={adminSection === entry.id ? 'page' : undefined} disabled={busy || !sessionReady} onClick={() => navigate(() => { setAdminSection(entry.id); setView(entry.id === 'overview' ? 'stats' : 'settings'); })}><span aria-hidden="true">{entry.icon}</span>{entry.label}</button>)}</> : <><button className={`ev-nav ${view === 'review' ? 'active' : ''}`} aria-current={view === 'review' ? 'page' : undefined} onClick={() => navigate(() => setView('review'))}><span>▤</span>내 심사 업무</button>{user?.roles.includes('ai') && <button className={`ev-nav ${view === 'ai' ? 'active' : ''}`} aria-current={view === 'ai' ? 'page' : undefined} onClick={() => navigate(() => setView('ai'))}><span>⌕</span>AI 담당 업무</button>}</>}
-      </nav><div className="ev-side-bottom"><div className="ev-connection"><span className="ev-dot" />KIPRIS Plus 연동</div>{admin && <a className="ev-nav" href={bureauPath(bureau)}><span>↗</span>일반사용자 화면</a>}</div>
+      </nav>
+      <div className="ev-side-tools">
+        {!admin && user && <section className="ev-side-account" aria-label="선택한 사용자">
+          <div className="ev-side-user"><span className="ev-avatar" aria-hidden="true">{user.name.slice(0, 1)}</span><div><strong>{user.name}</strong><span>{user.division || '소속 미지정'}</span></div></div>
+          <button type="button" className="krds-btn medium ev-button link" onClick={() => navigate(() => { setUserId(''); setView('review'); })}>사용자 변경</button>
+        </section>}
+        <button type="button" className="krds-btn medium ev-button" disabled={!sessionReady || loading || busy} onClick={refreshLatest} aria-label="최신 자료 새로고침">↻ 새로고침</button>
+        {admin && <a className="ev-nav" href={bureauPath(bureau)}><span aria-hidden="true">↗</span>일반사용자 화면</a>}
+      </div>
+      <div className="ev-side-bottom"><div className="ev-connection"><span className="ev-dot" />KIPRIS Plus 연동</div></div>
     </aside>
-    <main className="ev-main" id="evaluation-main" tabIndex={-1}><header className="ev-topbar"><div className="ev-breadcrumb">AI 선행기술 검색 포털 {bureau && <><span> / </span><strong>{bureau}</strong></>}<span> / </span><b>{loggedIn ? title : '업무 시작'}</b></div><div className="ev-top-actions">{admin ? <Badge>{bureau ? `${bureau} 관리자` : '관리자용 화면'}</Badge> : user ? <><div className="ev-top-user"><span className="ev-avatar">{user.name.slice(0, 1)}</span><span>{user.division} · <b>{user.name}</b></span></div><button className="krds-btn medium ev-button link" onClick={() => navigate(() => { setUserId(''); setView('review'); })}>사용자 변경</button></> : <span className="ev-muted">AI 검색 결과 평가 시스템</span>}<button className="krds-btn medium ev-button tiny" disabled={!sessionReady || loading || busy} onClick={refreshLatest} aria-label="최신 자료 새로고침">↻ 새로고침</button></div></header>
+    <main className="ev-main" id="evaluation-main" tabIndex={-1}>
       <div className="ev-content">{errorFeedback}{sessionReady && notice && <div className="ev-alert success" role="status">{notice}</div>}
         {!sessionReady || loading && !state ? <Empty title="업무 자료를 불러오고 있습니다." /> : !state ? <Empty title="자료에 연결할 수 없습니다."><button className="krds-btn medium ev-button" onClick={() => void load()}>다시 시도</button></Empty> : <>
           <div className="ev-page-heading"><div><h1>{title}</h1></div>{!globalAdmin && <div className="ev-month"><select className="krds-form-select" aria-label="운영월" value={monthId} onChange={(event) => navigate(() => setMonthId(event.target.value))}>{[...state.months].sort((a, b) => b.id.localeCompare(a.id)).map((candidate) => <option key={candidate.id} value={candidate.id}>{monthLabel(candidate.id)} · {candidate.closed ? '마감' : '운영 중'}</option>)}</select><Badge color={month?.closed ? 'orange' : 'green'}>{month?.closed ? '마감' : '운영 중'}</Badge></div>}</div>

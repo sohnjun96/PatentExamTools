@@ -123,10 +123,12 @@ const noticeTime = noticeNodes.find(({ element }) => element.type === 'time').el
 assert.equal(noticeTime.props.dateTime, publicNotice.updatedAt);
 assert(JSON.stringify(noticeTime).includes('19:00'), 'Notice dates must use Asia/Seoul time.');
 
-function renderWorkspaceWithNotice(bureau, { admin = false, selected = false, closed = false, error = '', conflict = false, users } = {}) {
+function renderWorkspaceWithNotice(bureau, { admin = false, selected = false, closed = false, error = '', conflict = false, users, groups = [], memberships = [] } = {}) {
   const state = domain.createInitialState('2026-10');
   state.notice = publicNotice;
   state.users = users ?? [{ id: 'notice-reader', name: '공지 확인자', bureau, division: '시험과', roles: ['examiner'], active: true, groupId: '', responsibilities: [] }];
+  state.groups = groups;
+  state.personnel.memberships = memberships;
   state.months[0].closed = closed;
   const scope = ui.workspaceSessionKey(`simsadesk-workspace-${admin ? 'admin' : 'user'}`, bureau);
   hookIndex = 0; hookOverrides = [];
@@ -172,6 +174,29 @@ hookWrites.length = 0;
 directoryChoices[1].element.props.onClick();
 assert(hookWrites.some(write => write.index === 3 && write.value === 'ai-reader'));
 assert(hookWrites.some(write => write.index === 5 && write.value === 'ai'), 'AI-only users must still enter their assigned AI workspace.');
+const groupedUsers = [
+  ...directoryUsers,
+  { id: 'deleted-group-reader', division: '나과', name: '이전 그룹원', roles: ['examiner'], active: true },
+  { id: 'missing-group-reader', division: '다과', name: '그룹 확인 필요', roles: ['examiner'], active: true },
+];
+for (const bureau of BUREAUS) {
+  const groupedPage = renderWorkspaceWithNotice(bureau, {
+    users: groupedUsers,
+    groups: [{ id: 'ten', name: '10그룹' }, { id: 'deleted', name: '삭제 그룹', deletedAt: '2026-10-28' }, { id: 'empty', name: '빈 그룹' }, { id: 'two', name: '2그룹' }],
+    memberships: [{ userId: 'first-reader', groupId: 'ten' }, { userId: 'ai-reader', groupId: 'two' }, { userId: 'inactive-reader', groupId: 'ten' }, { userId: 'deleted-group-reader', groupId: 'deleted' }, { userId: 'missing-group-reader', groupId: 'missing' }],
+  });
+  const sections = descendants(groupedPage).filter(({ element }) => element.props.className === 'ev-examiner-group');
+  assert.deepEqual(sections.map(({ element }) => descendants(element).find(({ element }) => element.type === 'h3').element.props.children), ['2그룹', '10그룹', '그룹 미배정']);
+  assert.deepEqual(sections.map(({ element }) => descendants(element).filter(({ element }) => element.type === 'button').map(({ element }) => element.props.children[0].props.children.join(''))), [
+    ['가과 - 나영'], ['가과 - 가람'], ['나과 - 이전 그룹원', '다과 - 그룹 확인 필요', '소속 미지정 - 소속 없음'],
+  ], 'Use actual group membership, exclude empty/deleted groups and inactive users, and keep all unassigned users selectable.');
+  assert.equal(descendants(groupedPage).filter(({ element }) => element.props.className === 'ev-examiner-role').length, 1, 'AI badges must remain visible in grouped lists.');
+  const groupAI = descendants(sections[0].element).find(({ element }) => element.type === 'button').element;
+  hookWrites.length = 0;
+  groupAI.props.onClick();
+  assert(hookWrites.some(write => write.index === 3 && write.value === 'ai-reader'));
+  assert(hookWrites.some(write => write.index === 5 && write.value === 'ai'));
+}
 for (const users of [[], directoryUsers.filter(user => !user.active)]) {
   const emptyDirectory = renderWorkspaceWithNotice('기획국', { users });
   assert(descendants(emptyDirectory).some(({ element }) => element.type?.name === 'Empty' && element.props.title === '선택할 수 있는 심사관이 없습니다.'));
