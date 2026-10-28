@@ -65,6 +65,8 @@ try {
   assert.equal(keyReads, 1);
   const failedRefresh = await route.GET(request(query + '&refresh=1'));
   assert.equal(failedRefresh.status, 502);
+  assert.equal(failedRefresh.headers.get('X-Document-Failure-Stage'), 'source');
+  assert(!(await failedRefresh.text()).includes('test-secret'), 'Source failures must not expose credential URLs.');
   assert.equal(await (await route.GET(request(query))).text(), payload, 'A failed refresh leaves the previous PDF intact.');
   available = true; payload = '%PDF-1.7\nupdated';
   const refresh = await route.GET(request(query + '&refresh=1'));

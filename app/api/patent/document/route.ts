@@ -8,6 +8,7 @@ import { envValue } from '@/app/lib/runtime-env';
 import { patentDocumentCache } from '@/app/lib/patent-document-cache';
 
 export async function GET(request: NextRequest) {
+  let phase = 'request';
   try {
     const documentRequest = parseDocumentRequest(request.nextUrl.searchParams);
     const refresh = request.nextUrl.searchParams.get('refresh') === '1';
@@ -20,13 +21,21 @@ export async function GET(request: NextRequest) {
       },
     });
     if (request.nextUrl.searchParams.get('metadata') === '1') {
+      phase = 'metadata';
       const info = (!refresh && await patentDocumentCache.find(documentRequest)) || await service().metadata(documentRequest);
       const params = new URLSearchParams({ applicationNumber: info.applicationNumber, kind: info.kind, download: '1' });
       if (refresh) params.set('refresh', '1');
       return NextResponse.json({ applicationNumber: info.applicationNumber, kind: info.kind, fileName: info.fileName,
         downloadUrl: `/api/patent/document?${params.toString()}` }, { headers: { 'Cache-Control': 'private, no-store' } });
     }
-    const info = await patentDocumentCache.get(documentRequest, () => service().download(documentRequest), refresh);
+    phase = 'cache';
+    const info = await patentDocumentCache.get(documentRequest, async () => {
+      phase = 'source';
+      const file = await service().download(documentRequest);
+      phase = 'cache';
+      return file;
+    }, refresh);
+    phase = 'response';
     return new Response(info.body(), { headers: {
       'Content-Type': 'application/pdf',
       'Content-Disposition': `${request.nextUrl.searchParams.get('download') === '1' ? 'attachment' : 'inline'}; filename="${info.fileName}"; filename*=UTF-8''${encodeURIComponent(info.fileName)}`,
@@ -40,7 +49,8 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     const known = error instanceof PatentDocumentError || error instanceof HttpError;
     return NextResponse.json({ error: known ? error.message : '전문 PDF를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.' }, {
-      status: known ? error.status : 502, headers: { 'Cache-Control': 'private, no-store' },
+      status: known ? error.status : 502,
+      headers: { 'Cache-Control': 'private, no-store', 'X-Document-Failure-Stage': phase },
     });
   }
 }
