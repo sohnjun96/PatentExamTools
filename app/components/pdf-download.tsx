@@ -10,15 +10,16 @@ import './pdf-download.css';
 export type PdfNumberType = 'application' | 'publication' | 'registration';
 export type PdfKind = 'publication' | 'registration';
 export type PdfDownloadStatus = 'loading' | 'saved' | 'requested' | 'error' | 'cancelled';
-export function pdfUrl(number: string, kind: PdfKind = 'publication', numberType: PdfNumberType = 'application') {
+export function pdfUrl(number: string, kind: PdfKind = 'publication', numberType: PdfNumberType = 'application', refresh = false) {
   const query = new URLSearchParams({ kind, numberType, download: '1' });
   if (numberType === 'application') query.set('applicationNumber', number);
   else { query.set('documentNumber', number); query.set('numberType', numberType); }
+  if (refresh) query.set('refresh', '1');
   return '/api/patent/document?' + query;
 }
 
-export async function fetchPdf(number: string, kind: PdfKind, numberType: PdfNumberType = 'application', signal?: AbortSignal) {
-  return fetchPdfResponse(pdfUrl(number, kind, numberType), {
+export async function fetchPdf(number: string, kind: PdfKind, numberType: PdfNumberType = 'application', signal?: AbortSignal, refresh = false) {
+  return fetchPdfResponse(pdfUrl(number, kind, numberType, refresh), {
     signal,
     responseError: (status, message) => new DocumentDownloadError(documentResponseMessage(status, message, kind)),
     invalidPdfError: () => new DocumentDownloadError('PDF 원문을 확인할 수 없습니다. 다시 시도해 주세요. 계속되면 관리자에게 문헌번호를 알려 주세요.'),

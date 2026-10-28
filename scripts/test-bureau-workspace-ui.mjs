@@ -24,6 +24,7 @@ function PdfStub(props) {
   return require('react/jsx-runtime').jsx('button', { disabled: props.disabled, onClick: () => { if (!props.disabled) downloads++; }, children: props.label });
 }
 function TargetStub(props) { return PdfStub({ ...props, kind: 'publication', numberType: 'application', quickDownload: true, label: props.context === 'list' ? '공개공보 PDF 받기' : '대상 출원 공개공보 PDF' }); }
+function TargetArchiveStub() { return null; }
 function NoticeMarkdownStub(props) { return require('react/jsx-runtime').jsx('div', { children: props.markdown }); }
 function NoticeManagerStub() { return null; }
 function loadModule(relative, append = '') {
@@ -38,6 +39,7 @@ function loadModule(relative, append = '') {
     if (id === 'react/jsx-runtime') return require(id);
     if (id.endsWith('/pdf-download')) return PdfStub;
     if (id.endsWith('/target-publication-download')) return TargetStub;
+    if (id.endsWith('/target-publication-archive')) return TargetArchiveStub;
     if (id.endsWith('/accessible-dialog')) return loadModule('app/components/accessible-dialog.tsx');
     if (id === './examiner-manager') return loadModule('app/evaluation/examiner-manager.tsx');
     if (id === './admin-workspace') return loadModule('app/evaluation/admin-workspace.tsx');
@@ -60,7 +62,7 @@ function loadModule(relative, append = '') {
   vm.runInNewContext(outputText, { module, exports: module.exports, require: localRequire, URL, URLSearchParams, console, structuredClone, crypto: webcrypto, window: { confirm(message) { confirmations.push(message); return allowDiscard; } } }, { filename });
   return module.exports;
 }
-const ui = loadModule('app/evaluation/workspace.tsx', '\nexport { CaseResource as TestCaseResource, EvaluationEditor as TestEvaluationEditor, AIResultEditor as TestAIResultEditor };');
+const ui = loadModule('app/evaluation/workspace.tsx', '\nexport { CaseResource as TestCaseResource, EvaluationEditor as TestEvaluationEditor, AIResultEditor as TestAIResultEditor, AIWorkspace as TestAIWorkspace };');
 const adminUI = loadModule('app/evaluation/admin-workspace.tsx', '\nexport { AccountManager as TestAccountManager, MethodManager as TestMethodManager };');
 const domain = loadModule('app/lib/evaluation.ts');
 const { BUREAUS } = loadModule('app/lib/bureaus.ts');
@@ -251,6 +253,24 @@ assert.equal(aiDetailNodes.filter(({ element }) => element.type === PdfStub).len
 const aiTarget = aiDetailNodes.find(({ element }) => element.type === TargetStub).element;
 assert.equal(aiTarget.props.applicationNumber, item.applicationNumber);
 assert.equal(aiTarget.props.context, 'detail');
+
+// Bulk targets come from all assigned work, even when the visible list only shows pending work.
+const archiveState = domain.createDemoState('2026-10'); archiveState.isDemo = false;
+const archiveUser = archiveState.users.find(user => user.id === 'demo-user-1');
+const ownAssignments = archiveState.personnel.assignments.filter(entry => entry.userId === archiveUser.id && archiveState.months[0].methodIds.includes(entry.methodId));
+const expectedTargets = archiveState.cases.filter(entry => entry.status === 'confirmed' && entry.monthId === '2026-10').flatMap(entry => ownAssignments.filter(assignment => assignment.groupId === entry.groupId).map(() => entry.applicationNumber));
+for (const filter of ['', 'pending']) {
+  hookIndex = 0; hookOverrides = ['', false, filter];
+  const tree = ui.TestAIWorkspace({ state: archiveState, month: archiveState.months[0], user: archiveUser, bureau: '기획국', busy: false, dirty() {}, save: async () => true, notify() {} });
+  const archive = descendants(tree).find(({ element }) => element.type === TargetArchiveStub).element;
+  assert.equal(JSON.stringify(archive.props.applicationNumbers), JSON.stringify(expectedTargets));
+  assert.equal(archive.props.monthId, '2026-10'); assert.equal(archive.props.bureau, '기획국'); assert.equal(archive.props.disabled, false);
+}
+for (const options of [{ state: { ...archiveState, isDemo: true }, busy: false }, { state: archiveState, busy: true }]) {
+  hookIndex = 0; hookOverrides = [];
+  const tree = ui.TestAIWorkspace({ ...options, month: archiveState.months[0], user: archiveUser, dirty() {}, save: async () => true, notify() {} });
+  assert.equal(descendants(tree).find(({ element }) => element.type === TargetArchiveStub).element.props.disabled, true);
+}
 
 assert.deepEqual(Array.from(adminUI.ADMIN_NAV, entry => entry.id), ['overview', 'examiners', 'ai', 'month', 'cases', 'notices']);
 assert.equal(adminUI.readAdminSection(null, '전기국', 'settings'), 'examiners');

@@ -1,0 +1,9 @@
+.target-publication-archive { margin-bottom:24px; padding:20px; border:1px solid var(--ev-line); border-radius:10px; background:#fff; }
+.target-publication-archive-actions { display:flex; align-items:center; flex-wrap:wrap; gap:16px; }
+.target-publication-archive-actions label { display:flex; align-items:center; gap:8px; font-size:15px; }
+.target-publication-archive-actions input { width:18px; height:18px; }
+.target-publication-archive p,.target-publication-archive details { margin-top:12px; font-size:14px; overflow-wrap:anywhere; }
+.target-publication-archive summary { cursor:pointer; }
+.target-publication-archive ul { padding-left:20px; }
+.target-publication-archive li { margin-top:8px; }
+@media(max-width:640px) { .target-publication-archive { padding:16px; } .target-publication-archive-actions>.primary { width:100%; } }
