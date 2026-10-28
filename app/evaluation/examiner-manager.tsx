@@ -69,7 +69,7 @@ export default function ExaminerManager(props: Props) {
         const members = state.users.filter((user) => personnel.memberships.some((entry) => entry.groupId === group.id && entry.userId === user.id));
         return <article className="adm-group-card" key={group.id}>
           <header><div><h3>{group.name}</h3><span className="adm-secondary">{members.length}명</span></div><div className="adm-group-actions"><Button disabled={busy} aria-haspopup="dialog" aria-label={groupTitle(group.name) + ' 수정'} onClick={() => open({ kind: 'group', id: group.id })}>수정</Button><Button className="danger" disabled={busy} aria-haspopup="dialog" aria-label={groupTitle(group.name) + ' 삭제'} onClick={() => open({ kind: 'delete-group', id: group.id })}>삭제</Button></div></header>
-          {members.length ? <ul className="adm-group-members" aria-label={group.name + ' 그룹원'}>{members.map((user) => <li key={user.id}><button type="button" className="adm-member-link" disabled={busy} aria-haspopup="dialog" aria-label={group.name + ' 그룹원 ' + user.name + ' 정보 수정'} onClick={() => open({ kind: 'account', id: user.id })}>{user.name}{!user.active && <span className="adm-member-inactive">비활성</span>}</button></li>)}</ul> : <p className="adm-secondary">그룹원 없음</p>}
+          {members.length ? <ul className="adm-group-members" aria-label={group.name + ' 그룹원'}>{members.map((user) => <li key={user.id}><button type="button" className="adm-member-link" disabled={busy} aria-haspopup="dialog" aria-label={group.name + ' 그룹원 ' + user.name + (user.roles.includes('ai') ? ' AI 담당자' : '') + ' 정보 수정'} onClick={() => open({ kind: 'account', id: user.id })}>{user.name}{user.roles.includes('ai') && <span className="ev-examiner-role">AI 담당자</span>}{!user.active && <span className="adm-member-inactive">비활성</span>}</button></li>)}</ul> : <p className="adm-secondary">그룹원 없음</p>}
         </article>;
       })}</div> : <Empty title="등록된 그룹이 없습니다." />}
     </section>
@@ -86,7 +86,7 @@ export default function ExaminerManager(props: Props) {
         const group = groups.find((entry) => entry.id === membership?.groupId);
         const responsibilities = personnel.assignments.filter((entry) => entry.userId === user.id);
         return <tr key={user.id}>
-          <td><button type="button" className="adm-person-name" disabled={busy} aria-haspopup="dialog" aria-label={user.name + ' 심사관 정보 수정'} onClick={() => open({ kind: 'account', id: user.id })}>{user.name}</button>{!user.active && <Pill inactive>비활성</Pill>}</td>
+          <td><button type="button" className="adm-person-name" disabled={busy} aria-haspopup="dialog" aria-label={user.name + ' 심사관 정보 수정'} onClick={() => open({ kind: 'account', id: user.id })}>{user.name}</button>{user.roles.includes('ai') && <span className="ev-examiner-role adm-person-ai-role">AI 담당자</span>}{!user.active && <Pill inactive>비활성</Pill>}</td>
           <td>{user.division || '—'}</td><td>{group?.name || '그룹 미배정'}</td>
           <td><div className="adm-personnel-tags">{user.roles.map((value) => <Pill key={value}>{roles.find((entry) => entry.value === value)?.label || value}</Pill>)}</div></td>
           <td>{responsibilities.length ? <ul className="adm-directory-ai">{responsibilities.map((entry) => {

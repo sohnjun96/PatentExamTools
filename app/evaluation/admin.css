@@ -251,6 +251,7 @@
 .adm-personnel-directory .adm-section-title .adm-secondary { font-size:16px; }
 .adm-directory-toolbar input,.adm-directory-toolbar select { font-size:17px; }
 .adm-person-name { min-height:44px; padding:4px 0; border:0; color:var(--krds-color-light-primary-70); background:transparent; text-align:left; text-decoration:underline; text-underline-offset:4px; font:inherit; font-weight:700; cursor:pointer; }
+.adm-person-ai-role { margin-left:8px; vertical-align:middle; }
 .adm-directory-ai { display:flex; flex-wrap:wrap; gap:8px; margin:0; padding:0; list-style:none; }
 .adm-directory-ai li { padding:6px 12px; border:1px solid var(--ev-line); border-radius:6px; font-size:17px; }
 .adm-directory-ai .adm-secondary { margin:0; font-size:15px; }
