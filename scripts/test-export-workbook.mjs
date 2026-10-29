@@ -5,6 +5,7 @@ import JSZip from 'jszip';
 import { XMLParser } from 'fast-xml-parser';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
+import { LITERATURE_REPORT_MAX_LENGTH } from '../app/lib/evaluation.ts';
 
 const require = createRequire(import.meta.url);
 let source = await readFile(new URL('../app/lib/export-workbook.ts', import.meta.url), 'utf8');
@@ -33,4 +34,10 @@ assert.equal(worksheet.sheetData.row[2].c[3].is.t['#text'], '한글 & < > " \'\n
 assert.equal(worksheet.sheetViews.sheetView.pane['@_state'], 'frozen');
 assert.equal(worksheet.autoFilter['@_ref'], 'A1:D3');
 assert.equal(await exportWorkbook('cancel.xlsx', sheets), null, 'cancel skips generating/saving file');
+const maximumReport = '가'.repeat(LITERATURE_REPORT_MAX_LENGTH);
+assert(maximumReport.length <= 32767, 'The report limit must fit Excel\'s single cell text limit.');
+const reportBlob = await createWorkbookBlob([{ name: '선행기술 보고서', rows: [['보고서 (마크다운)'], [maximumReport]] }]);
+const reportZip = await JSZip.loadAsync(await reportBlob.arrayBuffer());
+const reportSheet = parser.parse(await reportZip.file('xl/worksheets/sheet1.xml').async('string')).worksheet;
+assert.equal(reportSheet.sheetData.row[1].c.is.t['#text'], maximumReport, 'A maximum-length Korean report must survive XLSX export without truncation.');
 console.log('Workbook tests passed: real XLSX structure, sheet names, identifiers, zero/null, formula safety, Unicode, cancel.');

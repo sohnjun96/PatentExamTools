@@ -46,6 +46,7 @@ export function migrateEvaluationBureau(legacy: EvaluationState, bureau: Bureau)
       // Published literature belongs to the scoped case; another bureau's
       // identity and unpublished edit do not belong to this workspace.
       draftDocuments: userIds.has(result.draftAuthorId) ? result.draftDocuments : [],
+      draftDocumentDetails: userIds.has(result.draftAuthorId) ? result.draftDocumentDetails : [],
       draftAuthorId: userIds.has(result.draftAuthorId) ? result.draftAuthorId : '',
       publishedBy: result.publishedBy && userIds.has(result.publishedBy.id) ? result.publishedBy : null,
     })),

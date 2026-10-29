@@ -24,9 +24,11 @@ const components: Components = {
   table: ({ children }) => <div className="notice-markdown-table" role="region" aria-label="공지사항 표" tabIndex={0}><table>{children}</table></div>,
 };
 
-export default function NoticeMarkdown({ markdown }: { markdown: string }) {
+export default function NoticeMarkdown({ markdown, tableLabel = '공지사항 표' }: { markdown: string; tableLabel?: string }) {
   return <div className="notice-markdown">
-    <Markdown remarkPlugins={[remarkGfm]} skipHtml urlTransform={noticeUrlTransform} components={components}
+    <Markdown remarkPlugins={[remarkGfm]} skipHtml urlTransform={noticeUrlTransform} components={{ ...components,
+      table: ({ children }) => <div className="notice-markdown-table" role="region" aria-label={tableLabel} tabIndex={0}><table>{children}</table></div>,
+    }}
       remarkRehypeOptions={{ footnoteLabel: '각주', footnoteBackLabel: '본문으로 돌아가기' }}>
       {markdown}
     </Markdown>

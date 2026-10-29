@@ -18,7 +18,7 @@ const hookWrites = [];
 const hookEffects = [];
 const hooks = {
   useState(initial) { const index = hookIndex++; return [index in hookOverrides ? hookOverrides[index] : typeof initial === 'function' ? initial() : initial, value => hookWrites.push({ index, value })]; },
-  useEffect(effect) { hookEffects.push(effect); }, useCallback: value => value, useMemo: callback => callback(), useRef: value => ({ current: value }),
+  useEffect(effect) { hookEffects.push(effect); }, useCallback: value => value, useMemo: callback => callback(), useRef: value => ({ current: value }), useId: () => 'test-editor',
 };
 function PdfStub(props) {
   return require('react/jsx-runtime').jsx('button', { disabled: props.disabled, onClick: () => { if (!props.disabled) downloads++; }, children: props.label });
@@ -33,7 +33,7 @@ function loadModule(relative, append = '') {
     fileName: filename,
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
   });
-  const module = { exports: {} };
+  const moduleRecord = { exports: {} };
   const localRequire = (id) => {
     if (id === 'react') return hooks;
     if (id === 'react/jsx-runtime') return require(id);
@@ -44,13 +44,15 @@ function loadModule(relative, append = '') {
     if (id === './examiner-manager') return loadModule('app/evaluation/examiner-manager.tsx');
     if (id === './admin-workspace') return loadModule('app/evaluation/admin-workspace.tsx');
     if (id === './notice-manager') return NoticeManagerStub;
+    if (id === './literature-editor') return loadModule('app/evaluation/literature-editor.tsx');
     if (id.endsWith('/bureau-notice')) return loadModule('app/components/bureau-notice.tsx');
     if (id === '@/app/components/operation-schedule') return loadModule('app/components/operation-schedule.tsx');
     if (id === '@/app/lib/operation-schedule') return loadModule('app/lib/operation-schedule.ts');
     if (id === '@/app/components/literature-link') return loadModule('app/components/literature-link.tsx');
+    if (id === '@/app/components/literature-details') return loadModule('app/components/literature-details.tsx');
     if (id === '@/app/lib/literature-link') return loadModule('app/lib/literature-link.ts');
     if (id.endsWith('/evaluation-guidance')) return loadModule('app/lib/evaluation-guidance.ts');
-    if (id === './notice-markdown') return NoticeMarkdownStub;
+    if (id.endsWith('/notice-markdown')) return NoticeMarkdownStub;
     if (id.endsWith('/evaluation')) return loadModule('app/lib/evaluation.ts');
     if (id.endsWith('/admin-guidance')) return loadModule('app/lib/admin-guidance.ts');
     if (id.endsWith('/export-workbook')) return { exportWorkbook: async (filename, sheets) => { exportedWorkbook = { filename, sheets }; return 'saved'; } };
@@ -59,10 +61,10 @@ function loadModule(relative, append = '') {
     if (id.startsWith('@/app/') || id.endsWith('.css')) return {};
     return require(id);
   };
-  vm.runInNewContext(outputText, { module, exports: module.exports, require: localRequire, URL, URLSearchParams, console, structuredClone, crypto: webcrypto, window: { confirm(message) { confirmations.push(message); return allowDiscard; } } }, { filename });
-  return module.exports;
+  vm.runInNewContext(outputText, { module: moduleRecord, exports: moduleRecord.exports, require: localRequire, URL, URLSearchParams, console, structuredClone, crypto: webcrypto, window: { confirm(message) { confirmations.push(message); return allowDiscard; } } }, { filename });
+  return moduleRecord.exports;
 }
-const ui = loadModule('app/evaluation/workspace.tsx', '\nexport { CaseResource as TestCaseResource, EvaluationEditor as TestEvaluationEditor, AIResultEditor as TestAIResultEditor, AIWorkspace as TestAIWorkspace, SelectionEditor as TestSelectionEditor, StageNotice as TestStageNotice, ReviewWorkspace as TestReviewWorkspace };');
+const ui = loadModule('app/evaluation/workspace.tsx', '\nexport { CaseResource as TestCaseResource, EvaluationEditor as TestEvaluationEditor, AIResultEditor as TestAIResultEditor, AIWorkspace as TestAIWorkspace, SelectionEditor as TestSelectionEditor, StageNotice as TestStageNotice, ReviewWorkspace as TestReviewWorkspace, exportPersonal as TestExportPersonal };');
 const adminUI = loadModule('app/evaluation/admin-workspace.tsx', '\nexport { AccountManager as TestAccountManager, MethodManager as TestMethodManager };');
 const domain = loadModule('app/lib/evaluation.ts');
 const { BUREAUS } = loadModule('app/lib/bureaus.ts');
@@ -681,6 +683,58 @@ const paperOnly = domain.applyAction(mixedState, { userId: 'demo-user-1' }, { ty
 hookIndex = 0; hookOverrides = [];
 const paperOnlyTree = ui.TestAIResultEditor({ ...mixedProps, state: paperOnly });
 assert(!descendants(paperOnlyTree).some(({ element }) => element.type === 'a' && element.props.href?.startsWith('/documents?numbers=')), 'Paper-only results must not offer patent PDF collection.');
+const structuredDocuments = domain.normalizeLiteratureDocuments([
+  { kind: 'patent', number: 'KR20100001234A', url: 'https://example.test/published-patent', reportMarkdown: '## 공개 특허 보고서\n\n구성 대비 내용.' },
+  { kind: 'non-patent', authors: 'Lee, S.', title: 'A structured reference', publication: 'Research Journal', publicationPlace: 'Seoul', publisher: 'Research Press', publicationDate: '2020-06', volume: 'Vol. 1', issue: 'No. 3', pages: 'pp. 12–16', acquiredDate: '2026-10-30', dateNote: '발행일 미상', url: 'https://example.test/published-paper', reportMarkdown: '## 공개 논문 보고서\n\n관련 구성과 근거.' },
+]);
+let structuredState = domain.applyAction(demo, { userId: 'demo-user-1' }, { type: 'saveResult', caseId: demo.cases[0].id, methodId: 'chatgpt', documents: structuredDocuments.map(document => document.number), documentDetails: structuredDocuments, publish: true });
+const privateDraftDocuments = structuredDocuments.map(document => ({ ...document, url: 'https://example.test/private-draft', reportMarkdown: '심사관에게 보이면 안 되는 수정 초안' }));
+structuredState = domain.applyAction(structuredState, { userId: 'demo-user-1' }, { type: 'saveResult', caseId: demo.cases[0].id, methodId: 'chatgpt', documents: privateDraftDocuments.map(document => document.number), documentDetails: privateDraftDocuments, publish: false });
+const structuredProps = { ...mixedProps, state: structuredState };
+hookIndex = 0; hookOverrides = [];
+const structuredEvaluation = ui.TestEvaluationEditor(structuredProps);
+const structuredEvaluationNodes = descendants(structuredEvaluation);
+for (const document of structuredDocuments) {
+  const link = structuredEvaluationNodes.find(({ element }) => element.type?.name === 'LiteratureLink' && element.props.reference === document.number).element;
+  assert.equal(link.props.url, document.url, 'Examiner links must use the published source URL.');
+  assert.equal(link.type(link.props).props.href, document.url);
+  const detail = structuredEvaluationNodes.find(({ element }) => element.type?.name === 'LiteratureDetails' && element.props.document.number === document.number).element;
+  assert.deepEqual(JSON.parse(JSON.stringify(detail.props.document)), JSON.parse(JSON.stringify(document)), 'Examiner details must receive the published bibliography and report.');
+  const expandedDetails = descendants(detail.type(detail.props));
+  assert.equal(expandedDetails.find(({ element }) => element.type === NoticeMarkdownStub).element.props.markdown, document.reportMarkdown);
+}
+assert(!JSON.stringify(structuredEvaluation).includes('심사관에게 보이면 안 되는 수정 초안'));
+let savedStructuredAction;
+hookIndex = 0; hookOverrides = [];
+const structuredAI = ui.TestAIResultEditor({ ...structuredProps, save: async action => { savedStructuredAction = action; return true; } });
+const structuredAINodes = descendants(structuredAI);
+const structuredInputEditor = structuredAINodes.find(({ element }) => element.type?.name === 'LiteratureEditor').element;
+assert.deepEqual(JSON.parse(JSON.stringify(structuredInputEditor.props.initialDocuments)), JSON.parse(JSON.stringify(privateDraftDocuments)), 'AI editors must restore the private draft separately from publication.');
+for (const document of structuredDocuments) {
+  const detail = structuredAINodes.find(({ element }) => element.type?.name === 'LiteratureDetails' && element.props.document.number === document.number).element;
+  assert.deepEqual(JSON.parse(JSON.stringify(detail.props.document)), JSON.parse(JSON.stringify(document)), 'The AI publication preview must keep showing the published report.');
+}
+await structuredInputEditor.props.onSave(privateDraftDocuments, false);
+assert.equal(savedStructuredAction.type, 'saveResult');
+assert.equal(savedStructuredAction.publish, false);
+assert.deepEqual(savedStructuredAction.documentDetails, privateDraftDocuments);
+assert.equal(JSON.stringify(savedStructuredAction.documents), JSON.stringify(privateDraftDocuments.map(document => document.number)));
+await structuredInputEditor.props.onSave(privateDraftDocuments, true);
+assert.equal(savedStructuredAction.publish, true);
+await ui.TestExportPersonal(structuredState, structuredProps.month.id, [structuredProps.item], '기획국');
+const exportedLiterature = exportedWorkbook.sheets.find(sheet => sheet.name === '선행기술 목록');
+const literatureHeader = exportedLiterature.rows[0];
+for (const document of structuredDocuments) {
+  const row = exportedLiterature.rows.find(entry => entry[literatureHeader.indexOf('문헌번호·서지정보')] === document.number);
+  assert(row);
+  assert.equal(row[literatureHeader.indexOf('URL')], document.url, 'Exports must use published source URLs.');
+  assert.equal(row[literatureHeader.indexOf('보고서 (마크다운)')], document.reportMarkdown);
+  if (document.kind === 'non-patent') {
+    assert.equal(row[literatureHeader.indexOf('논문명·문서명')], document.title);
+    assert.equal(row[literatureHeader.indexOf('발행장소')], document.publicationPlace);
+    assert.equal(row[literatureHeader.indexOf('페이지')], document.pages);
+  }
+}
 assert.equal(adminUI.filterTargetCases(demo, '2026-10', { status: 'complete' }).length, 20);
 assert.equal(adminUI.filterTargetCases(demo, '2026-11').length, 0);
 assert.equal(adminUI.filterTargetCases(demo, '2026-10', { query: demo.cases[0].applicationNumber.replace(/\D/g, '') }).length, 1);
@@ -753,7 +807,10 @@ for (const status of ['pending', 'stopped', 'closed']) {
   ]) {
     hookIndex = 0; hookOverrides = [];
     const editor = render();
-    const inputs = descendants(editor).filter(({ element }) => ['input', 'select', 'textarea', 'button'].includes(element.type));
+    const nestedEditor = descendants(editor).find(({ element }) => element.type?.name === 'LiteratureEditor');
+    const inputTree = nestedEditor ? nestedEditor.element.type(nestedEditor.element.props) : editor;
+    const inputs = descendants(inputTree).filter(({ element }) => ['input', 'select', 'textarea', 'button'].includes(element.type)
+      && !element.props.readOnly && element.props.children !== '포맷팅 프롬프트 복사');
     assert(inputs.length > 0); assert(inputs.every(({ element }) => element.props.disabled));
     assert(ui.TestStageNotice({ month: controlledMonth, stage }).props.children.includes('단계가'));
   }

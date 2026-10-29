@@ -50,10 +50,17 @@ export type EvaluationCase = SelectionRow & {
   id: string; monthId: string; examinerId: string; examinerName: string; bureau: string; division: string;
   groupId: string; groupName: string; status: 'draft' | 'confirmed' | 'cancelled';
 };
+export type LiteratureDocument = {
+  kind: 'patent' | 'non-patent' | 'legacy'; number: string;
+  authors?: string; title?: string; publication?: string; publicationPlace?: string;
+  publisher?: string; publicationDate?: string; volume?: string; issue?: string; pages?: string;
+  acquiredDate?: string; dateNote?: string; url?: string; reportMarkdown?: string;
+};
 export type AIResult = {
   id: string; caseId: string; methodId: string; draftDocuments: string[]; draftAuthorId: string;
   publishedDocuments: string[]; publishedVersion: number; publishedBy: { id: string; name: string } | null;
   publishedAt: string | null;
+  draftDocumentDetails?: LiteratureDocument[]; publishedDocumentDetails?: LiteratureDocument[];
 };
 export type DocumentEvaluation = { number: string; score: number | null; cited: 'O' | 'X' | null; note: string };
 export type MethodEvaluation = { caseId: string; methodId: string; version: number; documents: DocumentEvaluation[]; updatedAt: string };
@@ -62,6 +69,7 @@ export type QualityRanking = { caseId: string; versions: Record<string, number>;
 export type EvaluationNotice = { markdown: string; updatedAt: string };
 export const NOTICE_MAX_LENGTH = 20_000;
 export const LITERATURE_MAX_LENGTH = 2_000;
+export const LITERATURE_REPORT_MAX_LENGTH = 30_000;
 export const OVERALL_COMMENT_MAX_LENGTH = 4_000;
 export type EvaluationState = {
   schemaVersion: 1; users: EvaluationUser[]; groups: EvaluationGroup[]; methods: InvestigationMethod[];
@@ -87,7 +95,7 @@ export type EvaluationAction =
   | { type: 'saveSelection'; monthId: string; rows: SelectionRow[]; confirm: boolean }
   | { type: 'adminAddCase'; monthId: string; examinerId: string; row: SelectionRow }
   | { type: 'cancelCase'; caseId: string }
-  | { type: 'saveResult'; caseId: string; methodId: string; documents: string[]; publish: boolean }
+  | { type: 'saveResult'; caseId: string; methodId: string; documents: string[]; documentDetails?: LiteratureDocument[]; publish: boolean }
   | { type: 'saveEvaluation'; caseId: string; evaluations: { methodId: string; version: number; documents: DocumentEvaluation[] }[]; rankings: Record<string, RankValue>; versions: Record<string, number>; overallComment?: string }
   | { type: 'loadDemo' };
 
@@ -106,6 +114,105 @@ export function isDemoApplicationNumber(value: string) {
 const text = (value: unknown, max = 200) => typeof value === 'string' && value.length <= max ? value.trim() : fail('입력한 텍스트의 형식이나 길이를 확인해 주세요.');
 const requireAdmin = (actor: EvaluationActor) => { if (!actor.admin) fail('관리자용 진입점에서 처리해 주세요.', 403); };
 const sameSet = (a: string[], b: string[]) => a.length === b.length && a.map(identity).sort().every((value, i) => value === b.map(identity).sort()[i]);
+
+const literatureFields = ['authors', 'title', 'publication', 'publicationPlace', 'publisher', 'publicationDate', 'volume', 'issue', 'pages', 'acquiredDate', 'dateNote', 'url', 'reportMarkdown'] as const;
+const patentIdentifier = /^(?:KR|US|WO|EP|JP|CN|DE|GB|FR|AU|CA|TW|IN|RU|ES|IT|CH|AT|SE|FI|NL|BE|DK|NO|NZ|ZA|BR|MX|IL|SG|HK|MY|TH|ID|PH|VN|AR|CL|CO|PE|PT|PL|CZ|HU|RO|BG|GR|TR|UA|SU|EA|AP|OA|GC)(?:D|RE|PP)?\d{4,16}[A-Z]\d{0,2}$/;
+const literatureControls = /[\u0000-\u001f\u007f-\u009f]/;
+
+/** A citation is also the stable association used by existing document evaluations. */
+function nonPatentCitation(document: LiteratureDocument) {
+  const imprint = [document.publicationPlace, document.publisher].filter(Boolean).join(' : ');
+  const date = document.publicationDate || (document.acquiredDate ? `입수일 ${document.acquiredDate}` : '');
+  return [document.authors, document.title, document.publication, imprint, date, document.volume,
+    document.issue, document.pages, document.acquiredDate && !document.publicationDate ? document.dateNote : ''].filter((part): part is string => Boolean(part))
+    .reduce((citation, part) => citation ? `${citation}${/[.!?。]$/.test(citation) ? ' ' : '. '}${part}` : part, '');
+}
+
+/** Validate every record before exposing any imported or saved document. */
+export function normalizeLiteratureDocuments(values: unknown, allowEmpty = false): LiteratureDocument[] {
+  const entries: unknown[] = Array.isArray(values) && values.length <= 7 ? values : fail('출원 1건 × AI 방식 1개당 최대 7문헌을 입력할 수 있습니다.');
+  const documents = entries.map((value, index) => {
+    const label = `${index + 1}번째 문헌`;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${label}은 문헌 필드를 가진 객체로 입력해 주세요.`);
+    const entry = value as Record<string, unknown>;
+    if (typeof entry.kind !== 'string' || !['patent', 'non-patent', 'legacy'].includes(entry.kind)) fail(`${label} 종류는 patent 또는 non-patent로 입력해 주세요.`);
+    if (Object.keys(entry).some((field) => field !== 'kind' && field !== 'number' && !(literatureFields as readonly string[]).includes(field))) fail(`${label}에 지원하지 않는 필드가 있습니다. 입력 예시의 필드명을 확인해 주세요.`);
+    const document: LiteratureDocument = { kind: entry.kind as LiteratureDocument['kind'], number: '' };
+    for (const field of literatureFields) {
+      const raw = entry[field];
+      if (raw === undefined) continue;
+      const limit = field === 'reportMarkdown' ? LITERATURE_REPORT_MAX_LENGTH : LITERATURE_MAX_LENGTH;
+      const fieldValue = typeof raw === 'string' && raw.length <= limit ? raw.trim() : fail(`${label}의 ${field} 필드는 ${limit.toLocaleString('ko-KR')}자 이내의 텍스트로 입력해 주세요.`);
+      if (field === 'url' && typeof raw === 'string' && literatureControls.test(raw)) fail(`${label}의 URL에 제어 문자를 사용할 수 없습니다.`);
+      if (fieldValue) document[field] = fieldValue;
+    }
+    if (entry.number !== undefined && (typeof entry.number !== 'string' || entry.number.length > LITERATURE_MAX_LENGTH)) fail(`${label}의 문헌번호·서지정보는 2,000자 이내의 텍스트로 입력해 주세요.`);
+    if (document.kind === 'patent') {
+      const number = typeof entry.number === 'string' ? entry.number : '';
+      if (literatureControls.test(number)) fail(`${label}의 특허번호 형식을 확인해 주세요.`);
+      document.number = number.toUpperCase().replace(/[\s,./-]/g, '');
+      if (!patentIdentifier.test(document.number)) fail(`${label}의 특허번호는 KR20100001234A처럼 국가코드·번호·공보종류 기호를 포함해 주세요.`);
+      if (literatureFields.some((field) => field !== 'url' && field !== 'reportMarkdown' && Boolean(document[field]))) fail(`${label}의 특허 문헌은 특허번호·URL·보고서만 입력해 주세요.`);
+    } else if (document.kind === 'non-patent') {
+      if (!document.title) fail(`${label}의 논문명·문서명(title)을 입력해 주세요.`);
+      document.number = nonPatentCitation(document);
+    } else {
+      document.number = typeof entry.number === 'string' ? entry.number.trim() : '';
+      if (!document.number) fail(`${label}의 문헌번호·서지정보를 입력해 주세요.`);
+    }
+    if (document.number.length > LITERATURE_MAX_LENGTH) fail(`${label}의 문헌번호·서지정보는 2,000자 이내로 입력해 주세요.`);
+    if (document.url) {
+      if (!/^https?:\/\/\S+$/i.test(document.url) || literatureControls.test(document.url)) fail(`${label}의 URL은 http:// 또는 https://로 시작하는 웹 주소를 입력해 주세요.`);
+      let url: URL;
+      try { url = new URL(document.url); } catch { return fail(`${label}의 URL 형식을 확인해 주세요.`); }
+      if (!url.hostname || url.username || url.password) fail(`${label}의 URL은 로그인 정보가 없는 웹 주소를 입력해 주세요.`);
+    }
+    return document;
+  });
+  if (!allowEmpty && documents.length === 0) fail('입력 완료하려면 문헌을 한 건 이상 입력해 주세요.');
+  if (new Set(documents.map((document) => identity(document.number))).size !== documents.length) fail('같은 AI 결과 안에 중복 문헌이 있습니다.');
+  return documents;
+}
+
+/** Accept the exact JSON response, including the single code block commonly returned by AI. */
+export function parseLiteratureImport(input: string): LiteratureDocument[] {
+  if (typeof input !== 'string' || !input.trim()) fail('자동 입력할 JSON 결과를 붙여 넣어 주세요.');
+  if (input.length > 600_000) fail('자동 입력 결과가 너무 큽니다. 최대 7문헌, 보고서별 30,000자 이내로 나누어 주세요.');
+  const source = input.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i, '$1');
+  let parsed: unknown;
+  try { parsed = JSON.parse(source); } catch { return fail('JSON 형식을 확인해 주세요. 결과 객체 또는 배열만 붙여 넣고, 보고서의 줄바꿈은 \\n으로 작성해 주세요.'); }
+  if (!Array.isArray(parsed) && (!parsed || typeof parsed !== 'object' || !Object.prototype.hasOwnProperty.call(parsed, 'documents') || Object.keys(parsed).some((key) => key !== 'documents'))) fail('자동 입력 결과는 {"documents": [...]} 형식으로 입력해 주세요.');
+  const values = Array.isArray(parsed) ? parsed : (parsed as { documents: unknown }).documents;
+  if (Array.isArray(values) && values.some((value) => value && typeof value === 'object' && (value as { kind?: unknown }).kind === 'legacy')) fail('자동 입력 문헌 종류는 patent 또는 non-patent로 입력해 주세요.');
+  return normalizeLiteratureDocuments(values);
+}
+
+/** Old plain citations remain readable without rewriting stored evaluation keys. */
+export function literatureDetailsFor(result: AIResult | undefined, scope: 'draft' | 'published' = 'published'): LiteratureDocument[] {
+  const numbers = (scope === 'draft' ? result?.draftDocuments : result?.publishedDocuments) ?? [];
+  const details = (scope === 'draft' ? result?.draftDocumentDetails : result?.publishedDocumentDetails) ?? [];
+  return numbers.map((number) => details.find((document) => document.number === number) ?? { kind: 'legacy', number });
+}
+
+function sameLiteratureDetails(previous: LiteratureDocument[], next: LiteratureDocument[]) {
+  const canonical = (documents: LiteratureDocument[]) => documents.map((document) => JSON.stringify([
+    identity(document.number), document.kind,
+    ...literatureFields.map((field) => document[field] ?? ''),
+  ])).sort();
+  const a = canonical(previous); const b = canonical(next);
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+export const LITERATURE_IMPORT_EXAMPLE = JSON.stringify({ documents: [
+  { kind: 'patent', number: 'KR20100001234A', url: 'https://example.com/patent', reportMarkdown: '## 관련성\n핵심 구성과 대응 부분을 설명합니다.\n\n## 근거\n청구항·문단·도면 번호를 기재합니다.' },
+  { kind: 'non-patent', authors: '저자명', title: '논문명 또는 문서명', publication: '간행물명', publicationPlace: '발행장소', publisher: '발행처', publicationDate: '2020-03', volume: '제10권', issue: '제2호', pages: 'pp 101-110', acquiredDate: '', dateNote: '', url: 'https://example.com/paper', reportMarkdown: '## 관련성\n대상 발명과의 공통점과 차이점을 설명합니다.\n\n## 근거\n페이지·절 번호를 기재합니다.' },
+] }, null, 2);
+
+export const LITERATURE_FORMAT_PROMPT = `검색 결과는 설명 없이 다음 구조의 유효한 JSON 객체 하나로 출력하세요: {"documents":[...]}. 문헌은 최대 7건, 중복 없이 반환합니다.
+특허: {"kind":"patent","number":"KR20100001234A","url":"https://...","reportMarkdown":"마크다운 보고서"}. number는 공백·하이픈 없이 국가코드+번호+공보종류 기호로 표기합니다.
+비특허: {"kind":"non-patent","authors":"저자명","title":"논문명·문서명","publication":"간행물명","publicationPlace":"발행장소","publisher":"발행처","publicationDate":"발행연월일","volume":"제10권 또는 Vol. 10","issue":"제2호 또는 No. 2","pages":"pp 101-110","acquiredDate":"입수일","dateNote":"발행일 불명 등 입수일 기재 사유","url":"https://...","reportMarkdown":"마크다운 보고서"}.
+비특허의 title은 필수이며 확인되지 않은 선택 필드는 빈 문자열로 두고 추측하지 마세요. 발행연월일은 간행물에 기재된 범위까지만 쓰고(예: 2020-03), 발행일이 불명하여 입수일을 대신 쓰면 acquiredDate와 dateNote에 그 사유를 기재하세요. 페이지는 통권페이지를 우선하고 불명하면 해당 호 페이지 앞에 pp를 붙이세요. 외국어 간행물은 원어 표기를 유지하세요.
+각 문헌의 url은 확인한 원문·공보의 HTTP(S) 주소, reportMarkdown은 관련성·구성 대응·차이점과 청구항/문단/페이지 등 확인 가능한 근거를 담은 마크다운 텍스트로 작성하세요(최대 30,000자). JSON 문자열 안의 줄바꿈은 \\n, 큰따옴표는 \\"로 이스케이프하세요.`;
 
 export function currentOperationMonth(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit' }).format(now).replace('/', '-');
@@ -569,12 +676,20 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       if (!canInputResult(state, actor, item, action.methodId)) fail('배정받은 그룹과 AI 조사 방식만 입력할 수 있습니다.', 403);
       const documents = documentsFrom(action.documents, !action.publish);
       let result = resultFor(state, item.id, action.methodId);
+      const details = action.documentDetails === undefined
+        ? documents.map((number) => literatureDetailsFor(result, 'draft').find((document) => document.number === number)
+          ?? literatureDetailsFor(result).find((document) => document.number === number) ?? { kind: 'legacy' as const, number })
+        : normalizeLiteratureDocuments(action.documentDetails, !action.publish);
+      if (details.length !== documents.length || details.some((document) => !documents.includes(document.number))) fail('문헌 목록과 문헌 상세정보가 일치하지 않습니다. 자동 입력 결과를 다시 확인해 주세요.');
+      const orderedDetails = documents.map((number) => details.find((document) => document.number === number)!);
       if (!result) { result = { id: uid(), caseId: item.id, methodId: action.methodId, draftDocuments: [], draftAuthorId: user.id, publishedDocuments: [], publishedVersion: 0, publishedBy: null, publishedAt: null }; state.results.push(result); }
       result.draftDocuments = documents;
+      result.draftDocumentDetails = structuredClone(orderedDetails);
       result.draftAuthorId = user.id;
       if (action.publish) {
-        if (!sameSet(result.publishedDocuments, documents)) result.publishedVersion += 1;
+        if (!sameSet(result.publishedDocuments, documents) || !sameLiteratureDetails(literatureDetailsFor(result), orderedDetails)) result.publishedVersion += 1;
         result.publishedDocuments = documents;
+        result.publishedDocumentDetails = structuredClone(orderedDetails);
         result.publishedBy = { id: user.id, name: user.name };
         result.publishedAt = now.toISOString();
       }
@@ -650,7 +765,7 @@ export function visibleState(state: EvaluationState, actor: EvaluationActor): Ev
       return item.examinerId === user?.id || canInputResult(state, actor, item, result.methodId);
     }).map((result) => {
       const item = visibleCases.find((entry) => entry.id === result.caseId)!;
-      return canInputResult(state, actor, item, result.methodId) ? result : { ...result, draftDocuments: [], draftAuthorId: '' };
+      return canInputResult(state, actor, item, result.methodId) ? result : { ...result, draftDocuments: [], draftDocumentDetails: [], draftAuthorId: '' };
     }),
     evaluations: state.evaluations.filter((evaluation) => visibleCases.some((item) => item.id === evaluation.caseId && item.examinerId === user?.id)),
     rankings: state.rankings.filter((ranking) => visibleCases.some((item) => item.id === ranking.caseId && item.examinerId === user?.id)),
@@ -669,8 +784,9 @@ export function getStatistics(state: EvaluationState, monthId: string, groupId =
     const evaluation = validEvaluation(state, item.id, method.id);
     return (result?.publishedDocuments ?? []).map((number) => {
       const document = evaluation?.documents.find((entry) => identity(entry.number) === identity(number));
+      const documentDetails = literatureDetailsFor(result).find((entry) => entry.number === number)!;
       const stale = state.evaluations.some((entry) => entry.caseId === item.id && entry.methodId === method.id && entry.version !== result?.publishedVersion);
-      return { caseId: item.id, applicationNumber: item.applicationNumber, cpc: item.cpc, examinerId: item.examinerId, examinerName: item.examinerName, groupId: item.groupId, groupName: item.groupName, authorName: result?.publishedBy?.name ?? '', methodId: method.id, methodName: method.name, number, score: document?.score ?? null, cited: document?.cited ?? null, note: document?.note ?? '', status: stale ? '재확인 필요' : document?.score != null && document?.cited != null ? '평가 완료' : '미평가' };
+      return { caseId: item.id, applicationNumber: item.applicationNumber, cpc: item.cpc, examinerId: item.examinerId, examinerName: item.examinerName, groupId: item.groupId, groupName: item.groupName, authorName: result?.publishedBy?.name ?? '', methodId: method.id, methodName: method.name, number, documentDetails, url: documentDetails.url ?? '', reportMarkdown: documentDetails.reportMarkdown ?? '', score: document?.score ?? null, cited: document?.cited ?? null, note: document?.note ?? '', status: stale ? '재확인 필요' : document?.score != null && document?.cited != null ? '평가 완료' : '미평가' };
     });
   }));
   const availableIds = new Set(month ? aiMethods(state, month.id).map((method) => method.id) : []);

@@ -94,6 +94,9 @@
 .ev-table .ev-doc { color:var(--krds-color-light-primary-70); font-family:inherit; font-size:15px; }
 .ev-table .ev-doc a { text-decoration:underline; text-underline-offset:4px; }
 .ev-table .ev-literature { min-width:200px; max-width:440px; white-space:normal; overflow-wrap:anywhere; }
+.ev-document-evaluations { min-width:960px; }
+.ev-document-evaluations > tbody > tr > td { vertical-align:top; }
+.ev-published-literature { min-width:600px; }
 .ev-table .ev-wrap { white-space:normal; }
 .ev-case-layout { display:grid; grid-template-columns:272px minmax(0,1fr); gap:24px; align-items:start; }
 .ev-case-list { max-height:800px; overflow:auto; }
