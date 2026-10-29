@@ -860,6 +860,60 @@ assert.equal(revisedAction.rows.length, submitted.length);
 hookIndex = 0; hookOverrides = [[]];
 const withdrawnForm = ui.TestSelectionEditor({ ...revisingReview.props, save: async () => true });
 assert.equal(descendants(withdrawnForm).find(({ element }) => element.props.children === '수정 사항 저장').element.props.disabled, false);
+
+// Segmented application numbers advance at 2/4 digits and pad serials on addition.
+function selectionNumberForm(parts = ['', '', ''], props = {}) {
+  hookIndex = 0; hookOverrides = [[], parts, ' G06N 20/00 '];
+  return ui.TestSelectionEditor({ state: domain.createInitialState('2026-11'), month: { ...domain.emptyMonth('2026-11'), stages: { selection: 'running' } }, user: reviewUser, busy: false, dirty() {}, save: async () => true, ...props });
+}
+const numberFields = tree => descendants(tree).filter(({ element }) => element.props.maxLength && element.props.inputMode === 'numeric').map(({ element }) => element);
+const numberAdd = tree => descendants(tree).find(({ element }) => element.props.children === '선정 목록에 추가').element;
+const blankNumber = selectionNumberForm();
+const blankParts = numberFields(blankNumber);
+assert.deepEqual(blankParts.map(field => field.props.maxLength), [2, 4, 7]);
+assert.equal(numberAdd(blankNumber).props.disabled, true);
+let focusedYear = 0; let focusedSerial = 0;
+blankParts[1].props.ref({ focus() { focusedYear++; } });
+blankParts[2].props.ref({ focus() { focusedSerial++; } });
+blankParts[0].props.onChange({ target: { value: '1' } });
+assert.equal(focusedYear, 0);
+blankParts[0].props.onChange({ target: { value: '10' } });
+assert.equal(focusedYear, 1);
+blankParts[1].props.onChange({ target: { value: '2026' } });
+assert.equal(focusedSerial, 1);
+hookWrites.length = 0;
+blankParts[2].props.onChange({ target: { value: '12a345678' } });
+assert.equal(hookWrites.find(write => write.index === 1).value(['', '', ''])[2], '1234567', 'Keep digits only and limit the serial to seven digits.');
+for (const [serial, expected] of [['1', '0000001'], ['0', '0000000'], ['123', '0000123'], ['000123', '0000123'], ['1234567', '1234567']]) {
+  const form = selectionNumberForm(['10', '2026', serial]);
+  hookWrites.length = 0;
+  numberAdd(form).props.onClick();
+  const added = hookWrites.find(write => write.index === 0).value([]);
+  assert.equal(added[0].applicationNumber, '10-2026-' + expected);
+  assert.equal(added[0].cpc, 'G06N 20/00');
+  assert(hookWrites.some(write => write.index === 1 && JSON.stringify(write.value) === '["","",""]'));
+}
+for (const parts of [['1', '2026', '1'], ['10', '202', '1'], ['10', '2026', '']]) assert.equal(numberAdd(selectionNumberForm(parts)).props.disabled, true);
+const invalidPrefix = selectionNumberForm(['30', '2026', '1']);
+hookWrites.length = 0;
+numberAdd(invalidPrefix).props.onClick();
+assert(!hookWrites.some(write => write.index === 0), 'Do not append unsupported application types.');
+for (const text of ['10-2026-123', '1020260000123']) {
+  const form = selectionNumberForm(); let prevented = false;
+  hookWrites.length = 0;
+  numberFields(form)[0].props.onPaste({ clipboardData: { getData: () => text }, preventDefault() { prevented = true; } });
+  assert(prevented);
+  assert.equal(JSON.stringify(hookWrites.find(write => write.index === 1).value), text.includes('-') ? '["10","2026","123"]' : '["10","2026","0000123"]');
+}
+let selectionSaves = 0;
+const unfinishedNumber = selectionNumberForm(['10', '', ''], { save: async () => { selectionSaves++; return true; } });
+descendants(unfinishedNumber).find(({ element }) => element.props.children === '임시저장').element.props.onClick();
+assert.equal(selectionSaves, 0, 'Do not silently omit a partially entered number when saving the list.');
+const backspaceForm = selectionNumberForm(['10', '', '']); let focusedPrefix = false;
+const backspaceParts = numberFields(backspaceForm);
+backspaceParts[0].props.ref({ focus() { focusedPrefix = true; } });
+backspaceParts[1].props.onKeyDown({ key: 'Backspace', preventDefault() {} });
+assert(focusedPrefix);
 await adminUI.exportAdminStatistics(demo, '2026-10', 'group-a', '', '전기국');
 assert(exportedWorkbook.filename.includes('전기국'));
 assert.deepEqual(Array.from(exportedWorkbook.sheets, sheet => sheet.name), ['그룹별 통계','계정별 현황','출원별 현황','조사 방식별 통계','AI 검색 결과 평가','조회 기준']);

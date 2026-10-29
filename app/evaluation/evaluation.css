@@ -256,3 +256,13 @@
   .ev-ai-result-context .ev-actions > * { flex:1 1 auto; }
   .ev-ai-result-context .pd-button { width:100%; }
 }
+
+.ev-application-number { min-width:0; margin:0; padding:0; border:0; }
+.ev-selection-caption { display:flex; align-items:baseline; gap:6px; font-size:16px; font-weight:500; }
+.ev-application-number > .ev-selection-caption { margin-bottom:8px; }
+.ev-application-number-parts { display:grid; grid-template-columns:minmax(0,2fr) auto minmax(0,4fr) auto minmax(0,7fr); align-items:center; gap:6px; }
+.ev-application-number-part { display:contents; }
+.ev-application-number-part .krds-input { width:100%; min-width:0; padding-inline:8px; text-align:center; font-variant-numeric:tabular-nums; }
+.ev .ev-application-number-hint { margin-top:10px; font-size:14px; }
+
+@media(max-width:480px) { .ev-application-number-part .krds-input { padding-inline:6px; font-size:16px; } }
