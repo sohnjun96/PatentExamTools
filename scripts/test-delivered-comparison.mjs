@@ -7,7 +7,7 @@ import {
 
 const admin = { admin: true };
 assert.deepEqual(createInitialState().months.map(month => month.id), [...DEFAULT_OPERATION_MONTHS]);
-assert.equal(preferredOperationMonth(createInitialState().months, '2026-10'), '2026-10');
+assert.equal(preferredOperationMonth(createInitialState().months, '2026-10'), '2026-11');
 assert.equal(preferredOperationMonth(createInitialState().months, '2026-12'), '2026-12');
 const existing = createInitialState('2026-10');
 existing.months.push({ ...emptyMonth('2026-11'), closed: true, selectionDeadline: '2026-11-03' });
@@ -17,7 +17,7 @@ assert.deepEqual(existing, before, 'Seeding must not mutate an existing snapshot
 assert.equal(seeded.months.length, 4);
 assert.deepEqual(seeded.months.find(month => month.id === '2026-11'), existing.months[1]);
 assert.equal(withDefaultOperationMonths(seeded), seeded, 'Default months must not be duplicated.');
-assert.deepEqual(seeded.months.find(month => month.id === '2027-01').stages, { selection: 'running', result: 'stopped', evaluation: 'stopped' });
+assert.deepEqual(seeded.months.find(month => month.id === '2027-01').stages, { selection: 'pending', result: 'pending', evaluation: 'pending' });
 const noAI = createInitialState('2026-10');
 noAI.methods = noAI.methods.filter(method => method.kind === 'baseline');
 assert.doesNotThrow(() => applyAction(noAI, admin, { type: 'saveMonth', month: emptyMonth('2026-11') }), 'Month settings must not require AI selections.');

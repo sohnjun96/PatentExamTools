@@ -42,6 +42,8 @@ export type OperationMonth = {
   confirmedUserIds: string[];
   stages?: Partial<Record<OperationStage, OperationStageStatus>>;
   defaultDeadlineVersion?: 1;
+  defaultStageVersion?: 1;
+  archived?: boolean;
 };
 export type SelectionRow = { applicationNumber: string; cpc: string };
 export type EvaluationCase = SelectionRow & {
@@ -65,6 +67,7 @@ export type EvaluationState = {
   schemaVersion: 1; users: EvaluationUser[]; groups: EvaluationGroup[]; methods: InvestigationMethod[];
   /** One-time catalog backfill; later administrator edits remain authoritative. */
   defaultAiCatalogVersion?: 1;
+  defaultGroupVersion?: 1;
   months: OperationMonth[]; cases: EvaluationCase[]; results: AIResult[]; evaluations: MethodEvaluation[];
   rankings: QualityRanking[]; isDemo: boolean; notice?: EvaluationNotice | null; personnel?: Personnel;
 };
@@ -109,11 +112,11 @@ export function currentOperationMonth(now = new Date()) {
 }
 
 function newMonthStageStatuses(): Record<OperationStage, OperationStageStatus> {
-  return { selection: 'running', result: 'stopped', evaluation: 'stopped' };
+  return { selection: 'pending', result: 'pending', evaluation: 'pending' };
 }
 
 export function emptyMonth(id: string): OperationMonth {
-  return { id, methodIds: [], participants: [], assignments: [], closed: false, ...defaultOperationDeadlines(id), defaultDeadlineVersion: 1, confirmedUserIds: [], stages: newMonthStageStatuses() };
+  return { id, methodIds: [], participants: [], assignments: [], closed: false, ...defaultOperationDeadlines(id), defaultDeadlineVersion: 1, defaultStageVersion: 1, confirmedUserIds: [], stages: newMonthStageStatuses() };
 }
 
 export function defaultOperationDeadlines(id: string) {
@@ -124,22 +127,35 @@ export function defaultOperationDeadlines(id: string) {
   return { selectionDeadline: date(0), resultDeadline: date(1), evaluationDeadline: date(2) };
 }
 
-export const DEFAULT_OPERATION_MONTHS = ['2026-10', '2026-11', '2026-12', '2027-01'] as const;
+export const DEFAULT_OPERATION_MONTHS = ['2026-11', '2026-12', '2027-01'] as const;
+const ARCHIVED_OPERATION_MONTHS = new Set(['2026-10']);
+const defaultGroups = (): EvaluationGroup[] => [{ id: 'group-1', name: '그룹 1' }, { id: 'group-2', name: '그룹 2' }];
+
+export function listedOperationMonths(months: OperationMonth[]) {
+  return months.filter(month => !month.archived);
+}
 
 export function withDefaultOperationMonths(state: EvaluationState): EvaluationState {
   const missing = DEFAULT_OPERATION_MONTHS.filter((id) => !state.months.some((month) => month.id === id));
-  const needsDefaults = state.months.some(month => month.defaultDeadlineVersion !== 1);
+  const needsDefaults = state.months.some(month => month.defaultDeadlineVersion !== 1 || month.defaultStageVersion !== 1 || (ARCHIVED_OPERATION_MONTHS.has(month.id) && (!month.archived || !month.closed)));
   if (!missing.length && !needsDefaults) return state;
   const months = state.months.map(month => {
-    if (month.defaultDeadlineVersion === 1) return month;
     const defaults = defaultOperationDeadlines(month.id);
-    return { ...month, selectionDeadline: month.selectionDeadline || defaults.selectionDeadline, resultDeadline: month.resultDeadline || defaults.resultDeadline, evaluationDeadline: month.evaluationDeadline || defaults.evaluationDeadline, defaultDeadlineVersion: 1 as const };
+    const oldUnusedDefaults = month.defaultStageVersion !== 1 && !month.closed && !state.cases.some(item => item.monthId === month.id)
+      && (DEFAULT_OPERATION_MONTHS as readonly string[]).includes(month.id)
+      && (!month.stages || ((month.stages.selection === 'pending' || month.stages.selection === 'running')
+        && month.stages.result === 'stopped' && month.stages.evaluation === 'stopped'));
+    return { ...month,
+      ...(month.defaultDeadlineVersion !== 1 ? { selectionDeadline: month.selectionDeadline || defaults.selectionDeadline, resultDeadline: month.resultDeadline || defaults.resultDeadline, evaluationDeadline: month.evaluationDeadline || defaults.evaluationDeadline } : {}),
+      ...(oldUnusedDefaults ? { stages: newMonthStageStatuses() } : {}),
+      ...(ARCHIVED_OPERATION_MONTHS.has(month.id) ? { archived: true, closed: true } : {}),
+      defaultDeadlineVersion: 1 as const, defaultStageVersion: 1 as const };
   });
   return { ...state, months: [...months, ...missing.map(emptyMonth)] };
 }
 
 export function createInitialState(monthId?: string): EvaluationState {
-  return { schemaVersion: 1, defaultAiCatalogVersion: 1, users: [], groups: [], methods: [
+  return { schemaVersion: 1, defaultAiCatalogVersion: 1, defaultGroupVersion: 1, users: [], groups: defaultGroups(), methods: [
     ...DEFAULT_AI_METHODS.map((method) => ({ ...method })),
     { id: 'baseline', name: '선행기술조사', kind: 'baseline', active: true },
   ], months: (monthId ? [monthId] : DEFAULT_OPERATION_MONTHS).map(emptyMonth), cases: [], results: [], evaluations: [], rankings: [], isDemo: false, notice: null, personnel: { memberships: [], assignments: [] } };
@@ -159,6 +175,7 @@ export function personnelOf(state: EvaluationState): Personnel {
 
 export function normalizeEvaluationState(state: EvaluationState): EvaluationState {
   if (state.defaultAiCatalogVersion !== 1) state = { ...state, defaultAiCatalogVersion: 1, methods: withDefaultAIMethods(state.methods) };
+  if (state.defaultGroupVersion !== 1) state = { ...state, defaultGroupVersion: 1, groups: state.groups.length ? state.groups : defaultGroups() };
   return state.personnel ? state : { ...state, personnel: personnelOf(state) };
 }
 
@@ -172,7 +189,7 @@ export function operationGroups(state: EvaluationState, monthId: string) {
 }
 
 export function preferredOperationMonth(months: OperationMonth[], current = currentOperationMonth()): string {
-  const sorted = [...months].sort((a, b) => b.id.localeCompare(a.id));
+  const sorted = listedOperationMonths(months).sort((a, b) => b.id.localeCompare(a.id));
   const running = sorted.filter(month => operationMonthStatus(month) === 'running');
   return running.find(month => month.id === current)?.id
     ?? running.find(month => month.id < current)?.id
@@ -196,17 +213,18 @@ export function operationStageStatus(month: OperationMonth, stage: OperationStag
 }
 
 export function isOperationStageOpen(month: OperationMonth, stage: OperationStage) {
-  return !month.closed && operationStageStatus(month, stage) === 'running';
+  return !month.archived && !month.closed && operationStageStatus(month, stage) === 'running';
 }
 
 export const OPERATION_MONTH_STATUS_LABELS = { pending: '운영 전', running: '운영 중', closed: '운영 종료' } as const;
 export function operationMonthStatus(month: OperationMonth): keyof typeof OPERATION_MONTH_STATUS_LABELS {
-  if (month.closed) return 'closed';
+  if (month.archived || month.closed) return 'closed';
   if (OPERATION_STAGES.some(stage => isOperationStageOpen(month, stage.id))) return 'running';
   return OPERATION_STAGES.every(stage => operationStageStatus(month, stage.id) === 'closed') ? 'closed' : 'pending';
 }
 
 export function operationStageBlockReason(month: OperationMonth, stage: OperationStage) {
+  if (month.archived) return '운영 목록에서 제외된 월입니다.';
   if (month.closed) return '마감한 운영월입니다. 관리자 재개방 후 수정할 수 있습니다.';
   const status = operationStageStatus(month, stage);
   if (status === 'running') return null;
@@ -216,6 +234,7 @@ export function operationStageBlockReason(month: OperationMonth, stage: Operatio
 }
 
 function editable(month: OperationMonth, stage?: OperationStage) {
+  if (month.archived) fail('운영 목록에서 제외된 월입니다.', 409);
   if (month.closed) fail('마감한 운영월입니다. 관리자 재개방 후 수정할 수 있습니다.', 409);
   if (stage) {
     const reason = operationStageBlockReason(month, stage);
@@ -363,8 +382,8 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
   switch (action.type) {
     case 'loadDemo': {
       requireAdmin(actor);
-      if (state.cases.length || state.users.length || state.groups.length) fail('운영 자료가 있는 상태에는 가상 자료를 추가할 수 없습니다.');
-      return { ...createDemoState(state.months[0]?.id ?? currentOperationMonth(now)), notice: state.notice ?? null };
+      if (state.cases.length || state.users.length || state.groups.some(group => group.deletedAt || !defaultGroups().some(initial => initial.id === group.id && initial.name === group.name))) fail('운영 자료가 있는 상태에는 가상 자료를 추가할 수 없습니다.');
+      return { ...createDemoState(listedOperationMonths(state.months)[0]?.id ?? DEFAULT_OPERATION_MONTHS[0]), notice: state.notice ?? null };
     }
     case 'saveNotice': {
       requireAdmin(actor);
@@ -462,10 +481,11 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
     case 'saveMonth': {
       requireAdmin(actor);
       const old = state.months.find((entry) => entry.id === action.month.id);
+      if (old?.archived) fail('운영 목록에서 제외된 월입니다.', 409);
       for (const key of ['participants', 'assignments'] as const) {
         if (action.month[key] && JSON.stringify(action.month[key]) !== JSON.stringify(old?.[key] ?? [])) fail('심사관·AI 담당 배정은 심사관 관리에서 저장해 주세요.');
       }
-      const month: OperationMonth = { ...action.month, defaultDeadlineVersion: 1, methodIds: old?.methodIds ?? [], participants: old?.participants ?? [], assignments: old?.assignments ?? [], closed: old?.closed ?? false, confirmedUserIds: old?.confirmedUserIds ?? [] };
+      const month: OperationMonth = { ...action.month, defaultDeadlineVersion: 1, defaultStageVersion: 1, archived: old?.archived, methodIds: old?.methodIds ?? [], participants: old?.participants ?? [], assignments: old?.assignments ?? [], closed: old?.closed ?? false, confirmedUserIds: old?.confirmedUserIds ?? [] };
       delete month.caseLimit;
       // Ordinary settings saves, including older clients, cannot reopen stopped stages.
       if (old) {
@@ -478,13 +498,17 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
     }
     case 'setMonthClosed': {
       requireAdmin(actor);
-      monthOf(state, action.monthId).closed = Boolean(action.closed);
+      const month = monthOf(state, action.monthId);
+      if (month.archived) fail('운영 목록에서 제외된 월입니다.', 409);
+      month.closed = Boolean(action.closed);
       return state;
     }
     case 'setMonthStage': {
       requireAdmin(actor);
       if (!OPERATION_STAGES.some(entry => entry.id === action.stage) || !['pending', 'running', 'stopped', 'closed'].includes(action.status)) fail('단계와 운영 상태를 확인해 주세요.');
       const month = monthOf(state, action.monthId);
+      if (month.archived) fail('운영 목록에서 제외된 월입니다.', 409);
+      month.defaultStageVersion = 1;
       if (month.closed) {
         month.closed = false;
         month.stages = { selection: 'closed', result: 'closed', evaluation: 'closed' };

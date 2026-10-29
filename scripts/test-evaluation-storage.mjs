@@ -42,18 +42,18 @@ try {
   assert.equal(rejected.reason.status, 409);
   const afterRace = await store.readEvaluationState();
   assert.equal(afterRace.revision, 1);
-  assert.equal(afterRace.state.groups.length, 1);
+  assert.equal(afterRace.state.groups.length, 3);
   await assert.rejects(() => store.mutateEvaluationState(1, { admin: false }, { type: 'saveGroup', group: { name: '권한 없음' } }), (error) => error.status === 403);
   assert.equal((await store.readEvaluationState()).revision, 1);
-  const retryName = afterRace.state.groups[0].name === '그룹 A' ? '그룹 B' : '그룹 A';
+  const retryName = afterRace.state.groups.some(group => group.name === '그룹 A') ? '그룹 B' : '그룹 A';
   await store.mutateEvaluationState(1, { admin: true }, { type: 'saveGroup', group: { name: retryName } });
   const final = await store.readEvaluationState();
   assert.equal(final.revision, 2);
-  assert.deepEqual(final.state.groups.map((group) => group.name).sort(), ['그룹 A', '그룹 B']);
+  assert.deepEqual(final.state.groups.map((group) => group.name).sort(), ['그룹 1', '그룹 2', '그룹 A', '그룹 B']);
 
   // Simulate a pre-existing main workspace shared by two bureaus. Import is
   // selective and copy-once: it must neither mutate main nor reveal other users.
-  const legacy = rules.createDemoState('2026-10');
+  const legacy = rules.createDemoState('2026-11');
   legacy.months[0].participants = structuredClone(legacy.personnel.memberships);
   legacy.months[0].assignments = structuredClone(legacy.personnel.assignments);
   delete legacy.personnel; // Exercise a genuine pre-migration payload, not the new shared model.
@@ -109,7 +109,7 @@ try {
   const independentSaved = await store.readEvaluationState('반도체단');
   assert(independentSaved.state.months.some((month) => month.id === '2026-11' && !month.closed));
   assert.equal(independentSaved.state.months.filter((month) => !month.closed).length, rules.DEFAULT_OPERATION_MONTHS.length);
-  assert.deepEqual(independentSaved.state.months.find(month => month.id === '2026-11').stages, { selection: 'running', result: 'stopped', evaluation: 'stopped' }, 'A newly saved period keeps result entry and evaluation stopped after a D1 reload.');
+  assert.deepEqual(independentSaved.state.months.find(month => month.id === '2026-11').stages, { selection: 'pending', result: 'pending', evaluation: 'pending' }, 'A newly saved period keeps all three stages pending after a D1 reload.');
   assert.deepEqual(independentSaved.state.personnel, { memberships: [], assignments: [] });
 
   planning = await store.mutateEvaluationState(0, { admin: true }, { type: 'saveMethod', method: { name: '기획국 신규 AI', kind: 'ai', active: true } }, '기획국');
@@ -228,7 +228,7 @@ try {
   assert.equal(lateEvaluation.status, 200, 'Evaluations can be saved after the target date.');
   scheduled = await store.readEvaluationState('화학국');
   assert.equal(scheduled.state.rankings.find(entry => entry.caseId === commentCase.id).overallComment, '기한 이후 API 평가');
-  scheduled = await store.mutateEvaluationState(scheduled.revision, { admin: true }, { type: 'saveMonth', month: { ...rules.emptyMonth('2025-01'), selectionDeadline: '2000-01-01' } }, '화학국');
+  scheduled = await store.mutateEvaluationState(scheduled.revision, { admin: true }, { type: 'saveMonth', month: { ...rules.emptyMonth('2025-01'), stages: { selection: 'running', result: 'pending', evaluation: 'pending' }, selectionDeadline: '2000-01-01' } }, '화학국');
   const lateSelection = await api.POST(request('?bureau=화학국', { revision: scheduled.revision, actor: { userId: commentCase.examinerId }, action: { type: 'saveSelection', monthId: '2025-01', rows: [{ applicationNumber: '10-2020-0093844', cpc: '' }], confirm: true } }));
   assert.equal(lateSelection.status, 200, 'Target cases can be confirmed after the target date.');
   assert.equal((await store.readEvaluationState('화학국')).state.cases.filter(item => item.monthId === '2025-01' && item.status === 'confirmed').length, 1);

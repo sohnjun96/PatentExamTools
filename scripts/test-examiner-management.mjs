@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { applyAction, canInputResult, createDemoState, createInitialState, currentGroups, getStatistics, operationGroups, personnelOf } from '../app/lib/evaluation.ts';
+import { applyAction, canInputResult, createDemoState, createInitialState, currentGroups, getStatistics, operationGroups, normalizeEvaluationState, personnelOf } from '../app/lib/evaluation.ts';
 
 const admin={admin:true};
 const state=createDemoState('2026-10');
@@ -59,9 +59,22 @@ assert.equal(empty.users.length,1);
 assert.equal(empty.personnel.memberships[0].userId,empty.users[0].id);
 assert.equal(empty.personnel.assignments[0].userId,empty.users[0].id);
 empty=applyAction(empty,admin,{type:'deleteGroup',groupId:'empty'});
-assert.equal(currentGroups(empty).length,0);
+assert.equal(currentGroups(empty).length,2);
 assert.equal(personnelOf(empty).memberships.length,0);
 assert.equal(personnelOf(empty).assignments.length,0,'Unused assignments do not linger after deletion.');
 assert.equal(empty.users.length,1);
-assert.equal(operationGroups(empty,'2026-10').length,0);
+assert.equal(operationGroups(empty,'2026-10').length,2);
 console.log('Examiner management: atomic profile/group/AI edits, role and inactive guards, reassignment, nondestructive group deletion, historical permissions/statistics and new-user IDs passed.');
+
+const initialGroups = createInitialState();
+assert.deepEqual(currentGroups(initialGroups).map(group => group.name), ['그룹 1', '그룹 2']);
+const legacyEmptyGroups = { ...initialGroups, groups: [], defaultGroupVersion: undefined };
+const backfilledGroups = normalizeEvaluationState(legacyEmptyGroups);
+assert.deepEqual(backfilledGroups.groups, initialGroups.groups);
+assert.equal(legacyEmptyGroups.groups.length, 0, 'Backfill does not mutate the stored snapshot.');
+assert.equal(normalizeEvaluationState(backfilledGroups), backfilledGroups);
+const customGroups = { ...legacyEmptyGroups, groups: [{ id: 'custom', name: '기존 사용자 그룹' }] };
+assert.deepEqual(normalizeEvaluationState(customGroups).groups, customGroups.groups);
+let removedDefaults = backfilledGroups;
+for (const group of initialGroups.groups) removedDefaults = applyAction(removedDefaults, admin, { type: 'deleteGroup', groupId: group.id });
+assert.equal(currentGroups(normalizeEvaluationState(removedDefaults)).length, 0, 'Do not recreate groups intentionally deleted after initialization.');

@@ -31,6 +31,7 @@ for (const id of ['g1', 'g2']) state = applyAction(state, admin, { type: 'saveGr
 for (const id of ['one', 'two']) state = applyAction(state, admin, { type: 'saveUser', user: { id, name: id, bureau: '기획국', division: '기획과', roles: ['examiner', 'ai'], active: true } });
 state = applyAction(state, admin, { type: 'savePersonnel', personnel: { memberships: [{ userId: 'one', groupId: 'g1' }, { userId: 'two', groupId: 'g1' }], assignments: [{ groupId: 'g1', methodId: 'chatgpt', userId: 'one' }, { groupId: 'g1', methodId: 'claude', userId: 'two' }, { groupId: 'g2', methodId: 'chatgpt', userId: 'one' }] } });
 assert(state.months.every(month => !month.closed && !month.participants.length && !month.assignments.length));
+for (const monthId of ['2026-10', '2026-11']) state = applyAction(state, admin, { type: 'setMonthStage', monthId, stage: 'selection', status: 'running' });
 state = applyAction(state, { userId: 'one' }, selection('2026-10'));
 state = applyAction(state, { userId: 'one' }, selection('2026-11'));
 const october = state.cases.find(item => item.monthId === '2026-10');
@@ -68,6 +69,7 @@ assert.equal(JSON.stringify(state.months.find(month => month.id === '2026-10')),
 assert.equal(canInputResult(state, { userId: 'two' }, november, 'chatgpt'), true, 'Monthly settings cannot remove an assigned AI task.');
 assert.equal(canInputResult(state, { userId: 'two' }, november, 'claude'), true);
 assert.equal(getStatistics(state, '2026-11').accounts.find(entry => entry.id === 'two').aiTarget, 2);
+state = applyAction(state, admin, { type: 'setMonthStage', monthId: '2026-12', stage: 'selection', status: 'running' });
 state = applyAction(state, { userId: 'one' }, selection('2026-12'));
 assert(state.cases.some(item => item.monthId === '2026-12'));
 assert.equal(preferredOperationMonth(state.months, '2026-10'), '2026-11');

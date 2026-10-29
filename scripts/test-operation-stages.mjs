@@ -5,22 +5,23 @@ import { saveFailureGuidance } from '../app/lib/workspace-location.ts';
 const admin = { admin: true }, monthId = '2026-11';
 const afterDeadline = new Date('2027-01-01T00:00:00Z');
 let base = applyAction(createDemoState('2026-10'), admin, { type: 'saveMonth', month: { ...emptyMonth(monthId), selectionDeadline: '2026-11-01', resultDeadline: '2026-11-02', evaluationDeadline: '2026-11-03' } });
-const newDefaults = { selection: 'running', result: 'stopped', evaluation: 'stopped' };
+const newDefaults = { selection: 'pending', result: 'pending', evaluation: 'pending' };
 assert.deepEqual(emptyMonth('2030-01').stages, newDefaults);
 assert.deepEqual(createInitialState('2030-01').months[0].stages, newDefaults);
 const { stages: _newDefault, ...oldClientNewMonth } = emptyMonth('2030-01');
 const oldClientCreated = applyAction(base, admin, { type: 'saveMonth', month: oldClientNewMonth });
 assert.deepEqual(oldClientCreated.months.find(month => month.id === '2030-01').stages, newDefaults, 'The backend supplies defaults even when an older client omits them.');
 const partialCreated = applyAction(base, admin, { type: 'saveMonth', month: { ...emptyMonth('2030-02'), stages: { selection: 'running' } } });
-assert.deepEqual(partialCreated.months.find(month => month.id === '2030-02').stages, newDefaults);
+assert.deepEqual(partialCreated.months.find(month => month.id === '2030-02').stages, { ...newDefaults, selection: 'running' });
+base = applyAction(base, admin, { type: 'setMonthStage', monthId, stage: 'selection', status: 'running' });
 base = applyAction(base, { userId: 'demo-user-1' }, { type: 'saveSelection', monthId, rows: [{ applicationNumber: '10-2020-0000001', cpc: '' }], confirm: true }, afterDeadline);
 const item = base.cases.find(entry => entry.monthId === monthId);
 const result = { type: 'saveResult', caseId: item.id, methodId: 'chatgpt', documents: ['KR2020000000A'], publish: true };
-assert.throws(() => applyAction(base, { userId: 'demo-user-1' }, result), /단계가 중지/);
-assert.throws(() => applyAction(base, { userId: 'demo-user-1' }, { type: 'saveEvaluation', caseId: item.id, evaluations: [], rankings: {}, versions: {} }), /단계가 중지/);
+assert.throws(() => applyAction(base, { userId: 'demo-user-1' }, result), /단계가 아직 시작되지/);
+assert.throws(() => applyAction(base, { userId: 'demo-user-1' }, { type: 'saveEvaluation', caseId: item.id, evaluations: [], rankings: {}, versions: {} }), /단계가 아직 시작되지/);
 base = applyAction(base, admin, { type: 'setMonthStage', monthId, stage: 'result', status: 'running' });
 base = applyAction(base, { userId: 'demo-user-1' }, result, afterDeadline);
-assert.equal(operationStageStatus(base.months.find(month => month.id === monthId), 'evaluation'), 'stopped', 'Starting AI result entry never starts evaluation automatically.');
+assert.equal(operationStageStatus(base.months.find(month => month.id === monthId), 'evaluation'), 'pending', 'Starting AI result entry never starts evaluation automatically.');
 base = applyAction(base, admin, { type: 'setMonthStage', monthId, stage: 'evaluation', status: 'running' });
 const actions = {
   selection: { actor: { userId: 'demo-user-2' }, action: { type: 'saveSelection', monthId, rows: [{ applicationNumber: '10-2020-0000002', cpc: '' }], confirm: false } },

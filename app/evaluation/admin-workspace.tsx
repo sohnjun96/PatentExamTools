@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  caseStatus, DEFAULT_OPERATION_MONTHS, getStatistics, personnelOf, operationGroups, operationStageStatus, OPERATION_STAGES, OPERATION_STAGE_STATUS_LABELS,
+  caseStatus, DEFAULT_OPERATION_MONTHS, listedOperationMonths, getStatistics, personnelOf, operationGroups, operationStageStatus, OPERATION_STAGES, OPERATION_STAGE_STATUS_LABELS,
   type EvaluationAction, type EvaluationState,
   type InvestigationMethod, type OperationMonth, type OperationStage, type OperationStageStatus,
 } from '@/app/lib/evaluation';
@@ -142,12 +142,12 @@ export function MethodEditor({ method, busy, dirty, save, onClose, saveFeedback 
 export function MonthManager(props: AdminProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const saving = useRef(false);
-  const months = [...props.state.months].sort((left, right) => {
+  const months = listedOperationMonths(props.state.months).sort((left, right) => {
     const leftOrder = (DEFAULT_OPERATION_MONTHS as readonly string[]).indexOf(left.id);
     const rightOrder = (DEFAULT_OPERATION_MONTHS as readonly string[]).indexOf(right.id);
-    return (leftOrder < 0 ? 4 : leftOrder) - (rightOrder < 0 ? 4 : rightOrder) || left.id.localeCompare(right.id);
+    return (leftOrder < 0 ? DEFAULT_OPERATION_MONTHS.length : leftOrder) - (rightOrder < 0 ? DEFAULT_OPERATION_MONTHS.length : rightOrder) || left.id.localeCompare(right.id);
   });
-  const editing = props.state.months.find(month => month.id === editingId);
+  const editing = months.find(month => month.id === editingId);
   async function changeStatus(month: OperationMonth, stage: OperationStage, status: OperationStageStatus) {
     if (props.busy || props.hasUnsaved || saving.current || status === (month.closed ? 'closed' : operationStageStatus(month, stage))) return;
     saving.current = true;

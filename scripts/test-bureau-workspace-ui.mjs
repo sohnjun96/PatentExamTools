@@ -397,7 +397,7 @@ for (const Manager of [adminUI.TestAccountManager, adminUI.TestMethodManager]) {
   hookIndex = 0; hookOverrides = [];
   const tree = Manager(managerProps);
   const placeholders = descendants(tree).filter(({ element }) => element.type?.name === 'Empty');
-  assert.equal(placeholders.length, Manager === adminUI.TestAccountManager ? 2 : 1);
+  assert.equal(placeholders.length, 1);
   assert(placeholders.every(({ element }) => element.props.actions === undefined), 'Empty list and unselected editor must not repeat the toolbar registration action.');
 }
 hookIndex = 0; hookOverrides = [];
@@ -588,22 +588,22 @@ const droppedAI=adminUI.mergeOperatingMonth(latestPersonnelMonth,{...settingsDra
 assert.deepEqual(droppedAI.assignments,latestPersonnelMonth.assignments);
 assert.deepEqual(droppedAI.methodIds,latestPersonnelMonth.methodIds, 'Operating settings must not edit the legacy comparison list.');
 // The monthly table exposes independent phase states and deadline dialogs.
-const concurrentState = domain.applyAction(demo, { admin: true }, { type: 'saveMonth', month: domain.emptyMonth('2026-11') });
+const concurrentState = domain.withDefaultOperationMonths(domain.applyAction(demo, { admin: true }, { type: 'saveMonth', month: domain.emptyMonth('2026-11') }));
 let monthManagementAction;
 hookIndex = 0; hookOverrides = [];
 const concurrentManagement = adminUI.MonthManager({ ...managerProps, state: concurrentState, month: concurrentState.months[1], save: async action => { monthManagementAction = action; return true; } });
 assert.equal(descendants(concurrentManagement).filter(({element}) => element.type === 'article').length, 0);
-assert.equal(descendants(concurrentManagement).filter(({element}) => element.type === 'select').length, 6);
+assert.equal(descendants(concurrentManagement).filter(({element}) => element.type === 'select').length, 9);
 assert(!descendants(concurrentManagement).some(({element}) => element.type === 'input' || element.type === adminUI.MonthlyForm));
 for(const stage of domain.OPERATION_STAGES) {
- const control=descendants(concurrentManagement).find(({element})=>element.props['aria-label']==='2026년 10월 '+stage.label+' 상태').element;
+ const control=descendants(concurrentManagement).find(({element})=>element.props['aria-label']==='2026년 11월 '+stage.label+' 상태').element;
  assert.deepEqual(Array.from(control.props.children,option=>option.props.children),['시작 전','진행','중지','마감']);
- await control.props.onChange({target:{value:'pending'}});
- assert.equal(monthManagementAction.type,'setMonthStage');assert.equal(monthManagementAction.monthId,'2026-10');assert.equal(monthManagementAction.stage,stage.id);assert.equal(monthManagementAction.status,'pending');
+ await control.props.onChange({target:{value:'running'}});
+ assert.equal(monthManagementAction.type,'setMonthStage');assert.equal(monthManagementAction.monthId,'2026-11');assert.equal(monthManagementAction.stage,stage.id);assert.equal(monthManagementAction.status,'running');
 }
 hookIndex = 0; hookOverrides = [];
 const defaultMonthManager = adminUI.MonthManager({ ...managerProps, state: domain.createInitialState(), month: undefined });
-assert.deepEqual(Array.from(descendants(defaultMonthManager).filter(({element})=>element.type==='th'&&element.props.scope==='row'),({element})=>element.props.children.props.children),['2026년 10월','2026년 11월','2026년 12월','2027년 1월']);
+assert.deepEqual(Array.from(descendants(defaultMonthManager).filter(({element})=>element.type==='th'&&element.props.scope==='row'),({element})=>element.props.children.props.children),['2026년 11월','2026년 12월','2027년 1월']);
 const chooseNovember=descendants(concurrentManagement).find(({element})=>element.props['aria-label']==='2026년 11월 기한 설정').element;
 chooseNovember.props.onClick();assert(hookWrites.some(write=>write.index===0&&write.value==='2026-11'));
 hookIndex=0;hookOverrides=['2026-11'];

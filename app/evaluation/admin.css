@@ -278,3 +278,8 @@
 }
 
 .ev .adm-deadline-modal > header > .ev-button,.ev .adm-deadline-modal > header > .ev-button:is(:hover,:focus-visible) { color:var(--ev-ink); background:white; border:1px solid var(--krds-color-light-gray-60); }
+
+.adm-operation-table th,.adm-operation-table td { font-size:18px; line-height:1.6; padding:18px 20px; }
+.adm-operation-table thead th { font-weight:700; }
+.adm-operation-table .adm-month-link { font-size:19px; }
+.adm-operation-table .krds-form-select { font-size:18px; }

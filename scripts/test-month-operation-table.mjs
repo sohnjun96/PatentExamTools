@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { applyAction, createInitialState, defaultOperationDeadlines, emptyMonth, isOperationStageOpen, operationMonthStatus, OPERATION_STAGES, preferredOperationMonth, withDefaultOperationMonths } from '../app/lib/evaluation.ts';
+import { applyAction, createInitialState, defaultOperationDeadlines, emptyMonth, isOperationStageOpen, operationMonthStatus, OPERATION_STAGES, listedOperationMonths, createDemoState, preferredOperationMonth, withDefaultOperationMonths } from '../app/lib/evaluation.ts';
 
 for (const [month, expected] of [
   ['2026-10', ['2026-10-02', '2026-10-09', '2026-10-16']],
@@ -30,10 +30,10 @@ assert.equal(upgraded.months[0].evaluationDeadline, '2026-10-16');
 assert.equal(upgraded.months[0].closed, true);
 assert.deepEqual(upgraded.months[0].stages, legacy.months[0].stages);
 assert.equal(withDefaultOperationMonths(upgraded), upgraded);
-const cleared = applyAction(upgraded, { admin: true }, { type: 'saveMonth', month: { ...upgraded.months[0], resultDeadline: '' } });
-assert.equal(withDefaultOperationMonths(cleared).months[0].resultDeadline, '', 'An explicitly cleared deadline must stay cleared.');
+const cleared = applyAction(upgraded, { admin: true }, { type: 'saveMonth', month: { ...upgraded.months.find(month => month.id === '2026-11'), resultDeadline: '' } });
+assert.equal(withDefaultOperationMonths(cleared).months.find(month => month.id === '2026-11').resultDeadline, '', 'An explicitly cleared deadline must stay cleared.');
 for (const stage of OPERATION_STAGES) {
-  const pending = applyAction(createInitialState(), { admin: true }, { type: 'setMonthStage', monthId: '2026-10', stage: stage.id, status: 'pending' });
+  const pending = applyAction(createInitialState('2026-10'), { admin: true }, { type: 'setMonthStage', monthId: '2026-10', stage: stage.id, status: 'pending' });
   assert.equal(isOperationStageOpen(pending.months[0], stage.id), false);
   const running = applyAction(pending, { admin: true }, { type: 'setMonthStage', monthId: '2026-10', stage: stage.id, status: 'running' });
   assert.equal(isOperationStageOpen(running.months[0], stage.id), true);
@@ -51,4 +51,35 @@ assert.equal(operationMonthStatus({ ...emptyMonth('2026-10'), stages: undefined 
 const activeNovember = { ...emptyMonth('2026-11'), stages: { selection: 'closed', result: 'running', evaluation: 'pending' } };
 assert.equal(preferredOperationMonth([finished, activeNovember], '2026-10'), '2026-11');
 assert.equal(preferredOperationMonth([beforeStart, activeNovember], '2026-10'), '2026-11', 'Prefer a truly running month over a month waiting to start.');
-console.log('Monthly operation table: four default months, first/second/third Fridays across years, additive deadline migration, explicit clearing and pending/running gates passed.');
+const fresh = createInitialState();
+assert.deepEqual(fresh.months.map(month => month.id), ['2026-11', '2026-12', '2027-01']);
+assert(fresh.months.every(month => OPERATION_STAGES.every(stage => operationMonthStatus(month) === 'pending' && !isOperationStageOpen(month, stage.id))));
+const historical = createDemoState('2026-10');
+const archived = withDefaultOperationMonths(historical);
+assert.equal(historical.months[0].archived, undefined, 'Migration must not mutate the existing snapshot.');
+assert.equal(archived.months[0].archived, true);
+assert.equal(archived.months[0].closed, true);
+assert.deepEqual(listedOperationMonths(archived.months).map(month => month.id), ['2026-11', '2026-12', '2027-01']);
+for (const key of ['cases', 'results', 'evaluations', 'rankings', 'personnel']) assert.deepEqual(archived[key], historical[key], 'Removing October from operation must preserve existing work and allocations.');
+for (const stage of OPERATION_STAGES) {
+  assert.equal(isOperationStageOpen(archived.months[0], stage.id), false);
+  assert.throws(() => applyAction(archived, { admin: true }, { type: 'setMonthStage', monthId: '2026-10', stage: stage.id, status: 'running' }), /운영 목록에서 제외/);
+}
+assert.throws(() => applyAction(archived, { admin: true }, { type: 'setMonthClosed', monthId: '2026-10', closed: false }), /운영 목록에서 제외/);
+assert.equal(preferredOperationMonth(archived.months, '2026-10'), '2026-11', 'A remembered October session must move to a listed month.');
+const missingStages = createInitialState('2026-11');
+delete missingStages.months[0].defaultStageVersion;
+delete missingStages.months[0].stages;
+assert.equal(operationMonthStatus(withDefaultOperationMonths(missingStages).months[0]), 'pending');
+for (const selection of ['pending', 'running']) {
+  const legacyDefaults = createInitialState('2026-11');
+  delete legacyDefaults.months[0].defaultStageVersion;
+  legacyDefaults.months[0].stages = { selection, result: 'stopped', evaluation: 'stopped' };
+  const migrated = withDefaultOperationMonths(legacyDefaults);
+  assert.deepEqual(migrated.months[0].stages, { selection: 'pending', result: 'pending', evaluation: 'pending' });
+  const manuallyStopped = applyAction(migrated, { admin: true }, { type: 'setMonthStage', monthId: '2026-11', stage: 'result', status: 'stopped' });
+  assert.equal(withDefaultOperationMonths(manuallyStopped).months[0].stages.result, 'stopped', 'Migration must not reset later manual changes.');
+  legacyDefaults.months[0].stages.result = 'running';
+  assert.deepEqual(withDefaultOperationMonths(legacyDefaults).months[0].stages, legacyDefaults.months[0].stages, 'Preserve explicitly started workflows.');
+}
+console.log('Monthly operations: three pending default months, archived October with preserved work, one-time default migration, Friday deadlines and independent stage gates passed.');

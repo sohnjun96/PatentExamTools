@@ -15,7 +15,7 @@ import BureauNotice from '@/app/components/bureau-notice';
 import OperationSchedule from '@/app/components/operation-schedule';
 import LiteratureLink from '@/app/components/literature-link';
 import { literatureLink } from '@/app/lib/literature-link';
-import { currentGroups, personnelOf, preferredOperationMonth, operationMonthStatus, OPERATION_MONTH_STATUS_LABELS } from '@/app/lib/evaluation';
+import { currentGroups, personnelOf, listedOperationMonths, preferredOperationMonth, operationMonthStatus, OPERATION_MONTH_STATUS_LABELS } from '@/app/lib/evaluation';
 import AdminWorkspace, { ADMIN_NAV, readAdminSection, type AdminSection } from './admin-workspace';
 import { exportWorkbook } from '@/app/lib/export-workbook';
 import { readWorkspaceLocation, saveFailureGuidance, viewForRoles } from '@/app/lib/workspace-location';
@@ -154,7 +154,7 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
         if (selected) setView((previous) => viewForRoles(selected.roles, previous));
         else { setUserId(''); setView('review'); }
       }
-      setMonthId((previous) => payload.state.months.some((month: OperationMonth) => month.id === previous) ? previous : preferredOperationMonth(payload.state.months));
+      setMonthId((previous) => listedOperationMonths(payload.state.months).some((month: OperationMonth) => month.id === previous) ? previous : preferredOperationMonth(payload.state.months));
     } catch (reason) { if (requestId === loadGeneration.current) setError(reason instanceof TypeError ? '업무 자료에 연결할 수 없습니다. 연결 상태를 확인한 뒤 다시 불러오세요.' : reason instanceof Error && /[가-힣]/.test(reason.message) ? reason.message : '업무 자료를 불러오지 못했습니다. 다시 불러와 주세요. 계속되면 관리자에게 알려 주세요.'); }
     finally { if (requestId === loadGeneration.current) setLoading(false); }
   }, [admin, bureau, userId, sessionKey]);
@@ -260,7 +260,7 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
     <main className="ev-main" id="evaluation-main" tabIndex={-1}>
       <div className="ev-content">{errorFeedback}{sessionReady && notice && <div className="ev-alert success" role="status">{notice}</div>}
         {!sessionReady || loading && !state ? <Empty title="업무 자료를 불러오고 있습니다." /> : !state ? <Empty title="자료에 연결할 수 없습니다."><button className="krds-btn medium ev-button" onClick={() => void load()}>다시 시도</button></Empty> : <>
-          <div className="ev-page-heading"><div><h1>{title}</h1></div>{!globalAdmin && <div className="ev-month"><select className="krds-form-select" aria-label="운영월" value={monthId} onChange={(event) => navigate(() => setMonthId(event.target.value))}>{[...state.months].sort((a, b) => b.id.localeCompare(a.id)).map((candidate) => <option key={candidate.id} value={candidate.id}>{monthLabel(candidate.id)} · {OPERATION_MONTH_STATUS_LABELS[operationMonthStatus(candidate)]}</option>)}</select><Badge color={monthStatus === 'running' ? 'green' : monthStatus === 'closed' ? 'orange' : ''}>{OPERATION_MONTH_STATUS_LABELS[monthStatus]}</Badge></div>}</div>
+          <div className="ev-page-heading"><div><h1>{title}</h1></div>{!globalAdmin && <div className="ev-month"><select className="krds-form-select" aria-label="운영월" value={monthId} onChange={(event) => navigate(() => setMonthId(event.target.value))}>{listedOperationMonths(state.months).sort((a, b) => b.id.localeCompare(a.id)).map((candidate) => <option key={candidate.id} value={candidate.id}>{monthLabel(candidate.id)} · {OPERATION_MONTH_STATUS_LABELS[operationMonthStatus(candidate)]}</option>)}</select><Badge color={monthStatus === 'running' ? 'green' : monthStatus === 'closed' ? 'orange' : ''}>{OPERATION_MONTH_STATUS_LABELS[monthStatus]}</Badge></div>}</div>
           {!admin && user && (view === 'review' || view === 'ai') && month && <OperationSchedule month={month} />}{state.isDemo && !(admin && adminSection === 'notices') && <div className="ev-notice warning">가상 검증 자료 · 실제 업무 자료가 아닙니다.</div>}
           {month?.closed && !globalAdmin && <div className="ev-notice warning"><p>마감된 월의 업무는 수정할 수 없습니다.</p>{admin && <button className="krds-btn medium ev-button" onClick={() => navigate(() => { setAdminSection('month'); setView('settings'); })}>월별 운영에서 재개방</button>}</div>}
           {(admin ? <AdminWorkspace key={`${bureau || 'legacy'}:${globalAdmin ? 'global' : monthId}:${loadSerial}`} bureau={bureau} state={state} month={month} save={save} busy={busy} dirty={setDirty} hasUnsaved={dirty} section={adminSection} onNavigate={(section) => navigate(() => { setAdminSection(section); setView(section === 'overview' ? 'stats' : 'settings'); })} selectMonth={(id) => navigate(() => setMonthId(id))} notify={setNotice} saveFeedback={errorFeedback} /> : month && user && view === 'ai' && user.roles.includes('ai') ? <AIWorkspace key={`${bureau || 'legacy'}:${userId}:${monthId}:${loadSerial}`} bureau={bureau} state={state} month={month} save={save} busy={busy} dirty={setDirty} user={user} notify={setNotice} saveFeedback={errorFeedback} /> : month && user ? <ReviewWorkspace key={`${bureau || 'legacy'}:${userId}:${monthId}:${loadSerial}`} bureau={bureau} state={state} month={month} save={save} busy={busy} dirty={setDirty} user={user} notify={setNotice} saveFeedback={errorFeedback} /> : null)}
