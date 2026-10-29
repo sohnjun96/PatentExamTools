@@ -246,3 +246,13 @@
 @media(max-width:480px) {
   .ev-review-case { grid-template-areas:"number action" "cpc cpc" "status status"; }
 }
+
+.ev-ai-result-context { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px 20px; margin-bottom:20px; }
+.ev-ai-result-context > .ev-muted { flex:1 1 260px; }
+.ev-ai-result-context > .ev-case-pdf-note { flex-basis:100%; margin:0; }
+.ev-ai-result-context .ev-actions { gap:8px; }
+@media(max-width:640px) {
+  .ev-ai-result-context .ev-actions { width:100%; }
+  .ev-ai-result-context .ev-actions > * { flex:1 1 auto; }
+  .ev-ai-result-context .pd-button { width:100%; }
+}
