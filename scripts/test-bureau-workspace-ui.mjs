@@ -919,8 +919,8 @@ const withdrawnForm = ui.TestSelectionEditor({ ...revisingReview.props, save: as
 assert.equal(descendants(withdrawnForm).find(({ element }) => element.props.children === '수정 사항 저장').element.props.disabled, false);
 
 // Segmented application numbers advance at 2/4 digits and pad serials on addition.
-function selectionNumberForm(parts, props = {}) {
-  hookIndex = 0; hookOverrides = [[], parts, ' G06N 20/00 '];
+function selectionNumberForm(parts, { initialRows = [], pasteValue = '', cpcValue = ' G06N 20/00 ', autoSaveStatus = '', ...props } = {}) {
+  hookIndex = 0; hookOverrides = [initialRows, parts, cpcValue, pasteValue, '', autoSaveStatus];
   if (parts === undefined) delete hookOverrides[1];
   return ui.TestSelectionEditor({ state: domain.createInitialState('2026-11'), month: { ...domain.emptyMonth('2026-11'), stages: { selection: 'running' } }, user: reviewUser, busy: false, dirty() {}, save: async () => true, ...props });
 }
@@ -946,8 +946,8 @@ assert.equal(hookWrites.find(write => write.index === 1).value(['', '', ''])[2],
 for (const [serial, expected] of [['1', '0000001'], ['0', '0000000'], ['123', '0000123'], ['000123', '0000123'], ['1234567', '1234567']]) {
   const form = selectionNumberForm(['10', '2026', serial]);
   hookWrites.length = 0;
-  numberAdd(form).props.onClick();
-  const added = hookWrites.find(write => write.index === 0).value([]);
+  await numberAdd(form).props.onClick();
+  const added = hookWrites.find(write => write.index === 0).value;
   assert.equal(added[0].applicationNumber, '10-2026-' + expected);
   assert.equal(added[0].cpc, 'G06N 20/00');
   assert(hookWrites.some(write => write.index === 1 && JSON.stringify(write.value) === '["10","",""]'));
@@ -976,6 +976,51 @@ const backspaceParts = numberFields(backspaceForm);
 backspaceParts[0].props.ref({ focus() { focusedPrefix = true; } });
 backspaceParts[1].props.onKeyDown({ key: 'Backspace', preventDefault() {} });
 assert(focusedPrefix);
+
+// Adding a row persists the whole list without publishing a first-time draft.
+const existingSelectionRows = [{ applicationNumber: '10-2025-0000001', cpc: 'G06F' }];
+for (const alreadySubmitted of [false, true]) {
+  const persistedActions = []; const selectionDirty = [];
+  const month = { ...domain.emptyMonth('2026-11'), confirmedUserIds: alreadySubmitted ? [reviewUser.id] : [], stages: { selection: 'running' } };
+  const form = selectionNumberForm(['10', '2026', '123'], { initialRows: existingSelectionRows, month, dirty: value => selectionDirty.push(value), autoSave: async action => { persistedActions.push(action); return true; }, save: async () => { throw new Error('An automatic add must not call the final-save callback.'); } });
+  assert(!JSON.stringify(form).includes('수정 사항을 저장하면 AI 담당자에게 변경된 목록이 반영됩니다.'), 'Remove the large selection guidance box.');
+  await numberAdd(form).props.onClick();
+  assert.equal(persistedActions.length, 1);
+  assert.equal(persistedActions[0].type, 'saveSelection');
+  assert.equal(persistedActions[0].confirm, alreadySubmitted, 'Keep existing publication state instead of confirming a new draft or downgrading a submitted list.');
+  assert.equal(persistedActions[0].rows[0], existingSelectionRows[0]);
+  assert.equal(persistedActions[0].rows[1].applicationNumber, '10-2026-0000123');
+  assert.equal(selectionDirty.at(-1), false);
+}
+const bulkActions = [];
+const bulkSelectionForm = selectionNumberForm(undefined, { pasteValue: '10-2026-0000002\tG06N\n10-2026-0000003', cpcValue: '', autoSave: async action => { bulkActions.push(action); return true; } });
+await descendants(bulkSelectionForm).find(({ element }) => element.props.children === '목록에 추가').element.props.onClick();
+assert.equal(bulkActions.length, 1);
+assert.equal(bulkActions[0].rows.length, 2);
+assert.equal(bulkActions[0].rows[0].cpc, 'G06N');
+let finishAutomaticSave; let automaticRequests = 0;
+const pendingAutomaticForm = selectionNumberForm(['10', '2026', '7'], { autoSave: () => { automaticRequests++; return new Promise(resolve => { finishAutomaticSave = resolve; }); } });
+hookWrites.length = 0;
+const automaticRequest = numberAdd(pendingAutomaticForm).props.onClick();
+const writesBeforeSecondAdd = hookWrites.length;
+await numberAdd(pendingAutomaticForm).props.onClick();
+assert.equal(automaticRequests, 1);
+assert.equal(hookWrites.length, writesBeforeSecondAdd, 'Ignore a second add before the first automatic save finishes.');
+descendants(pendingAutomaticForm).find(({ element }) => element.props.children === '임시저장').element.props.onClick();
+assert.equal(hookWrites.length, writesBeforeSecondAdd, 'Do not send a parallel manual save.');
+finishAutomaticSave(false); await automaticRequest;
+assert.equal(hookWrites.find(write => write.index === 0).value.at(-1).applicationNumber, '10-2026-0000007', 'Retain the added row after a failed save.');
+assert(hookWrites.some(write => write.index === 4 && String(write.value).includes('자동 저장하지 못했습니다.')));
+const extraInputDirty = [];
+const otherPendingInput = selectionNumberForm(['10', '2026', '8'], { pasteValue: '10-2026-0000009', dirty: value => extraInputDirty.push(value) });
+await numberAdd(otherPendingInput).props.onClick();
+assert.equal(extraInputDirty.at(-1), true, 'Unsaved bulk input must still protect navigation after a single-row automatic save.');
+const automaticBusyForm = selectionNumberForm(['10', '2026', '7'], { autoSaveStatus: 'saving' });
+assert(numberFields(automaticBusyForm).every(field => field.props.disabled));
+assert.equal(numberAdd(automaticBusyForm).props.disabled, true);
+hookWrites.length = 0;
+await revisingReview.props.autoSave({ type: 'saveSelection', monthId: '2026-10', rows: submitted, confirm: true });
+assert(!hookWrites.some(write => write.index === 2 && write.value === false), 'Automatic saves must keep the submitted-list editing screen open.');
 await adminUI.exportAdminStatistics(demo, '2026-10', 'group-a', '', '전기국');
 assert(exportedWorkbook.filename.includes('전기국'));
 assert.deepEqual(Array.from(exportedWorkbook.sheets, sheet => sheet.name), ['그룹별 통계','계정별 현황','출원별 현황','조사 방식별 통계','AI 검색 결과 평가','조회 기준']);

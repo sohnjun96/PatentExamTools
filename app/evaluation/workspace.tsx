@@ -309,7 +309,7 @@ function ReviewWorkspace(props: Shared & { user: EvaluationUser; notify: (text: 
   if (!confirmed && !cases.length) return <SelectionEditor {...props} />;
   if (editingSelection) return <SelectionEditor {...props} dirty={mark} onCancel={() => {
     if (!unsaved || window.confirm('저장하지 않은 선정 목록이 있습니다. 입력을 버리고 목록으로 돌아가시겠습니까?')) { mark(false); setEditingSelection(false); }
-  }} save={async (action, message) => { const ok = await save(action, message); if (ok) { mark(false); setEditingSelection(false); } return ok; }} />;
+  }} autoSave={save} save={async (action, message) => { const ok = await save(action, message); if (ok) { mark(false); setEditingSelection(false); } return ok; }} />;
   const editSelection = isOperationStageOpen(month, 'selection') && <button type="button" className="krds-btn medium ev-button" disabled={busy} onClick={() => {
     if (!unsaved || window.confirm('저장하지 않은 평가가 있습니다. 입력을 버리고 제출 목록을 수정하시겠습니까?')) { mark(false); setEditingSelection(true); }
   }}>제출 목록 수정</button>;
@@ -340,38 +340,63 @@ function ReviewWorkspace(props: Shared & { user: EvaluationUser; notify: (text: 
   </>;
 }
 
-function SelectionEditor({ state, month, user, save, busy, dirty, onCancel }: Shared & { user: EvaluationUser; onCancel?: () => void }) {
+function SelectionEditor({ state, month, user, save, busy, dirty, onCancel, autoSave = save }: Shared & { user: EvaluationUser; onCancel?: () => void; autoSave?: ActionHandler }) {
   const submitted = month.confirmedUserIds.includes(user.id) || state.cases.some(item => item.monthId === month.id && item.examinerId === user.id && item.status === 'confirmed');
   const [rows, setRows] = useState<SelectionRow[]>(() => state.cases.filter((item) => item.monthId === month.id && item.examinerId === user.id && item.status === (submitted ? 'confirmed' : 'draft')).map(({ applicationNumber, cpc }) => ({ applicationNumber, cpc })));
   const [numberParts, setNumberParts] = useState(['10', '', '']); const [cpc, setCpc] = useState(''); const [paste, setPaste] = useState(''); const [localError, setLocalError] = useState('');
   const numberFields = useRef<Array<HTMLInputElement | null>>([]);
+  const saving = useRef(false);
+  const focusAfterAdd = useRef(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState('');
+  useEffect(() => {
+    if (autoSaveStatus !== 'saving' && !busy && focusAfterAdd.current) { focusAfterAdd.current = false; numberFields.current[1]?.focus(); }
+  }, [autoSaveStatus, busy]);
+  function markDirty() { dirty(true); setAutoSaveStatus(''); }
   const partLengths = [2, 4, 7];
   const hasNumberInput = numberParts.slice(1).some(Boolean) || (numberParts[0] !== '' && numberParts[0] !== '10');
   const canAddNumber = numberParts[0].length === 2 && numberParts[1].length === 4 && numberParts[2].length > 0;
   function changeNumberPart(index: number, value: string) {
     const digits = value.replace(/\D/g, '').slice(0, partLengths[index]);
     setNumberParts(previous => previous.map((part, position) => position === index ? digits : part));
-    dirty(true);
+    markDirty();
     if (digits.length === partLengths[index] && index < 2) numberFields.current[index + 1]?.focus();
   }
   function pasteNumber(event: React.ClipboardEvent<HTMLInputElement>) {
     const text = event.clipboardData.getData('text').trim();
     const parts = text.match(/^(10|20)[\s-]+(\d{4})[\s-]+(\d{1,7})$/) || text.replace(/[\s-]/g, '').match(/^(10|20)(\d{4})(\d{7})$/);
     if (!parts) return;
-    event.preventDefault(); setNumberParts(parts.slice(1)); dirty(true); numberFields.current[2]?.focus();
+    event.preventDefault(); setNumberParts(parts.slice(1)); markDirty(); numberFields.current[2]?.focus();
   }
-  function addNumber() {
-    if (disabled || !canAddNumber) return;
+  async function addNumber() {
+    if (disabled || saving.current || !canAddNumber) return false;
     if (!['10', '20'].includes(numberParts[0])) { setLocalError('출원번호 앞 2자리는 특허 10 또는 실용신안 20을 입력해 주세요.'); numberFields.current[0]?.focus(); return; }
-    add([{ applicationNumber: numberParts[0] + '-' + numberParts[1] + '-' + numberParts[2].padStart(7, '0'), cpc: cpc.trim() }]);
-    setNumberParts(['10', '', '']); setCpc(''); numberFields.current[1]?.focus();
+    return add([{ applicationNumber: numberParts[0] + '-' + numberParts[1] + '-' + numberParts[2].padStart(7, '0'), cpc: cpc.trim() }], 'single');
   }
-  function add(values: SelectionRow[]) { setRows((previous) => [...previous, ...values]); dirty(true); setLocalError(''); }
-  function bulk() { const values = paste.split(/\r?\n/).filter((line) => line.trim()).map((line) => { const match = line.trim().match(/^((?:10|20)[-\s]?\d{4}[-\s]?\d{7})[\s,;\t]*(.*)$/); return match ? { applicationNumber: match[1], cpc: match[2].trim() } : { applicationNumber: line.trim(), cpc: '' }; }); add(values); setPaste(''); }
+  async function add(values: SelectionRow[], source: 'single' | 'bulk') {
+    if (disabled || saving.current || !values.length) return false;
+    const nextRows = [...rows, ...values];
+    saving.current = true; setRows(nextRows); dirty(true); setLocalError(''); setAutoSaveStatus('saving');
+    focusAfterAdd.current = source === 'single';
+    if (source === 'single') { setNumberParts(['10', '', '']); setCpc(''); } else setPaste('');
+    try {
+      const ok = await autoSave({ type: 'saveSelection', monthId: month.id, rows: nextRows, confirm: submitted }, '');
+      if (ok) {
+        dirty(source === 'single' ? Boolean(paste.trim()) : hasNumberInput || Boolean(cpc.trim()));
+        setAutoSaveStatus('saved');
+      } else {
+        dirty(true); setAutoSaveStatus(''); setLocalError('자동 저장하지 못했습니다. 목록은 유지되어 있으니 아래 저장 버튼으로 다시 저장해 주세요.');
+      }
+      return ok;
+    } catch {
+      dirty(true); setAutoSaveStatus(''); setLocalError('자동 저장하지 못했습니다. 목록은 유지되어 있으니 아래 저장 버튼으로 다시 저장해 주세요.');
+      return false;
+    } finally { saving.current = false; }
+  }
+  function bulk() { const values = paste.split(/\r?\n/).filter((line) => line.trim()).map((line) => { const match = line.trim().match(/^((?:10|20)[-\s]?\d{4}[-\s]?\d{7})[\s,;\t]*(.*)$/); return match ? { applicationNumber: match[1], cpc: match[2].trim() } : { applicationNumber: line.trim(), cpc: '' }; }); return add(values, 'bulk'); }
   const duplicates = rows.filter((row) => state.cases.some((item) => item.monthId === month.id && item.examinerId !== user.id && item.status === 'confirmed' && normalized(item.applicationNumber) === normalized(row.applicationNumber)));
-  const disabled = !isOperationStageOpen(month, 'selection') || busy;
-  return <Panel title={submitted ? '제출한 출원 목록 수정' : '대상 건 선정'}><div className="ev-panel-body"><StageNotice month={month} stage="selection" />{localError && <div className="ev-alert">{localError}</div>}<div className="ev-notice">{submitted ? <p>수정 사항을 저장하면 AI 담당자에게 변경된 목록이 반영됩니다. 출원번호를 바꾸거나 삭제한 건의 기존 결과와 평가는 취소 기록으로 보존됩니다.</p> : <p>임시저장한 목록은 AI 담당자에게 공개되지 않습니다.</p>}<p>대상 건 선정 단계가 진행 중이면 제출 후에도 출원번호·CPC를 수정하거나 출원을 추가·삭제할 수 있습니다.</p>{month.selectionDeadline && <p>선정 기한: {month.selectionDeadline}</p>}</div><div className="ev-selection-input"><div className="ev-application-number" role="group" aria-labelledby="selection-number-label"><span id="selection-number-label" className="ev-selection-caption">출원번호</span><div className="ev-application-number-parts">{numberParts.map((part, index) => <span className="ev-application-number-part" key={index}><input ref={element => { numberFields.current[index] = element; }} className="krds-input" type="text" inputMode="numeric" pattern="[0-9]*" maxLength={partLengths[index]} autoComplete="off" aria-label={['출원번호 앞자리 (2자리)', '출원연도 (4자리)', '일련번호 (최대 7자리)'][index]} aria-describedby="selection-number-hint" placeholder={['10', '2026', '0000000'][index]} value={part} onChange={event => changeNumberPart(index, event.target.value)} onPaste={pasteNumber} onKeyDown={event => { if (event.key === 'Backspace' && !part && index > 0) { event.preventDefault(); numberFields.current[index - 1]?.focus(); } if (event.key === 'Enter') { event.preventDefault(); addNumber(); } }} disabled={disabled} />{index < 2 && <span aria-hidden="true">-</span>}</span>)}</div></div><label><span className="ev-selection-caption">CPC <span className="ev-muted">선택</span></span><input className="krds-input" placeholder="G06N 20/00" value={cpc} onChange={(event) => { setCpc(event.target.value); dirty(true); }} disabled={disabled} /></label><button type="button" className="krds-btn medium ev-button" disabled={disabled || !canAddNumber} onClick={addNumber}>선정 목록에 추가</button></div><p id="selection-number-hint" className="ev-muted ev-application-number-hint">일련번호를 7자리보다 적게 입력하면 목록에 추가할 때 앞에 0을 채웁니다.</p><details style={{ marginTop: 20 }}><summary style={{ cursor: 'pointer', fontSize: 12, color: '#517080' }}>여러 출원 한 번에 붙여넣기</summary><label style={{ marginTop: 12 }}>한 줄에 출원번호와 CPC를 입력하세요.<textarea className="krds-input" rows={5} placeholder={'10-2024-0000001\tG06N 20/00\n10-2024-0000002'} value={paste} onChange={(event) => { setPaste(event.target.value); dirty(true); }} disabled={disabled} /></label><div className="ev-actions end"><button className="krds-btn medium ev-button" onClick={bulk} disabled={!paste.trim() || disabled}>목록에 추가</button></div></details><hr className="ev-divider" /><div className="ev-subheading"><h3>선정 목록 <span className="ev-count">{rows.length}</span></h3></div>{duplicates.length > 0 && <div className="ev-notice warning">다른 심사관이 같은 달에 선정한 출원 {duplicates.length}건이 있습니다. 별도의 평가 업무로 유지됩니다.</div>}{rows.length ? <div className="ev-table-scroll"><table className="ev-table"><caption className="sr-only">선정할 출원 목록</caption><thead><tr><th scope="col">출원번호</th><th scope="col">CPC</th><th scope="col"><span className="sr-only">관리</span></th></tr></thead><tbody>{rows.map((row, index) => <tr key={index}><td><input className="krds-input" aria-label={`출원번호 ${index + 1}`} value={row.applicationNumber} disabled={disabled} onChange={(event) => { setRows(rows.map((value, i) => i === index ? { ...value, applicationNumber: event.target.value } : value)); dirty(true); }} /></td><td><input className="krds-input" aria-label={`CPC ${index + 1}`} value={row.cpc} disabled={disabled} onChange={(event) => { setRows(rows.map((value, i) => i === index ? { ...value, cpc: event.target.value } : value)); dirty(true); }} /></td><td><button className="krds-btn medium ev-button tiny danger" disabled={disabled} aria-label={`${row.applicationNumber || `${index + 1}번째 출원`} 선정 목록에서 삭제`} onClick={() => { setRows(rows.filter((_, i) => i !== index)); dirty(true); }}>목록에서 삭제</button></td></tr>)}</tbody></table></div> : <p className="ev-muted">등록된 출원이 없습니다.</p>}<div className="ev-actions end">{onCancel && <button type="button" className="krds-btn medium ev-button" disabled={busy} onClick={onCancel}>목록으로 돌아가기</button>}{!submitted && <button className="krds-btn medium ev-button" disabled={disabled} onClick={() => { if (hasNumberInput || paste.trim()) { setLocalError('입력 중인 출원을 목록에 먼저 추가해 주세요.'); return; } void save({ type: 'saveSelection', monthId: month.id, rows, confirm: false }, monthLabel(month.id) + ' 선정 목록 ' + rows.length + '건을 임시저장했습니다. AI 담당자에게는 공개되지 않습니다.'); }}>임시저장</button>}<button className="krds-btn medium ev-button primary" disabled={disabled || (!submitted && !rows.length)} onClick={() => {
-    if (hasNumberInput || paste.trim()) { setLocalError('입력 중인 출원을 목록에 먼저 추가해 주세요.'); return; }
+  const disabled = !isOperationStageOpen(month, 'selection') || busy || autoSaveStatus === 'saving';
+  return <Panel title={submitted ? '제출한 출원 목록 수정' : '대상 건 선정'}><div className="ev-panel-body"><StageNotice month={month} stage="selection" />{localError && <div className="ev-alert" role="alert">{localError}</div>}<div className="ev-selection-input"><div className="ev-application-number" role="group" aria-labelledby="selection-number-label"><span id="selection-number-label" className="ev-selection-caption">출원번호</span><div className="ev-application-number-parts">{numberParts.map((part, index) => <span className="ev-application-number-part" key={index}><input ref={element => { numberFields.current[index] = element; }} className="krds-input" type="text" inputMode="numeric" pattern="[0-9]*" maxLength={partLengths[index]} autoComplete="off" aria-label={['출원번호 앞자리 (2자리)', '출원연도 (4자리)', '일련번호 (최대 7자리)'][index]} aria-describedby="selection-number-hint" placeholder={['10', '2026', '0000000'][index]} value={part} onChange={event => changeNumberPart(index, event.target.value)} onPaste={pasteNumber} onKeyDown={event => { if (event.key === 'Backspace' && !part && index > 0) { event.preventDefault(); numberFields.current[index - 1]?.focus(); } if (event.key === 'Enter') { event.preventDefault(); addNumber(); } }} disabled={disabled} />{index < 2 && <span aria-hidden="true">-</span>}</span>)}</div></div><label><span className="ev-selection-caption">CPC <span className="ev-muted">선택</span></span><input className="krds-input" placeholder="G06N 20/00" value={cpc} onChange={(event) => { setCpc(event.target.value); markDirty(); }} disabled={disabled} /></label><button type="button" className="krds-btn medium ev-button" disabled={disabled || !canAddNumber} onClick={addNumber}>선정 목록에 추가</button></div><p id="selection-number-hint" className="ev-muted ev-application-number-hint">일련번호를 7자리보다 적게 입력하면 목록에 추가할 때 앞에 0을 채웁니다.</p><details style={{ marginTop: 20 }}><summary style={{ cursor: 'pointer', fontSize: 12, color: '#517080' }}>여러 출원 한 번에 붙여넣기</summary><label style={{ marginTop: 12 }}>한 줄에 출원번호와 CPC를 입력하세요.<textarea className="krds-input" rows={5} placeholder={'10-2024-0000001\tG06N 20/00\n10-2024-0000002'} value={paste} onChange={(event) => { setPaste(event.target.value); markDirty(); }} disabled={disabled} /></label><div className="ev-actions end"><button className="krds-btn medium ev-button" onClick={bulk} disabled={!paste.trim() || disabled}>목록에 추가</button></div></details><hr className="ev-divider" /><div className="ev-subheading"><h3>선정 목록 <span className="ev-count">{rows.length}</span></h3><span className="ev-muted" role="status">{autoSaveStatus === 'saving' ? '자동 저장 중…' : autoSaveStatus === 'saved' ? submitted ? '변경 사항 자동 저장됨' : '자동 임시저장됨' : ''}</span></div>{duplicates.length > 0 && <div className="ev-notice warning">다른 심사관이 같은 달에 선정한 출원 {duplicates.length}건이 있습니다. 별도의 평가 업무로 유지됩니다.</div>}{rows.length ? <div className="ev-table-scroll"><table className="ev-table"><caption className="sr-only">선정할 출원 목록</caption><thead><tr><th scope="col">출원번호</th><th scope="col">CPC</th><th scope="col"><span className="sr-only">관리</span></th></tr></thead><tbody>{rows.map((row, index) => <tr key={index}><td><input className="krds-input" aria-label={`출원번호 ${index + 1}`} value={row.applicationNumber} disabled={disabled} onChange={(event) => { setRows(rows.map((value, i) => i === index ? { ...value, applicationNumber: event.target.value } : value)); markDirty(); }} /></td><td><input className="krds-input" aria-label={`CPC ${index + 1}`} value={row.cpc} disabled={disabled} onChange={(event) => { setRows(rows.map((value, i) => i === index ? { ...value, cpc: event.target.value } : value)); markDirty(); }} /></td><td><button className="krds-btn medium ev-button tiny danger" disabled={disabled} aria-label={`${row.applicationNumber || `${index + 1}번째 출원`} 선정 목록에서 삭제`} onClick={() => { setRows(rows.filter((_, i) => i !== index)); markDirty(); }}>목록에서 삭제</button></td></tr>)}</tbody></table></div> : <p className="ev-muted">등록된 출원이 없습니다.</p>}<div className="ev-actions end">{onCancel && <button type="button" className="krds-btn medium ev-button" disabled={busy || autoSaveStatus === 'saving'} onClick={() => { if (!saving.current) onCancel(); }}>목록으로 돌아가기</button>}{!submitted && <button className="krds-btn medium ev-button" disabled={disabled} onClick={() => { if (saving.current) return; if (hasNumberInput || paste.trim()) { setLocalError('입력 중인 출원을 목록에 먼저 추가해 주세요.'); return; } void save({ type: 'saveSelection', monthId: month.id, rows, confirm: false }, monthLabel(month.id) + ' 선정 목록 ' + rows.length + '건을 임시저장했습니다. AI 담당자에게는 공개되지 않습니다.'); }}>임시저장</button>}<button className="krds-btn medium ev-button primary" disabled={disabled || (!submitted && !rows.length)} onClick={() => {
+    if (saving.current) return; if (hasNumberInput || paste.trim()) { setLocalError('입력 중인 출원을 목록에 먼저 추가해 주세요.'); return; }
     if (submitted || window.confirm(monthLabel(month.id) + ' 선정 목록 ' + rows.length + '건을 확정하시겠습니까? AI 담당자에게 목록 전체가 공개되며, 선정 마감 전까지 수정할 수 있습니다.')) void save({ type: 'saveSelection', monthId: month.id, rows, confirm: true }, submitted ? monthLabel(month.id) + ' 제출 목록을 ' + rows.length + '건으로 수정했습니다. AI 담당자에게 변경된 목록을 반영했습니다.' : monthLabel(month.id) + ' 평가 대상 ' + rows.length + '건을 확정해 AI 담당자에게 공개했습니다.');
   }}>{submitted ? '수정 사항 저장' : '선정 확정'}</button></div></div></Panel>;
 }
