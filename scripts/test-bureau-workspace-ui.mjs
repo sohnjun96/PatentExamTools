@@ -919,8 +919,9 @@ const withdrawnForm = ui.TestSelectionEditor({ ...revisingReview.props, save: as
 assert.equal(descendants(withdrawnForm).find(({ element }) => element.props.children === '수정 사항 저장').element.props.disabled, false);
 
 // Segmented application numbers advance at 2/4 digits and pad serials on addition.
-function selectionNumberForm(parts = ['', '', ''], props = {}) {
+function selectionNumberForm(parts, props = {}) {
   hookIndex = 0; hookOverrides = [[], parts, ' G06N 20/00 '];
+  if (parts === undefined) delete hookOverrides[1];
   return ui.TestSelectionEditor({ state: domain.createInitialState('2026-11'), month: { ...domain.emptyMonth('2026-11'), stages: { selection: 'running' } }, user: reviewUser, busy: false, dirty() {}, save: async () => true, ...props });
 }
 const numberFields = tree => descendants(tree).filter(({ element }) => element.props.maxLength && element.props.inputMode === 'numeric').map(({ element }) => element);
@@ -928,6 +929,7 @@ const numberAdd = tree => descendants(tree).find(({ element }) => element.props.
 const blankNumber = selectionNumberForm();
 const blankParts = numberFields(blankNumber);
 assert.deepEqual(blankParts.map(field => field.props.maxLength), [2, 4, 7]);
+assert.equal(blankParts[0].props.value, '10', 'The application type defaults to patent 10.');
 assert.equal(numberAdd(blankNumber).props.disabled, true);
 let focusedYear = 0; let focusedSerial = 0;
 blankParts[1].props.ref({ focus() { focusedYear++; } });
@@ -948,7 +950,7 @@ for (const [serial, expected] of [['1', '0000001'], ['0', '0000000'], ['123', '0
   const added = hookWrites.find(write => write.index === 0).value([]);
   assert.equal(added[0].applicationNumber, '10-2026-' + expected);
   assert.equal(added[0].cpc, 'G06N 20/00');
-  assert(hookWrites.some(write => write.index === 1 && JSON.stringify(write.value) === '["","",""]'));
+  assert(hookWrites.some(write => write.index === 1 && JSON.stringify(write.value) === '["10","",""]'));
 }
 for (const parts of [['1', '2026', '1'], ['10', '202', '1'], ['10', '2026', '']]) assert.equal(numberAdd(selectionNumberForm(parts)).props.disabled, true);
 const invalidPrefix = selectionNumberForm(['30', '2026', '1']);
@@ -963,9 +965,12 @@ for (const text of ['10-2026-123', '1020260000123']) {
   assert.equal(JSON.stringify(hookWrites.find(write => write.index === 1).value), text.includes('-') ? '["10","2026","123"]' : '["10","2026","0000123"]');
 }
 let selectionSaves = 0;
-const unfinishedNumber = selectionNumberForm(['10', '', ''], { save: async () => { selectionSaves++; return true; } });
+const unfinishedNumber = selectionNumberForm(['10', '202', ''], { save: async () => { selectionSaves++; return true; } });
 descendants(unfinishedNumber).find(({ element }) => element.props.children === '임시저장').element.props.onClick();
 assert.equal(selectionSaves, 0, 'Do not silently omit a partially entered number when saving the list.');
+const untouchedNumber = selectionNumberForm(undefined, { save: async () => { selectionSaves++; return true; } });
+await descendants(untouchedNumber).find(({ element }) => element.props.children === '임시저장').element.props.onClick();
+assert.equal(selectionSaves, 1, 'The prefilled 10 alone must not block saving an existing selection list.');
 const backspaceForm = selectionNumberForm(['10', '', '']); let focusedPrefix = false;
 const backspaceParts = numberFields(backspaceForm);
 backspaceParts[0].props.ref({ focus() { focusedPrefix = true; } });

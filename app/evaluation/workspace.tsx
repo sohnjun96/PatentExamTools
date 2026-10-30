@@ -343,10 +343,10 @@ function ReviewWorkspace(props: Shared & { user: EvaluationUser; notify: (text: 
 function SelectionEditor({ state, month, user, save, busy, dirty, onCancel }: Shared & { user: EvaluationUser; onCancel?: () => void }) {
   const submitted = month.confirmedUserIds.includes(user.id) || state.cases.some(item => item.monthId === month.id && item.examinerId === user.id && item.status === 'confirmed');
   const [rows, setRows] = useState<SelectionRow[]>(() => state.cases.filter((item) => item.monthId === month.id && item.examinerId === user.id && item.status === (submitted ? 'confirmed' : 'draft')).map(({ applicationNumber, cpc }) => ({ applicationNumber, cpc })));
-  const [numberParts, setNumberParts] = useState(['', '', '']); const [cpc, setCpc] = useState(''); const [paste, setPaste] = useState(''); const [localError, setLocalError] = useState('');
+  const [numberParts, setNumberParts] = useState(['10', '', '']); const [cpc, setCpc] = useState(''); const [paste, setPaste] = useState(''); const [localError, setLocalError] = useState('');
   const numberFields = useRef<Array<HTMLInputElement | null>>([]);
   const partLengths = [2, 4, 7];
-  const hasNumberInput = numberParts.some(Boolean);
+  const hasNumberInput = numberParts.slice(1).some(Boolean) || (numberParts[0] !== '' && numberParts[0] !== '10');
   const canAddNumber = numberParts[0].length === 2 && numberParts[1].length === 4 && numberParts[2].length > 0;
   function changeNumberPart(index: number, value: string) {
     const digits = value.replace(/\D/g, '').slice(0, partLengths[index]);
@@ -364,7 +364,7 @@ function SelectionEditor({ state, month, user, save, busy, dirty, onCancel }: Sh
     if (disabled || !canAddNumber) return;
     if (!['10', '20'].includes(numberParts[0])) { setLocalError('출원번호 앞 2자리는 특허 10 또는 실용신안 20을 입력해 주세요.'); numberFields.current[0]?.focus(); return; }
     add([{ applicationNumber: numberParts[0] + '-' + numberParts[1] + '-' + numberParts[2].padStart(7, '0'), cpc: cpc.trim() }]);
-    setNumberParts(['', '', '']); setCpc(''); numberFields.current[0]?.focus();
+    setNumberParts(['10', '', '']); setCpc(''); numberFields.current[1]?.focus();
   }
   function add(values: SelectionRow[]) { setRows((previous) => [...previous, ...values]); dirty(true); setLocalError(''); }
   function bulk() { const values = paste.split(/\r?\n/).filter((line) => line.trim()).map((line) => { const match = line.trim().match(/^((?:10|20)[-\s]?\d{4}[-\s]?\d{7})[\s,;\t]*(.*)$/); return match ? { applicationNumber: match[1], cpc: match[2].trim() } : { applicationNumber: line.trim(), cpc: '' }; }); add(values); setPaste(''); }
