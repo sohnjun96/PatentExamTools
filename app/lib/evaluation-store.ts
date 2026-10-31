@@ -1,6 +1,6 @@
 import { appDatabase } from '@/app/lib/db';
 import { applyAction, createInitialState, normalizeEvaluationState, withDefaultOperationMonths, EvaluationError, type EvaluationAction, type EvaluationActor, type EvaluationState, type LiteratureDocument } from '@/app/lib/evaluation';
-import { parseBureau, type Bureau } from '@/app/lib/bureaus';
+import { parseBureau, SAMPLE_BUREAU, type Bureau } from '@/app/lib/bureaus';
 import { demoForBureau, migrateEvaluationBureau } from '@/app/lib/evaluation-bureau';
 
 let ready: Promise<void> | null = null;
@@ -103,9 +103,11 @@ async function hydrateReports(db: D1Database, id: string, state: EvaluationState
   return state;
 }
 
-function workspaceId(bureau?: Bureau) {
+// This fixed generation implements the requested one-time bureau reset. Old
+// rows and immutable reports remain available for recovery, never for re-seeding.
+export function evaluationWorkspaceId(bureau?: Bureau) {
   if (bureau !== undefined && !parseBureau(bureau)) throw new EvaluationError('심사국을 확인해 주세요.');
-  return bureau ? `bureau:${bureau}` : 'main';
+  return bureau ? `bureau:2026-10-31:${bureau}` : 'main';
 }
 
 export function assertBureauActor(state: EvaluationState, actor: EvaluationActor, bureau?: Bureau) {
@@ -113,16 +115,26 @@ export function assertBureauActor(state: EvaluationState, actor: EvaluationActor
 }
 
 export async function readEvaluationState(bureau?: Bureau) {
-  const id = workspaceId(bureau);
+  const id = evaluationWorkspaceId(bureau);
   const db = await evaluationDatabase();
   let row = await db.prepare('SELECT revision, payload_json FROM evaluation_workspace WHERE id = ?')
     .bind(id).first<{ revision: number; payload_json: string }>();
   if (!row && bureau) {
-    const legacy = await readEvaluationState();
-    const state = migrateEvaluationBureau(legacy.state, bureau);
+    const legacyId = `bureau:${bureau === SAMPLE_BUREAU ? '기획국' : bureau}`;
+    const legacy = await db.prepare('SELECT revision, payload_json FROM evaluation_workspace WHERE id = ?')
+      .bind(legacyId).first<{ revision: number; payload_json: string }>();
+    // Only /샘플 inherits the planning bureau. All six operational bureaus
+    // start clean, even when the older shared main row still contains records.
+    const state = bureau === SAMPLE_BUREAU
+      ? demoForBureau(legacy
+        ? await hydrateReports(db, legacyId, JSON.parse(legacy.payload_json) as EvaluationState)
+        : migrateEvaluationBureau((await readEvaluationState()).state, '기획국'), SAMPLE_BUREAU)
+      : createInitialState();
     const encoded = await encodeReports(state);
-    await db.batch([...reportInserts(db, id, encoded.reports), db.prepare('INSERT OR IGNORE INTO evaluation_workspace (id, revision, payload_json) VALUES (?, 0, ?)')
-      .bind(id, encoded.payload)]);
+    // Advance beyond the old revision to reject saves from screens opened
+    // before the reset, including old administrator settings forms.
+    await db.batch([...reportInserts(db, id, encoded.reports), db.prepare('INSERT OR IGNORE INTO evaluation_workspace (id, revision, payload_json) VALUES (?, ?, ?)')
+      .bind(id, legacy ? legacy.revision + 1 : 0, encoded.payload)]);
     row = await db.prepare('SELECT revision, payload_json FROM evaluation_workspace WHERE id = ?')
       .bind(id).first<{ revision: number; payload_json: string }>();
   }
@@ -132,7 +144,7 @@ export async function readEvaluationState(bureau?: Bureau) {
 }
 
 export async function mutateEvaluationState(revision: number, actor: EvaluationActor, action: EvaluationAction, bureau?: Bureau) {
-  const id = workspaceId(bureau);
+  const id = evaluationWorkspaceId(bureau);
   const current = await readEvaluationState(bureau);
   assertBureauActor(current.state, actor, bureau);
   if (revision !== current.revision) throw new EvaluationError('다른 화면에서 업무 자료가 변경되었습니다. 입력내용을 보관한 뒤 최신 자료를 불러와 다시 저장해 주세요.', 409);

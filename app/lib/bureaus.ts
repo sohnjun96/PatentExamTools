@@ -1,8 +1,9 @@
 export const BUREAUS = ['기획국', '융합국', '전기국', '화학국', '기계국', '반도체단'] as const;
-export type Bureau = typeof BUREAUS[number];
+export const SAMPLE_BUREAU = '샘플';
+export type Bureau = typeof BUREAUS[number] | typeof SAMPLE_BUREAU;
 
 export function parseBureau(value: unknown): Bureau | null {
-  return typeof value === 'string' && (BUREAUS as readonly string[]).includes(value) ? value as Bureau : null;
+  return typeof value === 'string' && (value === SAMPLE_BUREAU || (BUREAUS as readonly string[]).includes(value)) ? value as Bureau : null;
 }
 
 // Vinext can supply an encoded segment, while Next supplies a decoded segment.

@@ -51,8 +51,8 @@ try {
   assert.equal(final.revision, 2);
   assert.deepEqual(final.state.groups.map((group) => group.name).sort(), ['그룹 1', '그룹 2', '그룹 A', '그룹 B']);
 
-  // Simulate a pre-existing main workspace shared by two bureaus. Import is
-  // selective and copy-once: it must neither mutate main nor reveal other users.
+  // Selective legacy conversion remains available for explicit sample recovery;
+  // its output must neither mutate main nor reveal another bureau's users.
   const legacy = rules.createDemoState('2026-11');
   legacy.months[0].participants = structuredClone(legacy.personnel.memberships);
   legacy.months[0].assignments = structuredClone(legacy.personnel.assignments);
@@ -70,6 +70,13 @@ try {
   foreignEdit.publishedBy = { id: 'demo-user-6', name: '외국 등록자 이름' };
   await db.prepare('UPDATE evaluation_workspace SET payload_json = ?, revision = ? WHERE id = ?').bind(JSON.stringify(legacy), 10, 'main').run();
   const mainBefore = await store.readEvaluationState();
+  // Operational bureaus no longer import shared legacy records after the reset.
+  // Seed the selective migration fixtures explicitly for the remaining storage tests.
+  for (const bureau of ['기획국', '전기국']) {
+    assert.deepEqual((await store.readEvaluationState(bureau)).state, rules.createInitialState());
+    await db.prepare('UPDATE evaluation_workspace SET payload_json = ? WHERE id = ?')
+      .bind(JSON.stringify(bureauMigration.migrateEvaluationBureau(legacy, bureau)), store.evaluationWorkspaceId(bureau)).run();
+  }
   let planning = await store.readEvaluationState('기획국');
   let electric = await store.readEvaluationState('전기국');
   for (const workspace of [mainBefore, planning, electric]) {
@@ -273,7 +280,7 @@ try {
   // Genuine legacy JSON with a cap still permits a longer selection through the API.
   let uncappedFixture = await store.readEvaluationState('화학국');
   uncappedFixture.state.months.find(month => month.id === '2025-01').caseLimit = 1;
-  await db.prepare('UPDATE evaluation_workspace SET payload_json = ? WHERE id = ?').bind(JSON.stringify(uncappedFixture.state), 'bureau:화학국').run();
+  await db.prepare('UPDATE evaluation_workspace SET payload_json = ? WHERE id = ?').bind(JSON.stringify(uncappedFixture.state), store.evaluationWorkspaceId('화학국')).run();
   const uncappedSelection = { type: 'saveSelection', monthId: '2025-01', rows: [{ applicationNumber: '10-2020-0000001', cpc: '' }, { applicationNumber: '10-2020-0000002', cpc: 'G06N' }], confirm: false };
   const submitUncapped = (revision, confirm) => api.POST(request('?bureau=화학국', { revision, actor: { userId: 'demo-user-2' }, action: { ...uncappedSelection, confirm } }));
   assert.equal((await submitUncapped(uncappedFixture.revision, false)).status, 200);
@@ -330,7 +337,7 @@ try {
   parallelSeed.users.find(user => user.id === 'demo-user-3').roles.push('ai');
   parallelSeed.personnel.assignments.push({ groupId: 'group-a', methodId: 'claude', userId: 'demo-user-3' });
   await store.readEvaluationState('반도체단');
-  await db.prepare('UPDATE evaluation_workspace SET payload_json = ?, revision = 120 WHERE id = ?').bind(JSON.stringify(parallelSeed), 'bureau:반도체단').run();
+  await db.prepare('UPDATE evaluation_workspace SET payload_json = ?, revision = 120 WHERE id = ?').bind(JSON.stringify(parallelSeed), store.evaluationWorkspaceId('반도체단')).run();
   const parallelCase = parallelSeed.cases[0];
   const originalClaude = structuredClone(rules.resultFor(parallelSeed, parallelCase.id, 'claude', 'demo-user-2'));
   const secondRawDraft = { documents: [{ kind: 'patent', number: '', reportMarkdown: '담당 B의 미완성 보고서' }], bulkInput: '{"documents":[' };

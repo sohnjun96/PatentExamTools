@@ -68,6 +68,9 @@
 .bureau-home-link:hover { border-color: #256ef4; background: #f3f7ff; }
 .bureau-home-link:focus-visible { outline: 3px solid #256ef4; outline-offset: 4px; }
 
+.bureau-home-sample { display:flex; align-items:center; justify-content:space-between; gap:12px; width:fit-content; min-height:44px; margin-top:24px; padding:8px 0; color:#0b50d0; font-size:18px; font-weight:700; }
+.bureau-home-sample:focus-visible { outline:3px solid #256ef4; outline-offset:4px; }
+
 @media (max-width: 720px) {
   .bureau-home-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

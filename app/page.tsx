@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { BUREAUS, bureauPath } from './lib/bureaus';
+import { BUREAUS, SAMPLE_BUREAU, bureauPath } from './lib/bureaus';
 import AppIcon from './components/app-icon';
 import './home.css';
 
@@ -29,6 +29,7 @@ export default function Home() {
             ))}
           </ul>
         </nav>
+        <a className="bureau-home-sample" href={bureauPath(SAMPLE_BUREAU)}>샘플 보기<AppIcon name="arrow-right" size={20} /></a>
       </div>
     </main>
   );

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { BUREAUS, parseBureau, parseBureauRoute, bureauPath, evaluationApiUrl } from '../app/lib/bureaus.ts';
+import { BUREAUS, SAMPLE_BUREAU, parseBureau, parseBureauRoute, bureauPath, evaluationApiUrl } from '../app/lib/bureaus.ts';
 
-for (const bureau of BUREAUS) {
+assert.equal(BUREAUS.length, 6, 'Sample must remain separate from the six operational bureaus.');
+for (const bureau of [...BUREAUS, SAMPLE_BUREAU]) {
   assert.equal(parseBureau(bureau), bureau);
   assert.equal(parseBureauRoute(bureau), bureau);
   assert.equal(parseBureauRoute(encodeURIComponent(bureau)), bureau);
@@ -24,4 +25,4 @@ assert.equal(parseBureauRoute('%ZZ'), null);
 assert.equal(parseBureauRoute('../기획국'), null);
 assert.equal(bureauPath(undefined, true), '/admin');
 assert.equal(new URL(evaluationApiUrl(), 'http://localhost').searchParams.has('bureau'), false);
-console.log('Bureau routes: six exact paths, /rhksfl administration, encoded query values and legacy compatibility passed.');
+console.log('Bureau routes: six operational paths, separate /샘플 workspace, /rhksfl administration and encoded queries passed.');
