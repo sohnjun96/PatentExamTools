@@ -26,6 +26,9 @@ function nodes(value, result = []) {
   if (!value?.props) return result;
   result.push(value); nodes(value.props.children, result); return result;
 }
+function text(value) { return Array.isArray(value) ? value.map(text).join('') : value?.props ? text(value.props.children) : typeof value === 'string' || typeof value === 'number' ? String(value) : ''; }
+const successTitle = '복사 완료 되었습니다.';
+const successGuidance = 'AI에 공개공보를 첨부하고, 컨트롤 + V로 프롬프트를 대화창에 붙여넣으세요.';
 function session(navigatorValue) {
   const values = [], refs = []; let stateCursor = 0, refCursor = 0, copied = 0;
   const hooks = {
@@ -59,15 +62,37 @@ assert.equal(normal.dialog(), undefined);
 await normal.button('표준 검색 프롬프트').props.onClick();
 assert.deepEqual(clipboardWrites, [STANDARD_SEARCH_PROMPT], 'One click must copy the entire exact prompt.');
 assert.equal(normal.copied, 1);
-assert.equal(normal.dialog(), undefined);
+function assertSuccessDialog(current) {
+  const dialog = current.dialog(); assert(dialog, 'A successful copy must open a visible confirmation dialog.');
+  assert.equal(dialog.key, 'success');
+  assert.equal(dialog.props.className, 'standard-search-prompt-dialog standard-search-prompt-success');
+  assert.equal(dialog.props.labelledBy, 'standard-prompt-title');
+  assert(dialog.props.fallbackFocusRef, 'Closing confirmation must return keyboard focus to the original button.');
+  assert(nodes(dialog).some(node => node.type === 'h2' && node.props.id === dialog.props.labelledBy && text(node) === successTitle));
+  assert(text(dialog).includes(successGuidance), 'Confirmation must explain how to attach the publication and paste the copied prompt.');
+  assert(!nodes(dialog).some(node => node.type === 'textarea'), 'Success must not be presented as the manual-copy fallback.');
+  const confirm = current.button('확인');
+  assert.equal(confirm.props['data-dialog-autofocus'], true, 'Keyboard users must land on the confirmation action.');
+  return dialog;
+}
+assertSuccessDialog(normal);
 assert.equal(normal.button('표준 검색 프롬프트').props.disabled, false);
+normal.button('확인').props.onClick();
+assert.equal(normal.dialog(), undefined, 'The confirmation action must close the success dialog.');
+await normal.button('표준 검색 프롬프트').props.onClick();
+assertSuccessDialog(normal).props.onClose();
+assert.equal(normal.dialog(), undefined, 'Escape or backdrop dismissal must close the success dialog.');
+assert.deepEqual(clipboardWrites, [STANDARD_SEARCH_PROMPT, STANDARD_SEARCH_PROMPT], 'Repeated copies must retain the original prompt.');
 
 for (const navigatorValue of [undefined, {}, { clipboard: { async writeText() { throw new Error('Permission denied'); } } }]) {
   const fallback = session(navigatorValue);
   await fallback.button('표준 검색 프롬프트').props.onClick();
   assert.equal(fallback.copied, 0, 'A failed copy must not report success.');
   const dialog = fallback.dialog(); assert(dialog, 'Unavailable or rejected clipboard access must leave a manual-copy alternative.');
+  assert.equal(dialog.key, 'fallback');
+  assert.equal(dialog.props.className, 'standard-search-prompt-dialog');
   assert.equal(dialog.props.labelledBy, 'standard-prompt-title');
+  assert(!text(dialog).includes(successTitle), 'Rejected clipboard access must never display copy success.');
   assert(dialog.props.fallbackFocusRef, 'The fallback dialog must return keyboard focus to the original button.');
   const textarea = nodes(dialog).find(node => node.type === 'textarea');
   assert.equal(textarea.props.value, STANDARD_SEARCH_PROMPT);
@@ -84,14 +109,20 @@ await retry.button('표준 검색 프롬프트').props.onClick();
 assert(retry.dialog()); rejectFirst = false;
 await retry.button('프롬프트 복사').props.onClick();
 assert.deepEqual(retryWrites, [STANDARD_SEARCH_PROMPT]);
-assert.equal(retry.copied, 1); assert.equal(retry.dialog(), undefined);
+assert.equal(retry.copied, 1);
+assertSuccessDialog(retry);
+assert.equal(nodes(retry.render()).filter(node => node.type === 'textarea').length, 0, 'A successful retry must replace the manual-copy view with confirmation.');
+retry.button('확인').props.onClick(); assert.equal(retry.dialog(), undefined);
 
 let finishCopy; let pendingWrites = 0;
 const pending = session({ clipboard: { writeText() { pendingWrites++; return new Promise(resolve => { finishCopy = resolve; }); } } });
 const trigger = pending.button('표준 검색 프롬프트');
 const firstCopy = trigger.props.onClick();
 assert.equal(pending.button('표준 검색 프롬프트').props.disabled, true);
+assert.equal(pending.dialog(), undefined, 'Do not display copy success before the clipboard promise resolves.');
+assert.equal(pending.copied, 0);
 await trigger.props.onClick(); assert.equal(pendingWrites, 1, 'A pending clipboard request must not be duplicated.');
 finishCopy(); await firstCopy;
 assert.equal(pending.copied, 1); assert.equal(pending.button('표준 검색 프롬프트').props.disabled, false);
-console.log('Standard search prompt passed: exact clipboard payload, literal JSON escapes, patent/paper schemas, unsupported and denied clipboard fallback, selection, retry, dialog closure and duplicate-copy protection.');
+assertSuccessDialog(pending);
+console.log('Standard search prompt passed: exact clipboard payload, literal JSON escapes, patent/paper schemas, visible success confirmation and paste guidance, dismissal, unsupported and denied clipboard fallback, selection, retry, deferred success and duplicate-copy protection.');
