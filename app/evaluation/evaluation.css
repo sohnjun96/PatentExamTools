@@ -46,6 +46,7 @@
 .ev-month select { min-width:168px; font-size:17px; font-weight:500; }
 .ev-badge { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--ev-line); border-radius:4px; padding:4px 8px; color:var(--krds-color-light-gray-70); background:var(--krds-color-light-gray-5); font-size:13px; font-weight:500; line-height:1.5; white-space:nowrap; }
 .ev-badge.green { color:var(--krds-color-light-success-70); border-color:var(--krds-color-light-success-20); background:var(--krds-color-light-success-5); }
+.ev-badge.blue { color:white; border-color:var(--krds-color-light-primary-50); background:var(--krds-color-light-primary-50); }
 .ev-badge.orange { color:var(--krds-color-light-warning-70); border-color:var(--krds-color-light-warning-20); background:var(--krds-color-light-warning-5); }
 .ev-badge.red { color:var(--krds-color-light-danger-70); border-color:var(--krds-color-light-danger-20); background:var(--krds-color-light-danger-5); }
 .ev-panel { min-width:0; overflow:hidden; border:1px solid var(--ev-line); border-radius:12px; background:white; box-shadow:none; }
