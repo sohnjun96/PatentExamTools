@@ -1169,9 +1169,12 @@ for (const [id, locked] of [['december-case', true], [multiMonthState.cases[0].i
   const cancel = descendants(selected).find(({ element }) => element.type?.name === 'Button' && element.props.children === '선정 취소').element;
   assert.equal(cancel.props.disabled, locked, 'Cancellation uses the selected case’s actual month.');
 }
-function scopedOverview(overrides = [], props = {}) { hookIndex = 0; hookOverrides = overrides; return adminUI.TestOverview({ ...allAdminProps, navigateCases() {}, ...props }); }
+function scopedOverview(overrides = [], props = {}) { hookIndex = 0; hookOverrides = overrides; return adminUI.TestOverview({ ...allAdminProps, ...props }); }
 const allOverview = scopedOverview();
-assert.equal(descendants(allOverview).find(({ element }) => element.type?.name === 'Metric' && element.props.label === '확정 출원').element.props.value, '21건');
+assert.equal(descendants(allOverview).find(({ element }) => element.type?.name === 'Metric' && element.props.label === '선정 출원').element.props.value, '21건');
+assert.equal(descendants(allOverview).find(({ element }) => element.type?.name === 'Metric' && element.props.label === '참여 심사관').element.props.value, '10명');
+assert.equal(descendants(allOverview).find(({ element }) => element.type?.name === 'Metric' && element.props.label === 'AI 입력 완료 / AI 입력 대상').element.props.value, '40건 / 42건');
+assert(!descendants(allOverview).some(({ element }) => element.props.className === 'adm-followups' || element.props.className === 'adm-link-card'), 'Separate follow-up cards are consolidated into the overview metrics.');
 assert(!descendants(allOverview).some(({ element }) => element.type?.name === 'Button' && ['월 운영 마감', '운영 재개방'].includes(element.props.children)));
 assert(descendants(allOverview).some(({ element }) => element.type === 'th' && element.props.children === '운영월'));
 assert(descendants(scopedOverview(['', '', 'documents', 'all'])).some(({ element }) => element.type === 'th' && element.props.children === '운영월'));
@@ -1247,4 +1250,41 @@ const partialDetails = renderDetails(partialReview);
 assert(descendants(partialDetails).some(({ element }) => element.props.children === '평가 중'));
 assert.equal(tableRows(docTable(partialDetails))[0].props.children[3].props.children, 0);
 assert.equal(JSON.stringify(detailState), beforeDetailQuery, 'Viewing selected cases never changes saved evaluations.');
+// Input totals count delivered/assigned AI bundles, independently of completed case comparisons.
+const pendingInputs = structuredClone(multiMonthState);
+pendingInputs.cases = pendingInputs.cases.slice(0, 2); pendingInputs.results = [];
+const inputMetric = tree => descendants(tree).find(({ element }) => element.type?.name === 'Metric' && element.props.label === 'AI 입력 완료 / AI 입력 대상').element;
+assert.equal(inputMetric(scopedOverview([], { state: pendingInputs })).props.value, '0건 / 4건');
+pendingInputs.results.push(structuredClone(multiMonthState.results.find(result => result.caseId === pendingInputs.cases[0].id && result.methodId === 'chatgpt')));
+assert.equal(domain.getStatistics(pendingInputs, 'all').summary.inputComplete, 0);
+assert.equal(inputMetric(scopedOverview([], { state: pendingInputs })).props.value, '1건 / 4건', 'One delivered AI bundle counts even while other AI results on the case are pending.');
+assert.equal(inputMetric(scopedOverview(['group-a', demo.users[0].id], { state: multiMonthState })).props.value, '4건 / 6건');
+// Active AI and genuine publication history are visible across months; private drafts do not qualify.
+const methodHistory = structuredClone(multiMonthState);
+methodHistory.methods.find(method => method.id === 'claude').active = false;
+methodHistory.methods.push(
+  { id: 'new-active', name: '활성 새 AI', kind: 'ai', active: true },
+  { id: 'past-ai', name: '지난 AI', kind: 'ai', active: false, deletedAt: '2026-10-31' },
+  { id: 'empty-ai', name: '빈 공개 AI', kind: 'ai', active: false },
+  { id: 'removed-unused', name: '삭제된 미사용 AI', kind: 'ai', active: true, deletedAt: '2026-10-31' },
+);
+const historySeed = methodHistory.results[0];
+methodHistory.results.push(
+  { ...historySeed, id: 'historical-publication', caseId: 'archived-case', methodId: 'past-ai' },
+  { ...historySeed, id: 'private-draft', methodId: 'gemini', publishedVersion: 0, publishedDocuments: [], draftDocuments: ['비공개 초안'] },
+  { ...historySeed, id: 'empty-publication', methodId: 'empty-ai', publishedDocuments: [] },
+);
+const historyBefore = JSON.stringify(methodHistory), scopedStats = domain.getStatistics(methodHistory, '2026-11');
+assert(!scopedStats.methods.some(method => method.id === 'past-ai'));
+const visibleMethods = adminUI.overviewMethodStatistics(methodHistory, scopedStats);
+assert.deepEqual(Array.from(visibleMethods, method => method.name), ['ChatGPT', '클로드', '활성 새 AI', '지난 AI']);
+assert.equal(visibleMethods.find(method => method.id === 'past-ai').documents, 0, 'Previously researched AI remain visible with zero results in the selected month.');
+assert.equal(visibleMethods.find(method => method.id === 'past-ai').averageScore, null);
+assert.equal(visibleMethods.find(method => method.id === 'claude').documents, 140);
+const historyOverview = scopedOverview([], { state: methodHistory, allMonths: false, month: methodHistory.months[0] });
+const qualityTable = descendants(historyOverview).find(({ element }) => element.type === 'table' && element.props.children[0]?.props.children === '조사 방식별 유효 평가 통계').element;
+assert.deepEqual(Array.from(tableRows(qualityTable), row => row.props.children[0].props.children), ['ChatGPT', '클로드', '활성 새 AI', '지난 AI']);
+await adminUI.exportAdminStatistics(methodHistory, '2026-11', '', '', '기획국');
+assert.deepEqual(Array.from(exportedWorkbook.sheets.find(sheet => sheet.name === '조사 방식별 통계').rows.slice(1), row => row[0]), ['ChatGPT', '클로드', '활성 새 AI', '지난 AI']);
+assert.equal(JSON.stringify(methodHistory), historyBefore);
 console.log('Admin and bureau workspace UI tests passed: six task menus, scoped sessions and forms, search/filter combinations, target publication handoff, independent downloads, draft-save guidance, closed-month controls, and six-sheet filtered exports.');

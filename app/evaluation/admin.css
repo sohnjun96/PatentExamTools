@@ -74,6 +74,8 @@
 .adm-table td { padding:14px 16px; border-bottom:1px solid var(--krds-color-light-gray-10); vertical-align:middle; }
 .adm-table tr:last-child td { border-bottom:0; }
 .adm-table tbody tr:hover { background:var(--krds-color-light-gray-5); }
+.adm-method-table th,.adm-method-table td { padding:14px 12px; }
+.adm-method-table :is(th,td):first-child { white-space:nowrap; }
 .adm-table td > select { min-width:160px; min-height:44px; font-size:15px; }
 .adm-table-check { display:flex!important; align-items:center; gap:10px!important; min-height:44px; white-space:nowrap; font-weight:400!important; }
 .adm-table-check input[type=checkbox] { flex-shrink:0; }
