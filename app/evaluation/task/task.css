@@ -102,6 +102,7 @@
 .tw-results-table-scroll { border:1px solid var(--ev-line); border-radius:8px; background:white; max-height:480px; overscroll-behavior-y:auto; }
 .tw-results-table { min-width:680px; table-layout:fixed; }
 .tw-results-table .tw-result-ai-column { width:140px; }
+.tw-results-table td:first-child { white-space:normal; overflow-wrap:anywhere; word-break:keep-all; }
 .tw-results-table .tw-result-kind-column { width:100px; }
 .tw-results-table .tw-result-score-column,.tw-results-table .tw-result-cited-column { width:110px; }
 .tw-results-table :is(th,td):nth-child(4),.tw-results-table :is(th,td):nth-child(5) { text-align:center; }

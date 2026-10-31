@@ -85,6 +85,7 @@ try {
   assert.equal(planning.state.cases.every((item) => item.bureau === '기획국'), true);
   assert.equal(planning.state.results.find((result) => result.id === foreignEdit.id).draftDocuments.length, 0);
   assert.equal(planning.state.results.find((result) => result.id === foreignEdit.id).publishedBy, null);
+  assert.equal(rules.resultOwnerId(planning.state, planning.state.results.find(result => result.id === foreignEdit.id)), 'demo-user-6', 'Bureau migration must preserve delivery ownership even after foreign author details are redacted.');
   assert.equal(planning.state.methods.some((method) => method.id === 'electric-only'), false);
   assert.equal(electric.state.methods.some((method) => method.id === 'electric-only'), true);
   assert.equal(planning.state.methods.some((method) => method.id === 'unrelated'), false);
@@ -324,7 +325,30 @@ try {
   assert.equal(catalogReload.state.methods.filter(method => method.kind === 'ai').length, 5);
   assert(!catalogReload.state.methods.some(method => method.id === 'gemini'), 'A renamed UUID entry must not be duplicated on reload.');
   assert.equal(catalogReload.state.methods.find(method => method.id === 'existing-gemini').active, false);
-  console.log('Evaluation storage: isolated D1/CAS, bureau isolation, selective legacy import, one-time default AI backfill, UUID preset reuse, and preserved administrator edits verified.');
+  // Independent result ownership, comparison keys and reports survive a real D1 round trip.
+  const parallelSeed = bureauMigration.demoForBureau(rules.createDemoState('2026-11'), '반도체단');
+  parallelSeed.users.find(user => user.id === 'demo-user-3').roles.push('ai');
+  parallelSeed.personnel.assignments.push({ groupId: 'group-a', methodId: 'claude', userId: 'demo-user-3' });
+  await store.readEvaluationState('반도체단');
+  await db.prepare('UPDATE evaluation_workspace SET payload_json = ?, revision = 120 WHERE id = ?').bind(JSON.stringify(parallelSeed), 'bureau:반도체단').run();
+  const parallelCase = parallelSeed.cases[0];
+  const originalClaude = structuredClone(rules.resultFor(parallelSeed, parallelCase.id, 'claude', 'demo-user-2'));
+  const secondRawDraft = { documents: [{ kind: 'patent', number: '', reportMarkdown: '담당 B의 미완성 보고서' }], bulkInput: '{"documents":[' };
+  const parallelSaved = await store.mutateEvaluationState(120, { userId: 'demo-user-3' }, { type: 'saveResultDraft', caseId: parallelCase.id, methodId: 'claude', editorState: secondRawDraft }, '반도체단');
+  let parallelReload = await store.readEvaluationState('반도체단');
+  assert.deepEqual(rules.resultFor(parallelReload.state, parallelCase.id, 'claude', 'demo-user-2'), originalClaude);
+  assert.deepEqual(rules.resultFor(parallelReload.state, parallelCase.id, 'claude', 'demo-user-3').draftEditorState, secondRawDraft);
+  const secondDetails = rules.normalizeLiteratureDocuments([{ kind: 'patent', number: 'KR20100001234A', reportMarkdown: '## 담당 B의 독립 조사 보고서' }]);
+  await store.mutateEvaluationState(parallelSaved.revision, { userId: 'demo-user-3' }, { type: 'saveResult', caseId: parallelCase.id, methodId: 'claude', documents: secondDetails.map(document => document.number), documentDetails: secondDetails, publish: true }, '반도체단');
+  parallelReload = await store.readEvaluationState('반도체단');
+  const claudeResults = parallelReload.state.results.filter(result => result.caseId === parallelCase.id && result.methodId === 'claude');
+  assert.equal(claudeResults.length, 2);
+  assert.equal(new Set(claudeResults.map(rules.resultComparisonKey)).size, 2);
+  assert.deepEqual(rules.resultFor(parallelReload.state, parallelCase.id, 'claude', 'demo-user-2'), originalClaude);
+  assert.equal(rules.resultFor(parallelReload.state, parallelCase.id, 'claude', 'demo-user-3').publishedDocumentDetails[0].reportMarkdown, secondDetails[0].reportMarkdown);
+  const firstPrivate = rules.visibleState(parallelReload.state, { userId: 'demo-user-2' });
+  assert.equal(rules.resultFor(firstPrivate, parallelCase.id, 'claude', 'demo-user-3'), undefined);
+  console.log('Evaluation storage: isolated D1/CAS, bureau isolation, selective legacy import, independent assignee deliveries/report round trips, catalog backfill and preserved administrator edits verified.');
 } finally {
   await mf.dispose();
 }

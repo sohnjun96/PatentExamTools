@@ -38,8 +38,8 @@ function EmptyStub() { return null; }
 function jsonResponse(status, body) { return { ok: status >= 200 && status < 300, status, json: async () => structuredClone(body) }; }
 const snapshot = label => ({ documents: [{ kind: 'patent', number: ` ${label} `, url: 'https://', reportMarkdown: '  ## 작성 중\n  ' }], bulkInput: ` { "documents": [ ${label}\n` });
 
-function harness(seed = rules.createDemoState('2026-11')) {
-  const request = { kind: 'result', userId: 'demo-user-1', caseId: seed.cases[0].id, monthId: '2026-11', methodId: 'chatgpt' };
+function harness(seed = rules.createDemoState('2026-11'), requestPatch = {}) {
+  const request = { kind: 'result', userId: 'demo-user-1', caseId: seed.cases[0].id, monthId: '2026-11', methodId: 'chatgpt', ...requestPatch };
   const actor = { userId: request.userId };
   const server = { state: structuredClone(seed), revision: 0, calls: [], beforePost: null };
   const hooks = [], effects = [], listeners = new Map();
@@ -124,6 +124,22 @@ function harness(seed = rules.createDemoState('2026-11')) {
   view.dispose();
 }
 
+// Each person starts with only their own draft, even when a colleague already delivered the same AI.
+{
+  const seed = rules.createDemoState('2026-11');
+  seed.users.find(user => user.id === 'demo-user-3').roles.push('ai');
+  seed.personnel.assignments.push({ groupId: 'group-a', methodId: 'claude', userId: 'demo-user-3' });
+  const originalColleagueResult = structuredClone(rules.resultFor(seed, seed.cases[0].id, 'claude', 'demo-user-2'));
+  const view = harness(seed, { userId: 'demo-user-3', methodId: 'claude' }); await view.mount();
+  assert.deepEqual(view.editor().props.initialDocuments, [], 'A new assignee must not inherit the colleague\'s delivered or private draft documents.');
+  const ownDraft = snapshot('second-assignee');
+  assert.equal(await view.editor().props.onAutoSave(ownDraft), true); view.render();
+  assert.deepEqual(view.editor().props.initialDocuments, ownDraft.documents);
+  assert.deepEqual(rules.resultFor(view.server.state, view.request.caseId, 'claude', 'demo-user-2'), originalColleagueResult);
+  assert.deepEqual(rules.resultFor(view.server.state, view.request.caseId, 'claude', 'demo-user-3').draftEditorState, ownDraft);
+  view.dispose();
+}
+
 // A quiet request must leave editing enabled and preserve close protection.
 {
   const view = harness(); await view.mount(); const originalEditor = view.editor();
@@ -161,6 +177,23 @@ function harness(seed = rules.createDemoState('2026-11')) {
   assert.equal(view.gets().length, 2, 'One conflict causes one bounded refresh.');
   view.render(); assert.equal(view.editor().key, key, 'Rebasing an unrelated revision cannot remount the live form.');
   assert.equal(view.unloadBlocked(), true);
+  view.dispose();
+}
+
+// A colleague saving the same AI/case can rebase without overwriting either person's draft.
+{
+  const seed = rules.createDemoState('2026-11');
+  seed.users.find(user => user.id === 'demo-user-3').roles.push('ai');
+  seed.personnel.assignments.push({ groupId: 'group-a', methodId: 'claude', userId: 'demo-user-3' });
+  const view = harness(seed, { userId: 'demo-user-2', methodId: 'claude' }); await view.mount();
+  const editor = view.editor(); editor.props.dirty(true);
+  const colleagueDraft = snapshot('colleague');
+  view.server.state = rules.applyAction(view.server.state, { userId: 'demo-user-3' }, { type: 'saveResultDraft', caseId: view.request.caseId, methodId: 'claude', editorState: colleagueDraft }); view.server.revision++;
+  const ownDraft = snapshot('own');
+  assert.equal(await editor.props.onAutoSave(ownDraft), true);
+  assert.deepEqual(view.posts().map(call => call.body.revision), [0, 1]);
+  assert.deepEqual(rules.resultFor(view.server.state, view.request.caseId, 'claude', 'demo-user-2').draftEditorState, ownDraft);
+  assert.deepEqual(rules.resultFor(view.server.state, view.request.caseId, 'claude', 'demo-user-3').draftEditorState, colleagueDraft);
   view.dispose();
 }
 

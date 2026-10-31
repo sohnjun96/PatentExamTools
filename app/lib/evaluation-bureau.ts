@@ -1,8 +1,9 @@
-import { createInitialState, personnelOf, withDefaultAIMethods, type EvaluationState } from '@/app/lib/evaluation';
+import { createInitialState, normalizeEvaluationState, personnelOf, resultOwnerId, withDefaultAIMethods, type EvaluationState } from '@/app/lib/evaluation';
 import type { Bureau } from '@/app/lib/bureaus';
 
 /** Copy only records with an unambiguous legacy bureau, leaving main untouched. */
 export function migrateEvaluationBureau(legacy: EvaluationState, bureau: Bureau): EvaluationState {
+  legacy = normalizeEvaluationState(legacy);
   const initial = createInitialState();
   const users = legacy.users.filter((user) => user.bureau === bureau);
   const userIds = new Set(users.map((user) => user.id));
@@ -43,6 +44,7 @@ export function migrateEvaluationBureau(legacy: EvaluationState, bureau: Bureau)
     cases,
     results: legacy.results.filter((result) => caseIds.has(result.caseId)).map((result) => ({
       ...result,
+      ownerId: resultOwnerId(legacy, result),
       // Published literature belongs to the scoped case; another bureau's
       // identity and unpublished edit do not belong to this workspace.
       draftDocuments: userIds.has(result.draftAuthorId) ? result.draftDocuments : [],

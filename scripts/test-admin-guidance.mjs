@@ -4,12 +4,12 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import * as domain from '../app/lib/evaluation.ts';
 
-const module = { exports: {} };
+const guidanceModule = { exports: {} };
 const source = fs.readFileSync(new URL('../app/lib/admin-guidance.ts', import.meta.url), 'utf8');
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, {
-  module, exports: module.exports, require(id) { assert.equal(id, '@/app/lib/evaluation'); return domain; },
+  module: guidanceModule, exports: guidanceModule.exports, require(id) { assert.equal(id, '@/app/lib/evaluation'); return domain; },
 });
-const { getAdminReadiness } = module.exports;
+const { getAdminReadiness } = guidanceModule.exports;
 const { applyAction, createDemoState, createInitialState } = domain;
 const state = createDemoState('2026-10');
 const snapshot = JSON.stringify(state);
@@ -59,6 +59,36 @@ assert.equal(duplicateReady.participantCount, 10);
 assert.equal(duplicateReady.unavailableAssignments.filter(entry => entry.reason === 'duplicate_assignment').length, 2);
 assert.equal(duplicateReady.invalidParticipants.filter(entry => entry.reason === 'duplicate_participant').length, 2);
 assert.equal(duplicateReady.assignmentReadyCount, 3);
+
+// Distinct people may deliver the same AI independently without creating a duplicate cell.
+const sharedAi = structuredClone(state);
+sharedAi.users.find(user => user.id === 'demo-user-3').roles.push('ai');
+sharedAi.personnel.assignments.push({ groupId: 'group-a', methodId: 'claude', userId: 'demo-user-3' });
+const sharedReady = getAdminReadiness(sharedAi, month);
+assert.equal(sharedReady.assignmentTargetCount, ready.assignmentTargetCount, 'Readiness counts distinct group/AI cells rather than people.');
+assert.equal(sharedReady.assignmentReadyCount, ready.assignmentReadyCount);
+assert.equal(sharedReady.unavailableAssignments.length, 0);
+assert.equal(sharedReady.missingAssignments.length, 0);
+assert.equal(sharedReady.canStart, true, 'Different assignees for one group/AI are valid.');
+const sharedGlobal = getAdminReadiness(sharedAi);
+assert.equal(sharedGlobal.assignmentReadyCount, ready.assignmentReadyCount);
+assert.equal(sharedGlobal.canStart, true);
+
+const invalidSharedAi = structuredClone(sharedAi);
+invalidSharedAi.users.find(user => user.id === 'demo-user-3').active = false;
+const invalidSharedReady = getAdminReadiness(invalidSharedAi, month);
+assert.equal(invalidSharedReady.assignmentReadyCount, ready.assignmentReadyCount, 'A valid assignee still covers the group/AI cell.');
+assert.equal(invalidSharedReady.unavailableAssignments.length, 1);
+assert.equal(invalidSharedReady.unavailableAssignments[0].reason, 'user_inactive');
+assert.equal(invalidSharedReady.canStart, false, 'Every individual assignee must remain valid.');
+
+const repeatedSharedAi = structuredClone(sharedAi);
+repeatedSharedAi.personnel.assignments.push({ ...repeatedSharedAi.personnel.assignments.at(-1) });
+const repeatedSharedReady = getAdminReadiness(repeatedSharedAi, month);
+assert.equal(repeatedSharedReady.assignmentReadyCount, ready.assignmentReadyCount, 'A distinct valid colleague is unaffected by another person\'s duplicate.');
+assert.equal(repeatedSharedReady.unavailableAssignments.filter(entry => entry.reason === 'duplicate_assignment').length, 2);
+assert(repeatedSharedReady.unavailableAssignments.filter(entry => entry.reason === 'duplicate_assignment').every(entry => entry.userId === 'demo-user-3'));
+assert.equal(repeatedSharedReady.canStart, false);
 
 const historical = structuredClone(state);
 historical.personnel.memberships = historical.personnel.memberships.filter(entry => entry.groupId === 'group-a');

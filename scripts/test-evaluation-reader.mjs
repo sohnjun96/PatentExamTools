@@ -144,4 +144,25 @@ const persisted = domain.applyAction(props.state, { userId: props.item.examinerI
 props = { ...props, state: persisted, item: persisted.cases[0] }; cells = []; refs = [];
 assert(text(render()).includes('평가가 종료되었습니다.')); assert(!field('문헌별 피드백(선택)'));
 assert.equal(button('평가 종료됨').props.disabled, true); assert(hasButton('평가 수정'));
+
+// Two people delivering the same AI are distinct document and ranking scopes, even for the same citation.
+let parallel = domain.createDemoState('2026-11');
+parallel.users.find(user => user.id === 'demo-user-3').roles.push('ai');
+parallel.personnel.assignments.push({ groupId: 'group-a', methodId: 'claude', userId: 'demo-user-3' });
+const sharedCitation = domain.resultFor(parallel, parallel.cases[0].id, 'claude', 'demo-user-2').publishedDocuments[0];
+parallel = domain.applyAction(parallel, { userId: 'demo-user-3' }, { type: 'saveResult', caseId: parallel.cases[0].id, methodId: 'claude', documents: [sharedCitation], publish: true });
+reset(parallel); completeDocuments(); choose('평가 결과 보기');
+const claudeSlots = domain.caseMethods(props.state, props.item).filter(method => (method.baseMethodId ?? method.id) === 'claude');
+assert.equal(claudeSlots.length, 2);
+assert.notEqual(claudeSlots[0].id, claudeSlots[1].id);
+assert.notEqual(claudeSlots[0].name, claudeSlots[1].name);
+const parallelRows = nodes(render()).find(node => node.type === 'tbody').props.children;
+for (const slot of claudeSlots) assert(parallelRows.some(row => text(row.props.children[0]) === slot.name && text(row.props.children[2]) === sharedCitation));
+choose('ChatGPT 1위'); choose(`${claudeSlots[0].name} 2위`); choose(`${claudeSlots[1].name} 3위`); choose('선행기술조사 순위 외');
+assert.equal(button('평가 종료').props.disabled, false);
+choose('평가 종료'); await settle();
+const parallelAction = actions.at(-1);
+assert.equal(parallelAction.evaluations.filter(entry => claudeSlots.some(slot => slot.id === entry.methodId)).length, 2);
+assert.equal(parallelAction.rankings[claudeSlots[0].id], 2); assert.equal(parallelAction.rankings[claudeSlots[1].id], 3);
+assert(domain.caseStatus(domain.applyAction(props.state, { userId: props.item.examinerId }, parallelAction), props.item).complete);
 console.log('Evaluation reader passed: gated two-step workflow, progress, five-column summary, patent/paper names, 0/X, draft/final persistence, retained edits, explicit reopening, failure recovery, phase guards and ranking edge cases.');

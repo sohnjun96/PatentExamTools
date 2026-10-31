@@ -524,15 +524,36 @@ examinerDraft.responsibilities.push({groupId:'group-a',methodId:'chatgpt'});
 let examinerAction;
 hookIndex=0;hookOverrides=[examinerDraft,false];
 const atomicEditor=adminUI.AccountEditor({state:demo,user:demo.users[1],busy:false,dirty(){},onClose(){},save:async action=>{examinerAction=action;return true;}});
-assert(JSON.stringify(atomicEditor).includes('담당자 변경'));
+assert(!JSON.stringify(atomicEditor).includes('담당자 변경'), 'Adding a parallel AI responsibility must not imply reassignment.');
+assert(JSON.stringify(atomicEditor).includes('각 담당자는 검색 결과를 개별 납품합니다.'));
 await descendants(atomicEditor).find(({element})=>element.type==='form').element.props.onSubmit({preventDefault(){}});
 assert.equal(examinerAction.type,'saveExaminer');
 const atomicSaved=domain.applyAction(demo,{admin:true},examinerAction);
 assert.equal(atomicSaved.users.find(user=>user.id===demo.users[1].id).division,'통합 심사과');
 assert.equal(atomicSaved.personnel.memberships.find(entry=>entry.userId===demo.users[1].id).groupId,'group-b');
-assert.equal(atomicSaved.personnel.assignments.find(entry=>entry.groupId==='group-a'&&entry.methodId==='chatgpt').userId,demo.users[1].id);
+assert.deepEqual(Array.from(atomicSaved.personnel.assignments.filter(entry=>entry.groupId==='group-a'&&entry.methodId==='chatgpt'), entry=>entry.userId),[demo.users[0].id,demo.users[1].id], 'Saving an additional AI assignee must retain the existing assignee.');
 assert.equal(JSON.stringify(atomicSaved.months),JSON.stringify(demo.months));
 assert.equal(atomicSaved.cases[0].groupId,'group-a');
+const parallelAssignmentState = structuredClone(demo);
+parallelAssignmentState.users[2].roles.push('ai');
+parallelAssignmentState.personnel.assignments.push({ groupId: 'group-a', methodId: 'chatgpt', userId: parallelAssignmentState.users[2].id });
+const parallelExaminerDraft = adminUI.examinerForm(parallelAssignmentState, parallelAssignmentState.users[1]);
+parallelExaminerDraft.responsibilities.push({ groupId: 'group-a', methodId: 'chatgpt' });
+hookIndex = 0; hookOverrides = [parallelExaminerDraft, false];
+const parallelEditor = adminUI.AccountEditor({ state: parallelAssignmentState, user: parallelAssignmentState.users[1], busy: false, dirty() {}, onClose() {}, save: async () => true });
+const parallelChoice = descendants(parallelEditor).find(({ element }) => element.type === 'label' && descendants(element).some(({ element: child }) => child.props['aria-label'] === parallelAssignmentState.groups[0].name + ' ChatGPT 담당')).element;
+const parallelChoiceText = JSON.stringify(parallelChoice);
+assert(parallelChoiceText.includes('다른 담당자: '));
+assert(parallelChoiceText.includes(parallelAssignmentState.users[0].name));
+assert(parallelChoiceText.includes(parallelAssignmentState.users[2].name), 'Every other assignee must be shown, not only the first.');
+assert(!JSON.stringify(parallelEditor).includes('담당자 변경'));
+const parallelCheckbox = descendants(parallelChoice).find(({ element }) => element.type === 'input').element;
+assert.equal(parallelCheckbox.props.checked, true);
+assert.equal(parallelCheckbox.props.disabled, false);
+hookIndex = 0; hookOverrides = [null];
+const parallelMethodManager = adminUI.TestMethodManager({ ...methodManagerProps, state: parallelAssignmentState });
+const parallelAssignmentSummary = descendants(parallelMethodManager).find(({ element }) => element.props.id === 'adm-ai-assignment-chatgpt').element;
+assert.deepEqual(Array.from(parallelAssignmentSummary.props.children), ['담당 배정 ', 2, '개 그룹 · 담당자 ', 3, '명'], 'Multiple assignees in one group must not inflate the group count.');
 const settingsDraft=adminUI.operatingSettings(demo.months[0]);settingsDraft.selectionDeadline='2026-11-05';
 const latestPersonnelMonth={...demo.months[0],assignments:demo.personnel.assignments};
 const droppedAI=adminUI.mergeOperatingMonth(latestPersonnelMonth,{...settingsDraft,methodIds:['chatgpt','baseline']});
@@ -1259,6 +1280,49 @@ const partialDetails = renderDetails(partialReview);
 assert(descendants(partialDetails).some(({ element }) => element.props.children === '평가 중'));
 assert.equal(tableRows(docTable(partialDetails))[0].props.children[3].props.children, 0);
 assert.equal(JSON.stringify(detailState), beforeDetailQuery, 'Viewing selected cases never changes saved evaluations.');
+// Two assignees may deliver the same citation for one AI, with separate scores and comparison rows.
+const parallelReviewer = detailState.users[2];
+let parallelDetailsState = domain.applyAction(detailState, { admin: true }, {
+  type: 'saveExaminer', user: { ...parallelReviewer, roles: [...parallelReviewer.roles, 'ai'] }, groupId: 'group-a', responsibilities: [{ groupId: 'group-a', methodId: 'claude' }],
+});
+const sharedClaudeCitation = domain.resultFor(parallelDetailsState, detailCase.id, 'claude').publishedDocuments[0];
+parallelDetailsState = domain.applyAction(parallelDetailsState, { userId: parallelReviewer.id }, { type: 'saveResult', caseId: detailCase.id, methodId: 'claude', documents: [sharedClaudeCitation], publish: true });
+const parallelMethods = domain.caseMethods(parallelDetailsState, detailCase).filter(method => method.kind === 'ai');
+const parallelClaudeMethods = parallelMethods.filter(method => (method.baseMethodId || method.id) === 'claude');
+assert.equal(parallelClaudeMethods.length, 2);
+assert.equal(new Set(parallelClaudeMethods.map(method => method.id)).size, 2, 'Assignee results must have independent comparison identities.');
+const allParallelMethods = domain.caseMethods(parallelDetailsState, detailCase);
+parallelDetailsState = domain.applyAction(parallelDetailsState, { userId: detailCase.examinerId }, {
+  type: 'saveEvaluation', caseId: detailCase.id, finalize: true,
+  versions: Object.fromEntries(parallelMethods.map(method => [method.id, domain.resultFor(parallelDetailsState, detailCase.id, method.id).publishedVersion])),
+  rankings: Object.fromEntries(allParallelMethods.map((method, index) => [method.id, index < 3 ? index + 1 : 'unranked'])),
+  evaluations: parallelMethods.map(method => {
+    const result = domain.resultFor(parallelDetailsState, detailCase.id, method.id);
+    const previous = domain.validEvaluation(parallelDetailsState, detailCase.id, method.id);
+    return { methodId: method.id, version: result.publishedVersion, documents: result.publishedDocuments.map(number => previous?.documents.find(document => document.number === number) || { number, score: 5, cited: 'O', note: '추가 담당자의 별도 평가' }) };
+  }),
+});
+const parallelDetails = renderDetails(parallelDetailsState);
+const parallelClaudeRows = tableRows(docTable(parallelDetails)).filter(row => row.props.children[0].props.children.startsWith('클로드'));
+assert.equal(parallelClaudeRows.length, 8);
+assert.equal(new Set(parallelClaudeRows.map(row => row.props.children[0].props.children)).size, 2, 'Administrator details must show both Claude assignee names.');
+const duplicateCitationRows = parallelClaudeRows.filter(row => row.props.children[2].props.children === sharedClaudeCitation);
+assert.equal(duplicateCitationRows.length, 2);
+assert.deepEqual(Array.from(duplicateCitationRows, row => row.props.children[3].props.children).sort(), [0, 5], 'The same citation in separate deliveries must retain separate evaluation scores.');
+assert.equal(new Set(duplicateCitationRows.map(row => row.key)).size, 2, 'Independent delivery rows must not share React keys.');
+const parallelStats = domain.getStatistics(parallelDetailsState, detailCase.monthId);
+assert.equal(adminUI.overviewMethodStatistics(parallelDetailsState, parallelStats).filter(method => method.id === 'claude').length, 1, 'Multiple assignees aggregate into one base AI statistics row.');
+await ui.TestExportPersonal(parallelDetailsState, detailCase.monthId, [detailCase], '기획국');
+const parallelLiteratureExport = exportedWorkbook.sheets.find(sheet => sheet.name === '선행기술 목록').rows.slice(1).filter(row => row[2] === sharedClaudeCitation);
+assert.equal(parallelLiteratureExport.length, 2, 'The literature export must retain the same citation from both Claude deliveries.');
+assert.equal(new Set(parallelLiteratureExport.map(row => row[3])).size, 2, 'The exported literature rows must retain both delivering assignees.');
+const parallelRankingExport = exportedWorkbook.sheets.find(sheet => sheet.name === '품질 순위').rows.slice(1).filter(row => row[1].startsWith('클로드'));
+assert.equal(parallelRankingExport.length, 2, 'Quality rankings must export one row per Claude assignee result.');
+assert.deepEqual(Array.from(parallelRankingExport, row => row[1]).sort(), Array.from(parallelClaudeMethods, method => method.name).sort());
+assert(parallelRankingExport.every(row => row[2] !== '—' && row[3] === '현재 결과'));
+const parallelScoresExport = exportedWorkbook.sheets.find(sheet => sheet.name === '문헌별 평가').rows.slice(1).filter(row => row[2] === sharedClaudeCitation);
+assert.equal(parallelScoresExport.length, 2);
+assert.deepEqual(Array.from(parallelScoresExport, row => row[3]).sort(), [0, 5], 'Export must preserve each assignee result’s independent score for an identical citation.');
 // Input totals count delivered/assigned AI bundles, independently of completed case comparisons.
 const pendingInputs = structuredClone(multiMonthState);
 pendingInputs.cases = pendingInputs.cases.slice(0, 2); pendingInputs.results = [];

@@ -114,7 +114,7 @@ export default function TaskWorkspace({ request }: { request: TaskRequest }) {
     const link = document.createElement('a'); link.href = url; link.download = `AI검색업무_입력보관_${request.caseId}.json`; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   const locked = busy || loading;
-  const result = target && payload ? resultFor(payload.state, target.item.id, request.methodId) : undefined;
+  const result = target && payload ? resultFor(payload.state, target.item.id, request.methodId, request.userId) : undefined;
   const stage = request.kind === 'result' ? 'result' : 'evaluation';
   const reason = target ? operationStageBlockReason(target.month, stage) : '';
   return <div className="ev tw">

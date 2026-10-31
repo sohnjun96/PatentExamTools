@@ -10,8 +10,7 @@ const edit={type:'saveExaminer',user:{...user,name:'수정 심사관',division:'
 const saved=applyAction(state,admin,edit);
 assert.equal(saved.users.find(entry=>entry.id===user.id).name,'수정 심사관');
 assert.equal(saved.personnel.memberships.find(entry=>entry.userId===user.id).groupId,'group-b');
-assert.equal(saved.personnel.assignments.find(entry=>entry.groupId==='group-a'&&entry.methodId==='chatgpt').userId,user.id);
-assert.equal(saved.personnel.assignments.filter(entry=>entry.groupId==='group-a'&&entry.methodId==='chatgpt').length,1);
+assert.deepEqual(saved.personnel.assignments.filter(entry=>entry.groupId==='group-a'&&entry.methodId==='chatgpt').map(entry=>entry.userId).sort(),['demo-user-1',user.id].sort(),'Adding another AI assignee must preserve the existing person.');
 assert.deepEqual(saved.personnel.assignments.filter(entry=>entry.groupId==='group-b'),state.personnel.assignments.filter(entry=>entry.groupId==='group-b'));
 assert.equal(historical(saved),historical(state));
 assert.equal(JSON.stringify(state),snapshot);

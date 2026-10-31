@@ -31,7 +31,7 @@ const assignmentMessages: Record<AssignmentReason, string> = {
   ai_role_missing: '담당자에게 AI 담당자 역할이 없습니다. 역할을 확인하거나 담당자를 다시 선택해 주세요.',
   group_missing: '등록되지 않은 그룹에 담당자가 지정되어 있습니다. 그룹 배정을 확인해 주세요.',
   method_not_selected: '등록된 AI 종류가 아닌 담당 배정입니다. AI 종류와 배정을 확인해 주세요.',
-  duplicate_assignment: '같은 그룹·AI 방식에 담당자가 중복 지정되어 있습니다. 한 명만 배정해 주세요.',
+  duplicate_assignment: '같은 그룹·AI 방식에 동일한 담당자가 여러 번 지정되어 있습니다. 중복 배정을 제거해 주세요.',
 };
 
 const participantMessages: Record<ParticipantReason, string> = {
@@ -68,15 +68,15 @@ export function getAdminReadiness(state: EvaluationState, month?: OperationMonth
   const participantOccurrences = new Map<string, number>();
   const assignmentOccurrences = new Map<string, number>();
   participants.forEach((participant) => participantOccurrences.set(participant.userId, (participantOccurrences.get(participant.userId) ?? 0) + 1));
-  const assignmentKey = (groupId: string, methodId: string) => JSON.stringify([groupId, methodId]);
+  const assignmentKey = (groupId: string, methodId: string, userId: string) => JSON.stringify([groupId, methodId, userId]);
   assignments.forEach((assignment) => {
-    const key = assignmentKey(assignment.groupId, assignment.methodId);
+    const key = assignmentKey(assignment.groupId, assignment.methodId, assignment.userId);
     assignmentOccurrences.set(key, (assignmentOccurrences.get(key) ?? 0) + 1);
   });
   const assignmentReason = (groupId: string, methodId: string, userId: string): AssignmentReason | null => {
     if (!groupById.has(groupId)) return 'group_missing';
     if (!selectedAiIds.has(methodId)) return 'method_not_selected';
-    if ((assignmentOccurrences.get(assignmentKey(groupId, methodId)) ?? 0) > 1) return 'duplicate_assignment';
+    if ((assignmentOccurrences.get(assignmentKey(groupId, methodId, userId)) ?? 0) > 1) return 'duplicate_assignment';
     const user = userById.get(userId);
     if (!user) return 'user_missing';
     if (!user.active) return 'user_inactive';
@@ -98,7 +98,7 @@ export function getAdminReadiness(state: EvaluationState, month?: OperationMonth
     if (!assignedIds.length) missingAssignments.push({ groupId, groupName: groupName(groupId), methodId: '', methodName: 'AI 담당자 배정' });
     for (const methodId of assignedIds) {
       const matches = groupAssignments.filter((assignment) => assignment.methodId === methodId);
-      if (matches.length === 1 && !assignmentReason(groupId, methodId, matches[0].userId)) assignmentReadyCount += 1;
+      if (matches.some((assignment) => !assignmentReason(groupId, methodId, assignment.userId))) assignmentReadyCount += 1;
     }
   }
   const inactiveParticipants: AdminReadiness['inactiveParticipants'] = [];

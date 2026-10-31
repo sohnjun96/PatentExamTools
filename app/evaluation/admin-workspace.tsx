@@ -80,6 +80,7 @@ function MethodManager(props: FormProps) {
   const { state, busy, dirty, hasUnsaved } = props;
   const [editing, setEditing] = useState<string | null>(null);
   const ai = state.methods.filter((method) => method.kind === 'ai' && !method.deletedAt);
+  const assignments = personnelOf(state).assignments;
   const selected = ai.find((method) => method.id === editing);
   function open(id: string) { if (!busy && confirmDiscard(hasUnsaved)) { dirty(false); setEditing(id); } }
   return <>
@@ -87,7 +88,7 @@ function MethodManager(props: FormProps) {
       <div className="adm-ai-catalog-head"><h2 id="adm-ai-catalog-title">등록된 AI 종류</h2><Button primary disabled={busy} aria-haspopup="dialog" onClick={() => open('new')}>AI 종류 추가</Button></div>
       {ai.length ? <div className="adm-ai-grid">{ai.map((method) => <button type="button" key={method.id} className={'adm-ai-card ' + (method.active ? '' : 'is-inactive')} disabled={busy} aria-haspopup="dialog" aria-label={'AI 종류 ' + method.name + ' 수정'} aria-describedby={'adm-ai-state-' + method.id + ' adm-ai-assignment-' + method.id} onClick={() => open(method.id)}>
         <span className="adm-ai-card-top"><strong className="adm-ai-name">{method.name}</strong><span id={'adm-ai-state-' + method.id}><Pill tone={method.active ? 'is-active' : 'is-inactive'}>{method.active ? '활성' : '비활성'}</Pill></span></span>
-        <span className="adm-secondary" id={'adm-ai-assignment-' + method.id}>담당 배정 {personnelOf(state).assignments.filter((entry) => entry.methodId === method.id).length}개 그룹</span>
+        <span className="adm-secondary" id={'adm-ai-assignment-' + method.id}>담당 배정 {new Set(assignments.filter((entry) => entry.methodId === method.id).map((entry) => entry.groupId)).size}개 그룹 · 담당자 {new Set(assignments.filter((entry) => entry.methodId === method.id).map((entry) => entry.userId)).size}명</span>
         <span className="adm-ai-edit">수정하기 <AppIcon name="arrow-right" /></span>
       </button>)}</div> : <Empty title="등록된 AI 종류가 없습니다.">AI 종류 추가를 눌러 ChatGPT·클로드 같은 AI 도구를 등록하세요.</Empty>}
     </section>
@@ -294,7 +295,7 @@ function CaseRegistration({ state, month: selectedMonth, busy, dirty, save, onCl
 }
 
 export function overviewMethodStatistics(state: EvaluationState, statistics: ReturnType<typeof getStatistics>) {
-  const researched = new Set(state.results.filter(result => result.publishedVersion > 0 && result.publishedDocuments.length > 0).map(result => result.methodId));
+  const researched = new Set([...statistics.rows.map(row => row.baseMethodId), ...state.results.filter(result => result.publishedVersion > 0 && result.publishedDocuments.length > 0).map(result => result.methodId)]);
   const summaries = new Map(statistics.methods.map(method => [method.id, method]));
   return state.methods.filter(method => method.kind === 'ai' && (method.active && !method.deletedAt || researched.has(method.id))).map(method => summaries.get(method.id) ?? {
     id: method.id, name: method.name, kind: method.kind, target: 0, completed: 0, pending: 0, documents: 0, averageScore: null, citationRate: null, firstPlace: 0,

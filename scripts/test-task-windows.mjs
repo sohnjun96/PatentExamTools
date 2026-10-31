@@ -38,4 +38,19 @@ popup=null;prevented=false;api.openTaskWindow(event);assert.equal(prevented,fals
 let destination;popup={opener:'parent',location:{replace(value){destination=value;}}};api.openTaskWindow(event);
 assert.equal(popup.opener,null);assert.equal(destination,url.href);assert.equal(prevented,true);assert.equal(opened[0],'about:blank');assert(opened[2].includes('popup'));
 opened=null;api.openTaskWindow({...event,ctrlKey:true});assert.equal(opened,null,'Modifier-click retains standard browser behavior.');
+
+// The same case and AI have a private draft/content identity for each assigned person.
+const parallel = domain.createDemoState('2026-11');
+parallel.users.find(user => user.id === 'demo-user-3').roles.push('ai');
+parallel.personnel.assignments.push({ groupId: 'group-a', methodId: 'claude', userId: 'demo-user-3' });
+const firstClaude = { kind: 'result', userId: 'demo-user-2', caseId: parallel.cases[0].id, monthId: '2026-11', methodId: 'claude' };
+const secondClaude = { ...firstClaude, userId: 'demo-user-3' };
+assert(api.resolveTask(parallel, firstClaude)); assert(api.resolveTask(parallel, secondClaude));
+const firstContent = api.taskContentKey(parallel, firstClaude);
+const secondContent = api.taskContentKey(parallel, secondClaude);
+const secondDraft = domain.applyAction(parallel, { userId: secondClaude.userId }, { type: 'saveResultDraft', caseId: secondClaude.caseId, methodId: 'claude', editorState: { documents: [{ kind: 'patent', number: '', reportMarkdown: '두 번째 담당자만 작성한 초안' }], bulkInput: '작성 중 JSON' } });
+assert.equal(api.taskContentKey(secondDraft, firstClaude), firstContent, 'Another assignee of the same AI must not reset or conflict with this editor.');
+assert.notEqual(api.taskContentKey(secondDraft, secondClaude), secondContent);
+assert.notEqual(api.taskWindowUrl(firstClaude), api.taskWindowUrl(secondClaude));
+assert.equal(api.resolveTask(secondDraft, { ...secondClaude, userId: 'demo-user-4' }), null);
 console.log('Task windows passed: scoped target validation, request parsing, identity URLs, reassignment/revocation, read-only phases, popup isolation and native fallback.');
