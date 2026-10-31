@@ -8,4 +8,6 @@
 .lit-editor input,.lit-editor select,.lit-editor textarea { width:100%; }
 .lit-editor summary { min-height:44px; padding:10px 0; cursor:pointer; color:var(--krds-color-light-primary-70); font-size:14px; }
 .lit-editor summary:focus-visible { outline:3px solid var(--krds-color-light-primary-60); outline-offset:3px; }
+.lit-report-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+.lit-editor .lit-report-help { margin:0; color:var(--ev-muted); font-size:13px; line-height:1.7; }
 @media(max-width:640px) { .lit-field-grid { grid-template-columns:1fr; } .lit-editor fieldset.lit-document { padding:16px; } }

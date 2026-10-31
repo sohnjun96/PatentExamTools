@@ -73,8 +73,9 @@
 .tw-report .notice-markdown { font-size:16px; line-height:1.9; }
 .tw-report .notice-markdown :is(h1,h2,h3,h4) { margin:24px 0 10px; font-size:18px; line-height:1.6; }
 .tw-report .notice-markdown > :first-child { margin-top:0; }
-.tw-report .notice-markdown table { width:100%; min-width:0; table-layout:fixed; font-size:14px; }
-.tw-report .notice-markdown :is(th,td) { overflow-wrap:anywhere; white-space:normal; }
+.tw-report .notice-markdown table { width:100%; min-width:0; table-layout:auto; font-size:14px; }
+.tw-report .notice-markdown :is(th,td) { min-width:120px; overflow-wrap:anywhere; white-space:normal; border-right:1px solid var(--ev-line); }
+.tw-report .notice-markdown :is(th,td):last-child { border-right:0; }
 .tw-methods { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; padding:0 28px; border-bottom:1px solid var(--ev-line); background:white; }
 .tw-methods nav { display:flex; flex-wrap:wrap; gap:24px; }
 .tw .tw-methods button { min-height:52px; padding:12px 0; border:0; border-bottom:3px solid transparent; border-radius:0; color:var(--ev-muted); background:transparent; }

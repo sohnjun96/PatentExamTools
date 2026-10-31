@@ -8,6 +8,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ts from 'typescript';
+import { literatureLink } from '../app/lib/literature-link.ts';
+import { LITERATURE_REPORT_TABLE_TEMPLATE } from '../app/lib/evaluation.ts';
 
 const require = createRequire(import.meta.url);
 const filename = path.resolve(import.meta.dirname, '../app/components/notice-markdown.tsx');
@@ -15,15 +17,15 @@ const { outputText } = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
   fileName: filename,
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
 });
-const module = { exports: {} };
+const moduleRecord = { exports: {} };
 const localRequire = id => {
   if (id === 'react-markdown') return { __esModule: true, default: Markdown, defaultUrlTransform };
   if (id === 'remark-gfm') return { __esModule: true, default: remarkGfm };
   if (id.endsWith('.css')) return {};
   return require(id);
 };
-vm.runInNewContext(outputText, { module, exports: module.exports, require: localRequire }, { filename });
-const { default: NoticeMarkdown, noticeUrlTransform } = module.exports;
+vm.runInNewContext(outputText, { module: moduleRecord, exports: moduleRecord.exports, require: localRequire }, { filename });
+const { default: NoticeMarkdown, noticeUrlTransform } = moduleRecord.exports;
 const render = markdown => renderToStaticMarkup(React.createElement(NoticeMarkdown, { markdown }));
 
 const html = render(`# 업무 공지
@@ -96,4 +98,52 @@ assert(unsafe.includes('&lt;script&gt;escaped&lt;/script&gt;'));
 assert.equal((unsafe.match(/<a /g) || []).length, 1, 'Image alt text inside a link must not create nested links.');
 assert.equal(render('').includes('<div class="notice-markdown"></div>'), true);
 
-console.log('Notice markdown passed: CommonMark/GFM, safe links, escaped code, blocked HTML and protocols, images as text, accessible tables.');
+function loadComponent(relative, dependencies) {
+  const componentPath = path.resolve(import.meta.dirname, relative);
+  const compiled = ts.transpileModule(fs.readFileSync(componentPath, 'utf8'), {
+    fileName: componentPath,
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
+  }).outputText;
+  const componentRecord = { exports: {} };
+  vm.runInNewContext(compiled, { module: componentRecord, exports: componentRecord.exports, require(id) {
+    if (id in dependencies) return dependencies[id];
+    if (id.endsWith('.css')) return {};
+    return require(id);
+  } }, { filename: componentPath });
+  return componentRecord.exports.default;
+}
+const AppIcon = loadComponent('../app/components/app-icon.tsx', {});
+const LiteratureLink = loadComponent('../app/components/literature-link.tsx', { '@/app/lib/literature-link': { literatureLink }, './app-icon': { __esModule: true, default: AppIcon } });
+const LiteratureReader = loadComponent('../app/evaluation/task/literature-reader.tsx', {
+  '@/app/components/notice-markdown': { __esModule: true, default: NoticeMarkdown },
+  '@/app/components/literature-link': { __esModule: true, default: LiteratureLink },
+});
+const reportTable = String.raw`## 구성 대비표
+
+| 청구항 구성 | 선행문헌 대응 내용 | 근거 위치 |
+| :--- | :---: | ---: |
+| **검색 단계** | 검색 \| 판별 후 *결과 출력* | 문단 12 |
+| 저장 단계 | [원문 근거](https://example.test/evidence) | 15쪽 |
+
+기존 보고서의 마지막 문단입니다.`;
+const document = { kind: 'patent', number: 'KR20100001234A', url: 'https://example.test/patent', reportMarkdown: reportTable };
+for (const preview of [true, false]) {
+  const rendered = renderToStaticMarkup(React.createElement(LiteratureReader, { document, preview }));
+  assert(rendered.includes('<table>'), `The ${preview ? 'live preview' : 'published report'} must render a real table.`);
+  assert(rendered.includes('<thead>'));
+  assert(rendered.includes('<tbody>'));
+  assert(rendered.includes('<th style="text-align:left">청구항 구성</th>'));
+  assert(rendered.includes('<th style="text-align:center">선행문헌 대응 내용</th>'));
+  assert(rendered.includes('<th style="text-align:right">근거 위치</th>'));
+  assert(rendered.includes('<strong>검색 단계</strong>'));
+  assert(rendered.includes('검색 | 판별 후 <em>결과 출력</em>'), 'An escaped pipe must remain inside its table cell.');
+  assert(rendered.includes('href="https://example.test/evidence"'));
+  assert(rendered.includes('role="region" aria-label="AI 검색 문헌 보고서 표" tabindex="0"'), 'Report tables must keep their own accessible scroll region label.');
+  assert(rendered.includes('기존 보고서의 마지막 문단입니다.'));
+  assert(!rendered.includes('| :--- |'), 'Markdown delimiter syntax must not leak into the report text.');
+}
+const templateReport = renderToStaticMarkup(React.createElement(LiteratureReader, { document: { ...document, reportMarkdown: LITERATURE_REPORT_TABLE_TEMPLATE }, preview: true }));
+assert(templateReport.includes('<table>'), 'The editor\'s inserted table template must be accepted by the actual shared renderer.');
+assert(templateReport.includes('구성요소 1'));
+assert(templateReport.includes('구성요소 2'));
+console.log('Markdown passed: CommonMark/GFM, safe links, escaped code, blocked HTML, accessible tables and real report preview/publication with alignment, Korean labels and inline formatting.');

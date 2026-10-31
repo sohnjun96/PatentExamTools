@@ -67,7 +67,7 @@ assert.equal(input(tree, '-number').props.value, initial[0].number);
 assert.equal(input(tree, '-url').props.value, initial[0].url);
 assert.equal(input(tree, '-report').props.value, initial[0].reportMarkdown);
 assert.equal(tree.find(node => node.type === ReaderStub).props.document.reportMarkdown, initial[0].reportMarkdown, 'Report preview must receive the current Markdown.');
-const report = '## 관련성\n\n**선행기술**: 검색 단계와 관련됨.';
+const report = '## 관련성\n\n| 청구항 구성 | 선행문헌 대응 내용 | 근거 위치 |\n| --- | --- | --- |\n| **검색 단계** | 검색 조건에 따른 문헌 검색 | 문단 12 |\n| 출력 단계 | 검색 결과 출력 | 도 2 |';
 const imported = { kind: 'non-patent', authors: 'Lee, S.', title: 'A retrieval study', publication: 'Retrieval Journal', publicationPlace: 'Seoul', publisher: 'Research Press', publicationDate: '2020-06', volume: 'Vol. 1', issue: 'No. 3', pages: 'pp. 12–16', acquiredDate: '2026-10-30', dateNote: '발행일 미상', url: 'https://example.test/paper', reportMarkdown: report };
 bulk(tree).props.onChange({ target: { value: JSON.stringify({ documents: [imported] }) } });
 tree = render();
@@ -99,6 +99,7 @@ button(tree, '입력 완료').props.onClick();
 await settle();
 assert.equal(actions.at(-1).publish, true);
 assert.equal(actions.at(-1).documents[1].url, imported.url);
+assert.equal(actions.at(-1).documents[1].reportMarkdown, report, 'JSON-imported Markdown tables must survive publication unchanged.');
 assert(dirty.includes(true));
 
 // Invalid bulk input must leave the already authored list intact.
@@ -195,4 +196,63 @@ reset();let finish;let requests=0;props.onSave=()=>{requests++;return new Promis
 tree=render();button(tree,'임시저장').props.onClick();button(tree,'임시저장').props.onClick();button(tree,'한 문헌 추가').props.onClick();
 assert.equal(requests,1);assert.equal(render().filter(node=>node.props.className==='tw-editable-doc').length,1);finish(false);await settle();
 assert.equal(input(render(),'-number').props.value,initial[0].number);
-console.log('Literature editor passed: bulk/single editing, append/delete/empty-list recovery, Markdown preservation, atomic validation, bibliography recovery, save failure and duplicate-request protection.');
+
+// Inserting a report table must respect the cursor/selection without erasing authored text.
+reset();
+tree = render();
+const beforeTable = '## 기존 설명\n\n앞 문단\n\n';
+const selectedText = '이 부분을 표로 대체';
+const afterTable = '\n\n끝 문단과 기존 근거';
+input(tree, '-report').props.onChange({ target: { value: beforeTable + selectedText + afterTable } });
+tree = render();
+const reportField = input(tree, '-report');
+reportField.props.ref.current = {
+  selectionStart: beforeTable.length, selectionEnd: beforeTable.length + selectedText.length,
+  focus() {}, setSelectionRange() {},
+};
+assert.equal(button(tree, '표 삽입').props.disabled, false);
+button(tree, '표 삽입').props.onClick();
+await settle();
+tree = render();
+const tableReport = input(tree, '-report').props.value;
+assert(tableReport.startsWith(beforeTable));
+assert(tableReport.endsWith(afterTable));
+assert(!tableReport.includes(selectedText));
+assert(tableReport.includes(rules.LITERATURE_REPORT_TABLE_TEMPLATE));
+assert.equal(tree.find(node => node.type === ReaderStub).props.document.reportMarkdown, tableReport, 'The live preview must immediately receive the inserted table.');
+assert.equal(dirty.at(-1), true);
+button(tree, '임시저장').props.onClick();
+await settle();
+assert.equal(actions.at(-1).documents[0].reportMarkdown, tableReport.trim());
+tree = render();
+button(tree, '입력 완료').props.onClick();
+await settle();
+assert.equal(actions.at(-1).publish, true);
+assert.equal(actions.at(-1).documents[0].reportMarkdown, tableReport.trim());
+reset();
+tree = render();
+const maximumReport = '가'.repeat(rules.LITERATURE_REPORT_MAX_LENGTH);
+input(tree, '-report').props.onChange({ target: { value: maximumReport } });
+tree = render();
+button(tree, '표 삽입').props.onClick();
+tree = render();
+assert.equal(input(tree, '-report').props.value, maximumReport, 'An insertion over the report limit must preserve the original report without truncation.');
+assert(tree.some(node => node.props.role === 'alert'), 'The author must receive an explanation when a table exceeds the report limit.');
+props.disabled = true;
+tree = render();
+assert.equal(button(tree, '표 삽입').props.disabled, true);
+button(tree, '표 삽입').props.onClick();
+assert.equal(input(render(), '-report').props.value, maximumReport);
+
+reset();
+let finishTableSave;
+props.onSave = () => new Promise(resolve => { finishTableSave = resolve; });
+tree = render();
+button(tree, '임시저장').props.onClick();
+tree = render();
+assert.equal(button(tree, '표 삽입').props.disabled, true, 'A pending save must block table insertion.');
+button(tree, '표 삽입').props.onClick();
+assert.equal(input(render(), '-report').props.value, initial[0].reportMarkdown);
+finishTableSave(false);
+await settle();
+console.log('Literature editor passed: bulk/single editing, Markdown table import/insertion/preview/publication, content and length protection, bibliography recovery, save failure and duplicate-request protection.');

@@ -203,8 +203,10 @@ function sameLiteratureDetails(previous: LiteratureDocument[], next: LiteratureD
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
+export const LITERATURE_REPORT_TABLE_TEMPLATE = '| 청구항 구성 | 선행문헌 대응 내용 | 근거 위치 |\n| --- | --- | --- |\n| 구성요소 1 | 대응 내용 | 문단·페이지 |\n| 구성요소 2 | 대응 내용 | 문단·페이지 |';
+
 export const LITERATURE_IMPORT_EXAMPLE = JSON.stringify({ documents: [
-  { kind: 'patent', number: 'KR20100001234A', url: 'https://example.com/patent', reportMarkdown: '## 관련성\n핵심 구성과 대응 부분을 설명합니다.\n\n## 근거\n청구항·문단·도면 번호를 기재합니다.' },
+  { kind: 'patent', number: 'KR20100001234A', url: 'https://example.com/patent', reportMarkdown: `## 관련성\n핵심 구성과 대응 부분을 설명합니다.\n\n## 구성 대비표\n\n${LITERATURE_REPORT_TABLE_TEMPLATE}` },
   { kind: 'non-patent', authors: '저자명', title: '논문명 또는 문서명', publication: '간행물명', publicationPlace: '발행장소', publisher: '발행처', publicationDate: '2020-03', volume: '제10권', issue: '제2호', pages: 'pp 101-110', acquiredDate: '', dateNote: '', url: 'https://example.com/paper', reportMarkdown: '## 관련성\n대상 발명과의 공통점과 차이점을 설명합니다.\n\n## 근거\n페이지·절 번호를 기재합니다.' },
 ] }, null, 2);
 
@@ -212,7 +214,7 @@ export const LITERATURE_FORMAT_PROMPT = `검색 결과는 설명 없이 다음 �
 특허: {"kind":"patent","number":"KR20100001234A","url":"https://...","reportMarkdown":"마크다운 보고서"}. number는 공백·하이픈 없이 국가코드+번호+공보종류 기호로 표기합니다.
 비특허: {"kind":"non-patent","authors":"저자명","title":"논문명·문서명","publication":"간행물명","publicationPlace":"발행장소","publisher":"발행처","publicationDate":"발행연월일","volume":"제10권 또는 Vol. 10","issue":"제2호 또는 No. 2","pages":"pp 101-110","acquiredDate":"입수일","dateNote":"발행일 불명 등 입수일 기재 사유","url":"https://...","reportMarkdown":"마크다운 보고서"}.
 비특허의 title은 필수이며 확인되지 않은 선택 필드는 빈 문자열로 두고 추측하지 마세요. 발행연월일은 간행물에 기재된 범위까지만 쓰고(예: 2020-03), 발행일이 불명하여 입수일을 대신 쓰면 acquiredDate와 dateNote에 그 사유를 기재하세요. 페이지는 통권페이지를 우선하고 불명하면 해당 호 페이지 앞에 pp를 붙이세요. 외국어 간행물은 원어 표기를 유지하세요.
-각 문헌의 url은 확인한 원문·공보의 HTTP(S) 주소, reportMarkdown은 관련성·구성 대응·차이점과 청구항/문단/페이지 등 확인 가능한 근거를 담은 마크다운 텍스트로 작성하세요(최대 30,000자). JSON 문자열 안의 줄바꿈은 \\n, 큰따옴표는 \\"로 이스케이프하세요.`;
+각 문헌의 url은 확인한 원문·공보의 HTTP(S) 주소, reportMarkdown은 관련성·구성 대응·차이점과 청구항/문단/페이지 등 확인 가능한 근거를 담은 마크다운 텍스트로 작성하세요(최대 30,000자). 구성 대응은 GFM 마크다운 표로 작성할 수 있습니다. 예: | 청구항 구성 | 선행문헌 대응 내용 | 근거 위치 | 다음 줄에 | --- | --- | --- | 구분선을 넣고 각 구성의 행을 작성하세요. 표 앞뒤에는 빈 줄을 넣고 표를 코드 블록으로 감싸지 마세요. JSON 문자열 안의 줄바꿈은 \\n, 큰따옴표는 \\"로 이스케이프하세요.`;
 
 export function currentOperationMonth(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit' }).format(now).replace('/', '-');
