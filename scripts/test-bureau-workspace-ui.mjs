@@ -567,7 +567,7 @@ for(const patch of [{busy:true},{hasUnsaved:true}]) {
 const mixedReferences = ['KR1020200000000A', 'Attention Is All You Need', '10.48550/arXiv.1706.03762', 'https://arxiv.org/abs/1706.03762'];
 const mixedState = domain.applyAction(demo, { userId: 'demo-user-1' }, { type: 'saveResult', caseId: demo.cases[0].id, methodId: 'chatgpt', documents: mixedReferences, publish: true });
 const mixedProps = { state: mixedState, item: mixedState.cases[0], month: mixedState.months[0], busy: false, dirty() {}, save: async () => true };
-const commentField = tree => descendants(tree).find(({ element }) => element.type === 'textarea' && element.props['aria-label'] === '총평').element;
+const commentField = tree => descendants(tree).find(({ element }) => element.type === 'textarea' && element.props['aria-label'] === `${mixedProps.item.applicationNumber} 건 관련 피드백(선택)`).element;
 hookIndex=0; hookOverrides=[];
 const evaluationTree=ui.TestEvaluationEditor(mixedProps);
 assert.equal(commentField(evaluationTree).props.value,'');
@@ -576,7 +576,7 @@ assert(!descendants(evaluationTree).some(({element})=>element.type==='table'),'R
 const deliveredOnlyState=structuredClone(mixedState); deliveredOnlyState.months[0].methodIds=[];
 deliveredOnlyState.results=deliveredOnlyState.results.filter(result=>result.caseId!==mixedProps.item.id||result.methodId!=='claude');
 hookIndex=0;hookOverrides=[];
-assert.deepEqual(descendants(ui.TestEvaluationEditor({...mixedProps,state:deliveredOnlyState})).filter(({element})=>element.type==='select').map(({element})=>element.props['aria-label']),['ChatGPT 품질 순위','선행기술조사 품질 순위']);
+assert.deepEqual(descendants(ui.TestEvaluationEditor({...mixedProps,state:deliveredOnlyState})).filter(({element})=>element.props.className==='tw-rank-buttons').map(({element})=>element.props['aria-label']),['ChatGPT 품질 순위','선행기술조사 품질 순위']);
 let savedCommentAction;
 hookIndex=0;hookOverrides=[];hookOverrides[2]='작성한 총평';
 const commentSaveTree=ui.TestEvaluationEditor({...mixedProps,save:async action=>{savedCommentAction=action;return false;}});
