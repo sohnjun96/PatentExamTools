@@ -81,7 +81,7 @@ export default function EvaluationReader({ state, month, item, busy, dirty, save
     } finally { saving.current = false; setPending(false); }
   }
   return <div className="tw-review" style={{ '--tw-rank-dock-height': `${dockHeight}px`, '--tw-review-content-top': `${contentTop}px` } as CSSProperties}>
-    {caseStatus(state, item).stale && <div className="ev-notice warning tw-feedback">평가 후 AI 검색 결과가 변경되었습니다. 바뀐 문헌과 품질 순위를 다시 확인해 주세요.</div>}
+    {caseStatus(state, item).stale && <div className="ev-notice warning tw-feedback">평가 후 AI 검색 결과 또는 선행기술조사 보고서 유무가 변경되었습니다. 바뀐 문헌과 품질 순위를 다시 확인해 주세요.</div>}
     <div className="tw-methods"><nav aria-label="납품된 AI 검색결과">{ai.map(method => <button type="button" key={method.id} aria-pressed={methodId === method.id} disabled={pending} onClick={() => { setMethodId(method.id); setIndex(0); }}>{method.name}<span>{documents[method.id]?.length || 0}문헌</span></button>)}</nav><span className="tw-progress" aria-live="polite">문헌 평가 <strong>{completed}/{ordered.length}</strong></span></div>
     {ordered.length ? <div className="tw-review-layout" ref={layout}>
       <aside className="tw-docnav" aria-label="평가할 검색 문헌"><h2>{ai.find(method => method.id === methodId)?.name} 검색 문헌</h2><ol>{(documents[methodId] || []).map((document, position) => {

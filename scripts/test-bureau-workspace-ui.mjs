@@ -53,6 +53,7 @@ function loadModule(relative, append = '') {
     if (id === '@/app/lib/operation-schedule') return loadModule('app/lib/operation-schedule.ts');
     if (id === '@/app/components/literature-link') return loadModule('app/components/literature-link.tsx');
     if (id === '@/app/components/literature-details') return loadModule('app/components/literature-details.tsx');
+    if (id === '@/app/components/report-presence-toggle') return loadModule('app/components/report-presence-toggle.tsx');
     if (id === '@/app/lib/literature-link') return loadModule('app/lib/literature-link.ts');
     if (id.endsWith('/evaluation-guidance')) return loadModule('app/lib/evaluation-guidance.ts');
     if (id.endsWith('/notice-markdown')) return NoticeMarkdownStub;
@@ -783,8 +784,8 @@ const withdrawnForm = ui.TestSelectionEditor({ ...revisingReview.props, save: as
 assert.equal(descendants(withdrawnForm).find(({ element }) => element.props.children === '수정 사항 저장').element.props.disabled, false);
 
 // Segmented application numbers advance at 2/4 digits and pad serials on addition.
-function selectionNumberForm(parts, { initialRows = [], pasteValue = '', cpcValue = ' G06N 20/00 ', autoSaveStatus = '', ...props } = {}) {
-  hookIndex = 0; hookOverrides = [initialRows, parts, cpcValue, pasteValue, '', autoSaveStatus];
+function selectionNumberForm(parts, { initialRows = [], pasteValue = '', cpcValue = ' G06N 20/00 ', autoSaveStatus = '', reportValue = false, ...props } = {}) {
+  hookIndex = 0; hookOverrides = [initialRows, parts, cpcValue, pasteValue, '', autoSaveStatus, reportValue];
   if (parts === undefined) delete hookOverrides[1];
   return ui.TestSelectionEditor({ state: domain.createInitialState('2026-11'), month: { ...domain.emptyMonth('2026-11'), stages: { selection: 'running' } }, user: reviewUser, busy: false, dirty() {}, save: async () => true, ...props });
 }
@@ -862,6 +863,86 @@ await descendants(bulkSelectionForm).find(({ element }) => element.props.childre
 assert.equal(bulkActions.length, 1);
 assert.equal(bulkActions[0].rows.length, 2);
 assert.equal(bulkActions[0].rows[0].cpc, 'G06N');
+const ReportPresenceToggle = loadModule('app/components/report-presence-toggle.tsx').default;
+for (const value of [undefined, false, true]) {
+  const changes = [];
+  const toggle = ReportPresenceToggle({ value, onChange: next => changes.push(next) });
+  assert.equal(toggle.props.role, 'group');
+  assert.equal(toggle.props['aria-label'], '선행기술조사 보고서 유무');
+  const options = descendants(toggle).filter(({ element }) => element.type === 'button').map(({ element }) => element);
+  assert.deepEqual(Array.from(options, option => option.props.children), ['있음', '없음']);
+  assert.equal(options[0].props['aria-pressed'], value === true);
+  assert.equal(options[1].props['aria-pressed'], value === false);
+  options[0].props.onClick(); options[1].props.onClick();
+  assert.deepEqual(changes, [true, false]);
+}
+let blockedReportChanges = 0;
+const blockedToggle = ReportPresenceToggle({ value: false, disabled: true, onChange: () => { blockedReportChanges++; } });
+for (const { element } of descendants(blockedToggle).filter(({ element }) => element.type === 'button')) {
+  assert.equal(element.props.disabled, true); element.props.onClick();
+}
+assert.equal(blockedReportChanges, 0);
+const noReportReviewState = domain.createDemoState('2026-11');
+noReportReviewState.cases[0].hasPriorArtReport = false;
+hookIndex = 0; hookOverrides = [];
+const noReportReview = ui.TestEvaluationEditor({ state: noReportReviewState, month: noReportReviewState.months[0], item: noReportReviewState.cases[0], busy: false, dirty() {}, save: async () => true });
+assert(!descendants(noReportReview).some(({ element }) => /^선행기술조사 (?:품질 순위|[123]위)/.test(element.props['aria-label'] || '')), 'A missing prior-art report must not appear in examiner ranking controls.');
+assert(descendants(noReportReview).some(({ element }) => element.props['aria-label'] === 'ChatGPT 품질 순위'));
+assert(descendants(noReportReview).some(({ element }) => element.props['aria-label'] === '클로드 품질 순위'));
+const reportToggle = (form, label = '선행기술조사 보고서 유무') => descendants(form).find(({ element }) => element.type?.name === 'ReportPresenceToggle' && (element.props.label || '선행기술조사 보고서 유무') === label)?.element;
+for (const flag of [false, true]) {
+  const reportActions = [];
+  const reportForm = selectionNumberForm(['10', '2026', '51'], { reportValue: flag, autoSave: async action => { reportActions.push(action); return true; } });
+  assert.equal(reportToggle(reportForm).props.value, flag);
+  hookWrites.length = 0;
+  reportToggle(reportForm).props.onChange(!flag);
+  assert(hookWrites.some(write => write.index === 6 && write.value === !flag), 'The new-entry toggle must update the report value used for the next added row.');
+  await numberAdd(reportForm).props.onClick();
+  assert.equal(reportActions.length, 1);
+  assert.equal(reportActions[0].rows[0].hasPriorArtReport, flag, 'Adding a selection must autosave the chosen report availability.');
+  assert.equal(reportActions[0].confirm, false);
+}
+const flaggedBulkActions = [];
+const flaggedBulkForm = selectionNumberForm(undefined, { reportValue: true, pasteValue: '10-2026-0000011\tG06N\t있음\n10-2026-0000012\tG06F\t없음\n10-2026-0000013\tG06Q\n10-2026-0000014\t\t없음', cpcValue: '', autoSave: async action => { flaggedBulkActions.push(action); return true; } });
+await descendants(flaggedBulkForm).find(({ element }) => element.props.children === '목록에 추가').element.props.onClick();
+assert.deepEqual(Array.from(flaggedBulkActions[0].rows, row => row.hasPriorArtReport), [true, false, true, false], 'Bulk availability values override the current default; omitted values use the selected default.');
+assert.deepEqual(Array.from(flaggedBulkActions[0].rows, row => row.cpc), ['G06N', 'G06F', 'G06Q', ''], 'An omitted CPC column must not consume the availability field.');
+const invalidReportBulkActions = [];
+const invalidReportBulkForm = selectionNumberForm(undefined, { reportValue: true, pasteValue: '10-2026-0000015\t\t미정', cpcValue: '', autoSave: async action => { invalidReportBulkActions.push(action); return true; } });
+hookWrites.length = 0;
+await descendants(invalidReportBulkForm).find(({ element }) => element.props.children === '목록에 추가').element.props.onClick();
+assert.equal(invalidReportBulkActions.length, 0, 'An invalid third-column report value must not autosave when CPC is empty.');
+assert(hookWrites.some(write => write.index === 4 && write.value === '보고서 유무는 있음 또는 없음으로 입력해 주세요.'), 'Invalid report availability must show the localized input error.');
+assert(!hookWrites.some(write => write.index === 0), 'Invalid bulk input must leave the selection list intact.');
+const reportRestoreState = domain.createDemoState('2026-11');
+const reportRestoreUser = reportRestoreState.users[0];
+const reportRestoreCases = reportRestoreState.cases.filter(item => item.examinerId === reportRestoreUser.id);
+reportRestoreCases[0].hasPriorArtReport = true;
+reportRestoreCases[1].hasPriorArtReport = false;
+reportRestoreState.cases.push({ ...reportRestoreCases[0], id: 'legacy-report-presence', applicationNumber: '10-2026-0000052', hasPriorArtReport: undefined });
+hookIndex = 0; hookOverrides = [];
+const restoredReportForm = ui.TestSelectionEditor({ state: reportRestoreState, month: reportRestoreState.months[0], user: reportRestoreUser, busy: false, dirty() {}, save: async () => true });
+assert.deepEqual([1, 2, 3].map(index => reportToggle(restoredReportForm, `선정 목록 ${index} 선행기술조사 보고서 유무`).props.value), [true, false, undefined], 'Stored true/false and legacy unknown values must restore separately.');
+const existingReportRows = reportRestoreCases.map(({ applicationNumber, cpc, hasPriorArtReport }) => ({ applicationNumber, cpc, hasPriorArtReport }));
+const reportRowDirty = [];
+const changingReportForm = selectionNumberForm(undefined, { initialRows: existingReportRows, month: reportRestoreState.months[0], dirty: value => reportRowDirty.push(value) });
+hookWrites.length = 0;
+await reportToggle(changingReportForm, '선정 목록 1 선행기술조사 보고서 유무').props.onChange(false);
+const rowChange = hookWrites.find(write => write.index === 0).value;
+const changedReportRows = typeof rowChange === 'function' ? rowChange(existingReportRows) : rowChange;
+assert.equal(changedReportRows[0].hasPriorArtReport, false);
+assert.equal(changedReportRows[1].hasPriorArtReport, false);
+assert.equal(reportRowDirty.at(-1), true);
+let changedReportAction;
+const savingReportForm = selectionNumberForm(undefined, { initialRows: changedReportRows, cpcValue: '', month: reportRestoreState.months[0], save: async action => { changedReportAction = action; return true; } });
+descendants(savingReportForm).find(({ element }) => element.props.children === '수정 사항 저장').element.props.onClick();
+assert.equal(changedReportAction.confirm, true);
+assert.equal(changedReportAction.rows[0].hasPriorArtReport, false, 'Saving an edited submitted row must retain the toggled value.');
+for (const blocked of [{ busy: true }, { autoSaveStatus: 'saving' }, { month: { ...reportRestoreState.months[0], stages: { selection: 'closed' } } }]) {
+  const form = selectionNumberForm(undefined, { initialRows: existingReportRows, month: reportRestoreState.months[0], ...blocked });
+  assert.equal(reportToggle(form).props.disabled, true);
+  assert.equal(reportToggle(form, '선정 목록 1 선행기술조사 보고서 유무').props.disabled, true);
+}
 let finishAutomaticSave; let automaticRequests = 0;
 const pendingAutomaticForm = selectionNumberForm(['10', '2026', '7'], { autoSave: () => { automaticRequests++; return new Promise(resolve => { finishAutomaticSave = resolve; }); } });
 hookWrites.length = 0;

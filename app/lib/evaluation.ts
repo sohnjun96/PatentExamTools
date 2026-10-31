@@ -45,7 +45,7 @@ export type OperationMonth = {
   defaultStageVersion?: 1;
   archived?: boolean;
 };
-export type SelectionRow = { applicationNumber: string; cpc: string };
+export type SelectionRow = { applicationNumber: string; cpc: string; hasPriorArtReport?: boolean };
 export type EvaluationCase = SelectionRow & {
   id: string; monthId: string; examinerId: string; examinerName: string; bureau: string; division: string;
   groupId: string; groupName: string; status: 'draft' | 'confirmed' | 'cancelled';
@@ -68,7 +68,7 @@ export type AIResult = {
 export type DocumentEvaluation = { number: string; score: number | null; cited: 'O' | 'X' | null; note: string };
 export type MethodEvaluation = { caseId: string; methodId: string; version: number; documents: DocumentEvaluation[]; updatedAt: string };
 export type RankValue = 1 | 2 | 3 | 'unranked' | 'excluded' | 'incomparable' | null;
-export type QualityRanking = { caseId: string; versions: Record<string, number>; values: Record<string, RankValue>; updatedAt: string; overallComment?: string };
+export type QualityRanking = { caseId: string; versions: Record<string, number>; values: Record<string, RankValue>; updatedAt: string; overallComment?: string; baselineAvailable?: boolean };
 export type EvaluationNotice = { markdown: string; updatedAt: string };
 export const NOTICE_MAX_LENGTH = 20_000;
 export const LITERATURE_MAX_LENGTH = 2_000;
@@ -391,7 +391,7 @@ export function aiMethods(state: EvaluationState, monthId: string) {
 
 export function caseMethods(state: EvaluationState, item: EvaluationCase) {
   const publishedIds = new Set(state.results.filter((result) => result.caseId === item.id && result.publishedVersion > 0 && result.publishedDocuments.length > 0).map((result) => result.methodId));
-  return state.methods.filter((method) => method.kind === 'baseline' || method.kind === 'ai' && publishedIds.has(method.id));
+  return state.methods.filter((method) => method.kind === 'baseline' && item.hasPriorArtReport !== false || method.kind === 'ai' && publishedIds.has(method.id));
 }
 
 export function assignedCaseMethods(state: EvaluationState, item: EvaluationCase) {
@@ -415,10 +415,14 @@ export function validEvaluation(state: EvaluationState, caseId: string, methodId
 
 export function rankingIsCurrent(state: EvaluationState, item: EvaluationCase, ranking?: QualityRanking) {
   if (!ranking) return false;
-  return caseMethods(state, item).filter((method) => method.kind === 'ai').every((method) => (ranking.versions[method.id] ?? 0) === resultFor(state, item.id, method.id)?.publishedVersion);
+  const methods = caseMethods(state, item);
+  if (ranking.baselineAvailable !== undefined && ranking.baselineAvailable !== methods.some((method) => method.kind === 'baseline')) return false;
+  if (item.hasPriorArtReport === false && state.methods.some((method) => method.kind === 'baseline' && Object.prototype.hasOwnProperty.call(ranking.values, method.id))) return false;
+  return methods.filter((method) => method.kind === 'ai').every((method) => (ranking.versions[method.id] ?? 0) === resultFor(state, item.id, method.id)?.publishedVersion);
 }
 
 export function rankingComplete(state: EvaluationState, item: EvaluationCase, values: Record<string, RankValue>) {
+  if (item.hasPriorArtReport === false && state.methods.some((method) => method.kind === 'baseline' && Object.prototype.hasOwnProperty.call(values, method.id))) return false;
   const available = caseMethods(state, item).filter((method) => method.kind === 'baseline' || (resultFor(state, item.id, method.id)?.publishedVersion ?? 0) > 0);
   if (!available.some((method) => method.kind === 'ai')) return false;
   if (available.some((method) => values[method.id] == null)) return false;
@@ -450,7 +454,11 @@ export function caseStatus(state: EvaluationState, item: EvaluationCase) {
 
 function selectionRows(rows: SelectionRow[]) {
   if (!Array.isArray(rows) || rows.length > 500) fail('대상 출원 목록을 확인해 주세요.');
-  const result = rows.map((row) => ({ applicationNumber: text(row.applicationNumber, 40), cpc: text(row.cpc, 100) }));
+  const result = rows.map((row) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return fail('대상 출원 입력 형식을 확인해 주세요.');
+    if (row.hasPriorArtReport !== undefined && typeof row.hasPriorArtReport !== 'boolean') return fail('선행기술조사 보고서 유무는 있음 또는 없음으로 선택해 주세요.');
+    return { applicationNumber: text(row.applicationNumber, 40), cpc: text(row.cpc, 100), ...(row.hasPriorArtReport === undefined ? {} : { hasPriorArtReport: row.hasPriorArtReport }) };
+  });
   if (result.some((row) => !/^[\d\s-]+$/.test(row.applicationNumber) || !/^(10|20)\d{11}$/.test(row.applicationNumber.replace(/[\s-]/g, '')))) fail('특허·실용신안 출원번호 13자리를 입력해 주세요. 숫자·공백·하이픈만 사용할 수 있습니다.');
   if (new Set(result.map((row) => identity(row.applicationNumber))).size !== result.length) fail('같은 선정 목록에 중복된 출원이 있습니다.');
   return result;
@@ -459,7 +467,7 @@ function selectionRows(rows: SelectionRow[]) {
 function createCase(state: EvaluationState, month: OperationMonth, user: EvaluationUser, row: SelectionRow, status: EvaluationCase['status']): EvaluationCase {
   const participant = personnelOf(state).memberships.find((entry) => entry.userId === user.id) ?? fail('심사관 관리에서 소속 그룹을 먼저 배정해 주세요.');
   const group = currentGroups(state).find((entry) => entry.id === participant.groupId) ?? fail('심사관 관리에서 소속 그룹을 다시 배정해 주세요.');
-  return { ...row, id: uid(), monthId: month.id, examinerId: user.id, examinerName: user.name, bureau: user.bureau, division: user.division, groupId: group.id, groupName: group.name, status };
+  return { applicationNumber: row.applicationNumber, cpc: row.cpc, ...(row.hasPriorArtReport === undefined ? {} : { hasPriorArtReport: row.hasPriorArtReport }), id: uid(), monthId: month.id, examinerId: user.id, examinerName: user.name, bureau: user.bureau, division: user.division, groupId: group.id, groupName: group.name, status };
 }
 
 function cancelEvaluationCase(state: EvaluationState, item: EvaluationCase) {
@@ -662,9 +670,13 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       const month = monthOf(state, action.monthId);
       editable(month, 'selection');
       const previous = state.cases.filter(entry => entry.monthId === month.id && entry.examinerId === user.id && entry.status === 'confirmed');
+      const previousDrafts = state.cases.filter(entry => entry.monthId === month.id && entry.examinerId === user.id && entry.status === 'draft');
       const submitted = month.confirmedUserIds.includes(user.id) || previous.length > 0;
       if (submitted && !action.confirm) fail('선정 확정한 목록은 수정 사항 저장으로 반영해 주세요.', 409);
-      const rows = selectionRows(action.rows);
+      const rows = selectionRows(action.rows).map((row) => {
+        const existing = [...previous, ...previousDrafts].find((entry) => identity(entry.applicationNumber) === identity(row.applicationNumber));
+        return row.hasPriorArtReport === undefined && existing?.hasPriorArtReport !== undefined ? { ...row, hasPriorArtReport: existing.hasPriorArtReport } : row;
+      });
       if (action.confirm && !rows.length && !submitted) fail('확정할 출원을 한 건 이상 입력해 주세요.');
       state.cases = state.cases.filter((entry) => !(entry.monthId === month.id && entry.examinerId === user.id && entry.status === 'draft'));
       if (submitted) {
@@ -672,6 +684,15 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
         for (const row of rows) {
           const existing = previous.find(entry => identity(entry.applicationNumber) === identity(row.applicationNumber));
           if (existing) {
+            if (row.hasPriorArtReport !== undefined) {
+              const wasAvailable = caseMethods(state, existing).some((method) => method.kind === 'baseline');
+              const willBeAvailable = row.hasPriorArtReport !== false && state.methods.some((method) => method.kind === 'baseline');
+              if (wasAvailable !== willBeAvailable) {
+                const ranking = state.rankings.find((entry) => entry.caseId === existing.id);
+                if (ranking && ranking.baselineAvailable === undefined) ranking.baselineAvailable = wasAvailable;
+              }
+              existing.hasPriorArtReport = row.hasPriorArtReport;
+            }
             existing.applicationNumber = row.applicationNumber;
             existing.cpc = row.cpc;
             retained.add(existing.id);
@@ -783,7 +804,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
           if ((action.versions[method.id] ?? 0) !== (resultFor(state, item.id, method.id)?.publishedVersion ?? 0)) fail('AI 결과가 변경되어 품질 순위를 다시 확인해야 합니다.', 409);
         }
       }
-      const ranking: QualityRanking = { caseId: item.id, versions: Object.fromEntries(caseMethods(state, item).filter((method) => method.kind === 'ai').map((method) => [method.id, resultFor(state, item.id, method.id)!.publishedVersion])), values, updatedAt: now.toISOString(), overallComment };
+      const ranking: QualityRanking = { caseId: item.id, versions: Object.fromEntries(caseMethods(state, item).filter((method) => method.kind === 'ai').map((method) => [method.id, resultFor(state, item.id, method.id)!.publishedVersion])), values, updatedAt: now.toISOString(), overallComment, baselineAvailable: caseMethods(state, item).some((method) => method.kind === 'baseline') };
       state.rankings = state.rankings.filter((old) => old.caseId !== item.id);
       state.rankings.push(ranking);
       return state;

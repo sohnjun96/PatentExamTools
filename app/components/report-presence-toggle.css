@@ -1,0 +1,7 @@
+.report-presence-toggle { display:inline-flex; align-items:stretch; gap:2px; width:144px; max-width:100%; padding:3px; box-sizing:border-box; border:1px solid var(--ev-line,#cdd1d5); border-radius:999px; background:var(--krds-color-light-gray-5,#f4f5f6); vertical-align:middle; }
+.report-presence-toggle .report-presence-option { position:relative; flex:1; min-width:0; min-height:44px; padding:8px 10px; border:0; border-radius:999px; background:transparent; color:var(--ev-muted,#58616a); font-family:inherit; font-size:15px; font-weight:500; line-height:1.5; cursor:pointer; white-space:nowrap; }
+.report-presence-toggle .report-presence-option:hover { background:var(--krds-color-light-gray-10,#e6e8ea); color:var(--ev-ink,#1e2124); }
+.report-presence-toggle .report-presence-option[aria-pressed="true"] { background:var(--ev-teal,var(--krds-color-light-primary-50,#256ef4)); color:white; font-weight:700; }
+.report-presence-toggle .report-presence-option:focus-visible { z-index:1; outline:3px solid var(--krds-color-light-primary-60,#0b50d0); outline-offset:2px; }
+.report-presence-toggle .report-presence-option:disabled { background:transparent; color:var(--krds-color-light-gray-50,#6d7882); cursor:not-allowed; }
+.report-presence-toggle .report-presence-option[aria-pressed="true"]:disabled { background:var(--krds-color-light-gray-20,#cdd1d5); color:var(--krds-color-light-gray-70,#464c53); }

@@ -12,6 +12,7 @@ import TargetPublicationDownload from '@/app/components/target-publication-downl
 import TargetPublicationArchive from '@/app/components/target-publication-archive';
 import BureauNotice from '@/app/components/bureau-notice';
 import OperationSchedule from '@/app/components/operation-schedule';
+import ReportPresenceToggle from '@/app/components/report-presence-toggle';
 import { currentGroups, personnelOf, listedOperationMonths, preferredOperationMonth, operationMonthStatus, OPERATION_MONTH_STATUS_LABELS } from '@/app/lib/evaluation';
 import AdminWorkspace, { ADMIN_NAV, readAdminSection, type AdminSection } from './admin-workspace';
 import { exportWorkbook } from '@/app/lib/export-workbook';
@@ -25,6 +26,7 @@ type Shared = { state: EvaluationState; month: OperationMonth; save: ActionHandl
 type View = 'review' | 'ai' | 'stats' | 'settings';
 const normalized = (value: string) => value.replace(/[\s\-.,]/g, '').toUpperCase();
 const numberLabel = (value: string) => { const digits = value.replace(/\D/g, ''); return digits.length === 13 ? `${digits.slice(0, 2)}-${digits.slice(2, 6)}-${digits.slice(6)}` : value; };
+const reportPresenceLabel = (value: boolean | undefined) => value === true ? '있음' : value === false ? '없음' : '미기록';
 const monthLabel = (value: string) => `${value.slice(0, 4)}년 ${Number(value.slice(5))}월`;
 
 export function workspaceSessionKey(prefix: string, bureau?: Bureau) {
@@ -281,7 +283,7 @@ function ReviewWorkspace(props: Shared & { user: EvaluationUser; notify: (text: 
   }} autoSave={save} save={async (action, message) => { const ok = await save(action, message); if (ok) { mark(false); setEditingSelection(false); } return ok; }} />;
   const editSelection = isOperationStageOpen(month, 'selection') && <button type="button" className="krds-btn medium ev-button" disabled={busy} onClick={() => { mark(false); setEditingSelection(true); }}>제출 목록 수정</button>;
   if (!isOperationStageOpen(month, 'evaluation')) return <Panel title="제출한 출원 목록" action={<div className="ev-actions"><Badge>{cases.length}건</Badge>{editSelection}</div>}>
-    {cases.length ? <div className="ev-table-scroll"><table className="ev-table"><caption className="sr-only">선택한 운영월에 내가 제출한 출원 목록</caption><thead><tr><th scope="col">출원번호</th><th scope="col">CPC</th><th scope="col">AI 검색 결과</th></tr></thead><tbody>{cases.map(item => <tr key={item.id}><td>{numberLabel(item.applicationNumber)}</td><td>{item.cpc || '—'}</td><td><Badge color={caseStatus(state, item).inputComplete ? 'green' : ''}>{caseStatus(state, item).inputComplete ? '입력 완료' : '입력 대기'}</Badge></td></tr>)}</tbody></table></div> : <Empty title="제출한 출원이 없습니다." />}
+    {cases.length ? <div className="ev-table-scroll"><table className="ev-table"><caption className="sr-only">선택한 운영월에 내가 제출한 출원 목록</caption><thead><tr><th scope="col">출원번호</th><th scope="col">CPC</th><th scope="col">선행기술조사 보고서</th><th scope="col">AI 검색 결과</th></tr></thead><tbody>{cases.map(item => <tr key={item.id}><td>{numberLabel(item.applicationNumber)}</td><td>{item.cpc || '—'}</td><td>{reportPresenceLabel(item.hasPriorArtReport)}</td><td><Badge color={caseStatus(state, item).inputComplete ? 'green' : ''}>{caseStatus(state, item).inputComplete ? '입력 완료' : '입력 대기'}</Badge></td></tr>)}</tbody></table></div> : <Empty title="제출한 출원이 없습니다." />}
     <div className="ev-panel-body ev-actions end"><button type="button" className="krds-btn medium ev-button" onClick={downloadOwnWork}>내 업무 자료 엑셀 저장</button></div>
   </Panel>;
   return <>
@@ -294,7 +296,7 @@ function ReviewWorkspace(props: Shared & { user: EvaluationUser; notify: (text: 
         <tbody>{cases.map(item => {
           const href = taskWindowUrl({ kind: 'evaluation', userId: user.id, caseId: item.id, monthId: month.id, methodId: '', bureau });
           const literature = caseMethods(state, item).filter(method => method.kind === 'ai').map(method => `${method.name} ${resultFor(state, item.id, method.id)?.publishedDocuments.length || 0}`).join(', ');
-          return <tr key={item.id}><th scope="row"><a className="ev-review-case" href={href} target="_blank" rel="noopener noreferrer" onClick={openTaskWindow} aria-label={`${numberLabel(item.applicationNumber)} 평가 입력, 새 창`}>{numberLabel(item.applicationNumber)}</a></th><td><span className="ev-review-case-cpc">{item.cpc || 'CPC 미입력'}</span></td><td className="ev-review-literature">{literature || <span className="ev-muted">입력 대기</span>}</td><td><span className="ev-case-status"><Status state={state} item={item} /></span></td><td><a className="ev-review-case-action" href={href} target="_blank" rel="noopener noreferrer" onClick={openTaskWindow} aria-label={`${numberLabel(item.applicationNumber)} 평가 입력, 새 창`}>평가 입력<AppIcon name="arrow-right-up" size={18} /></a></td></tr>;
+          return <tr key={item.id}><th scope="row"><a className="ev-review-case" href={href} target="_blank" rel="noopener noreferrer" onClick={openTaskWindow} aria-label={`${numberLabel(item.applicationNumber)} 평가 입력, 새 창`}>{numberLabel(item.applicationNumber)}</a></th><td><span className="ev-review-case-cpc">{item.cpc || 'CPC 미입력'}<small className="ev-review-case-report">선행기술조사 보고서 {reportPresenceLabel(item.hasPriorArtReport)}</small></span></td><td className="ev-review-literature">{literature || <span className="ev-muted">입력 대기</span>}</td><td><span className="ev-case-status"><Status state={state} item={item} /></span></td><td><a className="ev-review-case-action" href={href} target="_blank" rel="noopener noreferrer" onClick={openTaskWindow} aria-label={`${numberLabel(item.applicationNumber)} 평가 입력, 새 창`}>평가 입력<AppIcon name="arrow-right-up" size={18} /></a></td></tr>;
         })}</tbody>
       </table></div> : <Empty title="선정 확정한 출원이 없습니다." />}
     </section>
@@ -303,12 +305,13 @@ function ReviewWorkspace(props: Shared & { user: EvaluationUser; notify: (text: 
 
 function SelectionEditor({ state, month, user, save, busy, dirty, onCancel, autoSave = save }: Shared & { user: EvaluationUser; onCancel?: () => void; autoSave?: ActionHandler }) {
   const submitted = month.confirmedUserIds.includes(user.id) || state.cases.some(item => item.monthId === month.id && item.examinerId === user.id && item.status === 'confirmed');
-  const [rows, setRows] = useState<SelectionRow[]>(() => state.cases.filter((item) => item.monthId === month.id && item.examinerId === user.id && item.status === (submitted ? 'confirmed' : 'draft')).map(({ applicationNumber, cpc }) => ({ applicationNumber, cpc })));
+  const [rows, setRows] = useState<SelectionRow[]>(() => state.cases.filter((item) => item.monthId === month.id && item.examinerId === user.id && item.status === (submitted ? 'confirmed' : 'draft')).map(({ applicationNumber, cpc, hasPriorArtReport }) => ({ applicationNumber, cpc, ...(hasPriorArtReport !== undefined ? { hasPriorArtReport } : {}) })));
   const [numberParts, setNumberParts] = useState(['10', '', '']); const [cpc, setCpc] = useState(''); const [paste, setPaste] = useState(''); const [localError, setLocalError] = useState('');
   const numberFields = useRef<Array<HTMLInputElement | null>>([]);
   const saving = useRef(false);
   const focusAfterAdd = useRef(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState('');
+  const [hasPriorArtReport, setHasPriorArtReport] = useState(false);
   useEffect(() => {
     if (autoSaveStatus !== 'saving' && !busy && focusAfterAdd.current) { focusAfterAdd.current = false; numberFields.current[1]?.focus(); }
   }, [autoSaveStatus, busy]);
@@ -331,14 +334,14 @@ function SelectionEditor({ state, month, user, save, busy, dirty, onCancel, auto
   async function addNumber() {
     if (disabled || saving.current || !canAddNumber) return false;
     if (!['10', '20'].includes(numberParts[0])) { setLocalError('출원번호 앞 2자리는 특허 10 또는 실용신안 20을 입력해 주세요.'); numberFields.current[0]?.focus(); return; }
-    return add([{ applicationNumber: numberParts[0] + '-' + numberParts[1] + '-' + numberParts[2].padStart(7, '0'), cpc: cpc.trim() }], 'single');
+    return add([{ applicationNumber: numberParts[0] + '-' + numberParts[1] + '-' + numberParts[2].padStart(7, '0'), cpc: cpc.trim(), hasPriorArtReport }], 'single');
   }
   async function add(values: SelectionRow[], source: 'single' | 'bulk') {
     if (disabled || saving.current || !values.length) return false;
     const nextRows = [...rows, ...values];
     saving.current = true; setRows(nextRows); dirty(true); setLocalError(''); setAutoSaveStatus('saving');
     focusAfterAdd.current = source === 'single';
-    if (source === 'single') { setNumberParts(['10', '', '']); setCpc(''); } else setPaste('');
+    if (source === 'single') { setNumberParts(['10', '', '']); setCpc(''); setHasPriorArtReport(false); } else setPaste('');
     try {
       const ok = await autoSave({ type: 'saveSelection', monthId: month.id, rows: nextRows, confirm: submitted }, '');
       if (ok) {
@@ -353,13 +356,57 @@ function SelectionEditor({ state, month, user, save, busy, dirty, onCancel, auto
       return false;
     } finally { saving.current = false; }
   }
-  function bulk() { const values = paste.split(/\r?\n/).filter((line) => line.trim()).map((line) => { const match = line.trim().match(/^((?:10|20)[-\s]?\d{4}[-\s]?\d{7})[\s,;\t]*(.*)$/); return match ? { applicationNumber: match[1], cpc: match[2].trim() } : { applicationNumber: line.trim(), cpc: '' }; }); return add(values, 'bulk'); }
+  function bulk() {
+    try {
+      const values = paste.split(/\r?\n/).filter(line => line.trim()).map(line => {
+        const columns = line.split('\t');
+        if (columns.length >= 3) {
+          const report = columns[2].trim();
+          if (report && !['있음', '없음'].includes(report) || columns.slice(3).some(column => column.trim())) throw new Error('보고서 유무는 있음 또는 없음으로 입력해 주세요.');
+          return { applicationNumber: columns[0].trim(), cpc: columns[1].trim(), hasPriorArtReport: report ? report === '있음' : hasPriorArtReport };
+        }
+        const match = line.trim().match(/^((?:10|20)[-\s]?\d{4}[-\s]?\d{7})[\s,;\t]*(.*)$/);
+        if (!match) return { applicationNumber: line.trim(), cpc: '', hasPriorArtReport };
+        const rest = match[2].trim();
+        const report = /(?:^|[\t,;\s]+)(있음|없음)$/.exec(rest);
+        if (rest.includes('\t') && !report) throw new Error('보고서 유무는 있음 또는 없음으로 입력해 주세요.');
+        return { applicationNumber: match[1], cpc: report ? rest.slice(0, report.index).replace(/[\s,;]+$/, '') : rest, hasPriorArtReport: report ? report[1] === '있음' : hasPriorArtReport };
+      });
+      return add(values, 'bulk');
+    } catch (reason) { setLocalError(reason instanceof Error ? reason.message : '붙여 넣은 선정 목록을 확인해 주세요.'); }
+  }
   const duplicates = rows.filter((row) => state.cases.some((item) => item.monthId === month.id && item.examinerId !== user.id && item.status === 'confirmed' && normalized(item.applicationNumber) === normalized(row.applicationNumber)));
   const disabled = !isOperationStageOpen(month, 'selection') || busy || autoSaveStatus === 'saving';
-  return <Panel title={submitted ? '제출한 출원 목록 수정' : '대상 건 선정'}><div className="ev-panel-body"><StageNotice month={month} stage="selection" />{localError && <div className="ev-alert" role="alert">{localError}</div>}<div className="ev-selection-input"><div className="ev-application-number" role="group" aria-labelledby="selection-number-label"><span id="selection-number-label" className="ev-selection-caption">출원번호</span><div className="ev-application-number-parts">{numberParts.map((part, index) => <span className="ev-application-number-part" key={index}><input ref={element => { numberFields.current[index] = element; }} className="krds-input" type="text" inputMode="numeric" pattern="[0-9]*" maxLength={partLengths[index]} autoComplete="off" aria-label={['출원번호 앞자리 (2자리)', '출원연도 (4자리)', '일련번호 (최대 7자리)'][index]} aria-describedby="selection-number-hint" placeholder={['10', '2026', '0000000'][index]} value={part} onChange={event => changeNumberPart(index, event.target.value)} onPaste={pasteNumber} onKeyDown={event => { if (event.key === 'Backspace' && !part && index > 0) { event.preventDefault(); numberFields.current[index - 1]?.focus(); } if (event.key === 'Enter') { event.preventDefault(); addNumber(); } }} disabled={disabled} />{index < 2 && <span aria-hidden="true">-</span>}</span>)}</div></div><label><span className="ev-selection-caption">CPC <span className="ev-muted">선택</span></span><input className="krds-input" placeholder="G06N 20/00" value={cpc} onChange={(event) => { setCpc(event.target.value); markDirty(); }} disabled={disabled} /></label><button type="button" className="krds-btn medium ev-button" disabled={disabled || !canAddNumber} onClick={addNumber}>선정 목록에 추가</button></div><p id="selection-number-hint" className="ev-muted ev-application-number-hint">일련번호를 7자리보다 적게 입력하면 목록에 추가할 때 앞에 0을 채웁니다.</p><details style={{ marginTop: 20 }}><summary style={{ cursor: 'pointer', fontSize: 12, color: '#517080' }}>여러 출원 한 번에 붙여넣기</summary><label style={{ marginTop: 12 }}>한 줄에 출원번호와 CPC를 입력하세요.<textarea className="krds-input" rows={5} placeholder={'10-2024-0000001\tG06N 20/00\n10-2024-0000002'} value={paste} onChange={(event) => { setPaste(event.target.value); markDirty(); }} disabled={disabled} /></label><div className="ev-actions end"><button className="krds-btn medium ev-button" onClick={bulk} disabled={!paste.trim() || disabled}>목록에 추가</button></div></details><hr className="ev-divider" /><div className="ev-subheading"><h3>선정 목록 <span className="ev-count">{rows.length}</span></h3><span className="ev-muted" role="status">{autoSaveStatus === 'saving' ? '자동 저장 중…' : autoSaveStatus === 'saved' ? submitted ? '변경 사항 자동 저장됨' : '자동 임시저장됨' : ''}</span></div>{duplicates.length > 0 && <div className="ev-notice warning">다른 심사관이 같은 달에 선정한 출원 {duplicates.length}건이 있습니다. 별도의 평가 업무로 유지됩니다.</div>}{rows.length ? <div className="ev-table-scroll"><table className="ev-table"><caption className="sr-only">선정할 출원 목록</caption><thead><tr><th scope="col">출원번호</th><th scope="col">CPC</th><th scope="col"><span className="sr-only">관리</span></th></tr></thead><tbody>{rows.map((row, index) => <tr key={index}><td><input className="krds-input" aria-label={`출원번호 ${index + 1}`} value={row.applicationNumber} disabled={disabled} onChange={(event) => { setRows(rows.map((value, i) => i === index ? { ...value, applicationNumber: event.target.value } : value)); markDirty(); }} /></td><td><input className="krds-input" aria-label={`CPC ${index + 1}`} value={row.cpc} disabled={disabled} onChange={(event) => { setRows(rows.map((value, i) => i === index ? { ...value, cpc: event.target.value } : value)); markDirty(); }} /></td><td><button className="krds-btn medium ev-button tiny danger" disabled={disabled} aria-label={`${row.applicationNumber || `${index + 1}번째 출원`} 선정 목록에서 삭제`} onClick={() => { setRows(rows.filter((_, i) => i !== index)); markDirty(); }}>목록에서 삭제</button></td></tr>)}</tbody></table></div> : <p className="ev-muted">등록된 출원이 없습니다.</p>}<div className="ev-actions end">{onCancel && <button type="button" className="krds-btn medium ev-button" disabled={busy || autoSaveStatus === 'saving'} onClick={() => { if (!saving.current) onCancel(); }}>목록으로 돌아가기</button>}{!submitted && <button className="krds-btn medium ev-button" disabled={disabled} onClick={() => { if (saving.current) return; if (hasNumberInput || paste.trim()) { setLocalError('입력 중인 출원을 목록에 먼저 추가해 주세요.'); return; } void save({ type: 'saveSelection', monthId: month.id, rows, confirm: false }, monthLabel(month.id) + ' 선정 목록 ' + rows.length + '건을 임시저장했습니다. AI 담당자에게는 공개되지 않습니다.'); }}>임시저장</button>}<button className="krds-btn medium ev-button primary" disabled={disabled || (!submitted && !rows.length)} onClick={() => {
-    if (saving.current) return; if (hasNumberInput || paste.trim()) { setLocalError('입력 중인 출원을 목록에 먼저 추가해 주세요.'); return; }
-    if (submitted || window.confirm(monthLabel(month.id) + ' 선정 목록 ' + rows.length + '건을 확정하시겠습니까? AI 담당자에게 목록 전체가 공개되며, 선정 마감 전까지 수정할 수 있습니다.')) void save({ type: 'saveSelection', monthId: month.id, rows, confirm: true }, submitted ? monthLabel(month.id) + ' 제출 목록을 ' + rows.length + '건으로 수정했습니다. AI 담당자에게 변경된 목록을 반영했습니다.' : monthLabel(month.id) + ' 평가 대상 ' + rows.length + '건을 확정해 AI 담당자에게 공개했습니다.');
-  }}>{submitted ? '수정 사항 저장' : '선정 확정'}</button></div></div></Panel>;
+  return <Panel title={submitted ? '제출한 출원 목록 수정' : '대상 건 선정'}><div className="ev-panel-body ev-selection-form">
+    <StageNotice month={month} stage="selection" />
+    {localError && <div className="ev-alert" role="alert">{localError}</div>}
+    <div className="ev-selection-input">
+      <div className="ev-application-number" role="group" aria-labelledby="selection-number-label">
+        <span id="selection-number-label" className="ev-selection-caption">출원번호</span>
+        <div className="ev-application-number-parts">{numberParts.map((part, index) => <span className="ev-application-number-part" key={index}>
+          <input ref={element => { numberFields.current[index] = element; }} className="krds-input" type="text" inputMode="numeric" pattern="[0-9]*" maxLength={partLengths[index]} autoComplete="off" aria-label={['출원번호 앞자리 (2자리)', '출원연도 (4자리)', '일련번호 (최대 7자리)'][index]} placeholder={['10', '2026', '0000000'][index]} value={part} onChange={event => changeNumberPart(index, event.target.value)} onPaste={pasteNumber} onKeyDown={event => { if (event.key === 'Backspace' && !part && index > 0) { event.preventDefault(); numberFields.current[index - 1]?.focus(); } if (event.key === 'Enter') { event.preventDefault(); void addNumber(); } }} disabled={disabled} />
+          {index < 2 && <span aria-hidden="true">-</span>}
+        </span>)}</div>
+      </div>
+      <label className="ev-selection-cpc"><span className="ev-selection-caption">CPC <span className="ev-muted">선택</span></span><input className="krds-input" aria-label="CPC" placeholder="G06N 20/00" maxLength={100} value={cpc} onChange={event => { setCpc(event.target.value); markDirty(); }} disabled={disabled} /></label>
+      <div className="ev-selection-report"><span className="ev-selection-caption">선행기술조사 보고서</span><ReportPresenceToggle value={hasPriorArtReport} disabled={disabled} onChange={value => { setHasPriorArtReport(value); markDirty(); }} /></div>
+      <button type="button" className="krds-btn medium ev-button" disabled={disabled || !canAddNumber} onClick={addNumber}>선정 목록에 추가</button>
+    </div>
+    <details className="ev-selection-bulk"><summary>여러 출원 한 번에 붙여넣기</summary><label>출원번호, CPC, 보고서 유무(있음/없음)를 탭으로 구분해 한 줄에 한 건씩 입력하세요.<textarea className="krds-input" rows={4} placeholder={'10-2024-0000001\tG06N 20/00\t있음\n10-2024-0000002\tG06F 16/00\t없음'} value={paste} onChange={event => { setPaste(event.target.value); markDirty(); }} disabled={disabled} /></label><p className="ev-muted">보고서 유무를 생략하면 위에서 선택한 값으로 기록합니다.</p><div className="ev-actions end"><button className="krds-btn medium ev-button" onClick={bulk} disabled={!paste.trim() || disabled}>목록에 추가</button></div></details>
+    <hr className="ev-divider" />
+    <div className="ev-subheading"><h3>선정 목록 <span className="ev-count">{rows.length}</span></h3><span className="ev-muted" role="status">{autoSaveStatus === 'saving' ? '자동 저장 중…' : autoSaveStatus === 'saved' ? submitted ? '변경 사항 자동 저장됨' : '자동 임시저장됨' : ''}</span></div>
+    {duplicates.length > 0 && <div className="ev-notice warning">다른 심사관이 같은 달에 선정한 출원 {duplicates.length}건이 있습니다. 별도의 평가 업무로 유지됩니다.</div>}
+    {rows.length ? <div className="ev-table-scroll"><table className="ev-table ev-selection-table"><caption className="sr-only">선정할 출원 목록</caption><thead><tr><th scope="col">출원번호</th><th scope="col">CPC</th><th scope="col">선행기술조사 보고서</th><th scope="col"><span className="sr-only">관리</span></th></tr></thead><tbody>{rows.map((row, index) => <tr key={index}>
+      <td><input className="krds-input ev-selection-row-number" aria-label={`출원번호 ${index + 1}`} maxLength={40} value={row.applicationNumber} disabled={disabled} onChange={event => { setRows(rows.map((value, i) => i === index ? { ...value, applicationNumber: event.target.value } : value)); markDirty(); }} /></td>
+      <td><input className="krds-input ev-selection-row-cpc" aria-label={`CPC ${index + 1}`} maxLength={100} value={row.cpc} disabled={disabled} onChange={event => { setRows(rows.map((value, i) => i === index ? { ...value, cpc: event.target.value } : value)); markDirty(); }} /></td>
+      <td><ReportPresenceToggle value={row.hasPriorArtReport} disabled={disabled} label={`선정 목록 ${index + 1} 선행기술조사 보고서 유무`} onChange={hasPriorArtReport => { setRows(rows.map((value, i) => i === index ? { ...value, hasPriorArtReport } : value)); markDirty(); }} />{row.hasPriorArtReport === undefined && <span className="ev-selection-unrecorded">미기록</span>}</td>
+      <td><button className="krds-btn medium ev-button tiny danger" disabled={disabled} aria-label={`${row.applicationNumber || `${index + 1}번째 출원`} 선정 목록에서 삭제`} onClick={() => { setRows(rows.filter((_, i) => i !== index)); markDirty(); }}>목록에서 삭제</button></td>
+    </tr>)}</tbody></table></div> : <p className="ev-muted">등록된 출원이 없습니다.</p>}
+    <div className="ev-actions end">{onCancel && <button type="button" className="krds-btn medium ev-button" disabled={busy || autoSaveStatus === 'saving'} onClick={() => { if (!saving.current) onCancel(); }}>목록으로 돌아가기</button>}{!submitted && <button className="krds-btn medium ev-button" disabled={disabled} onClick={() => { if (saving.current) return; if (hasNumberInput || paste.trim()) { setLocalError('입력 중인 출원을 목록에 먼저 추가해 주세요.'); return; } void save({ type: 'saveSelection', monthId: month.id, rows, confirm: false }, monthLabel(month.id) + ' 선정 목록 ' + rows.length + '건을 임시저장했습니다. AI 담당자에게는 공개되지 않습니다.'); }}>임시저장</button>}<button className="krds-btn medium ev-button primary" disabled={disabled || (!submitted && !rows.length)} onClick={() => {
+      if (saving.current) return; if (hasNumberInput || paste.trim()) { setLocalError('입력 중인 출원을 목록에 먼저 추가해 주세요.'); return; }
+      if (submitted || window.confirm(monthLabel(month.id) + ' 선정 목록 ' + rows.length + '건을 확정하시겠습니까? AI 담당자에게 목록 전체가 공개되며, 선정 마감 전까지 수정할 수 있습니다.')) void save({ type: 'saveSelection', monthId: month.id, rows, confirm: true }, submitted ? monthLabel(month.id) + ' 제출 목록을 ' + rows.length + '건으로 수정했습니다. AI 담당자에게 변경된 목록을 반영했습니다.' : monthLabel(month.id) + ' 평가 대상 ' + rows.length + '건을 확정해 AI 담당자에게 공개했습니다.');
+    }}>{submitted ? '수정 사항 저장' : '선정 확정'}</button></div>
+  </div></Panel>;
 }
 
 function AIWorkspace({ state, month, user, busy, notify, bureau }: Shared & { user: EvaluationUser; notify: (text: string) => void; saveFeedback?: React.ReactNode }) {
@@ -375,7 +422,7 @@ function AIWorkspace({ state, month, user, busy, notify, bureau }: Shared & { us
 async function exportPersonal(state: EvaluationState, monthId: string, cases: EvaluationCase[], bureau?: Bureau) {
   const ids = new Set(cases.map((item) => item.id)); const stats = getStatistics(state, monthId); const rows = stats.rows.filter((row) => ids.has(row.caseId));
   return exportWorkbook(`AI 선행기술 검색 포털_${bureau ? `${bureau}_` : ''}업무자료_${monthId}.xlsx`, [
-    { name: '출원별 현황', rows: [['출원번호', 'CPC', '담당 심사관', '그룹', 'AI 입력 상태', '평가 상태'], ...cases.map((item) => [item.applicationNumber, item.cpc, item.examinerName, item.groupName, caseStatus(state, item).inputComplete ? '입력 완료' : '대기 중', caseStatus(state, item).evaluationStatus])] },
+    { name: '출원별 현황', rows: [['출원번호', 'CPC', '담당 심사관', '그룹', 'AI 입력 상태', '평가 상태', '선행기술조사 보고서'], ...cases.map((item) => [item.applicationNumber, item.cpc, item.examinerName, item.groupName, caseStatus(state, item).inputComplete ? '입력 완료' : '대기 중', caseStatus(state, item).evaluationStatus, reportPresenceLabel(item.hasPriorArtReport)])] },
     { name: '선행기술 목록', rows: [['출원번호', '조사 방식', '문헌번호·서지정보', 'AI 담당자', '문헌 종류', 'URL', '보고서 (마크다운)', '저자명', '논문명·문서명', '간행물명', '발행장소', '발행처', '발행연월일', '권수', '호수', '페이지', '입수일', '날짜 비고'], ...rows.map((row) => [row.applicationNumber, row.methodName, row.number, row.authorName, row.documentDetails.kind === 'patent' ? '특허' : row.documentDetails.kind === 'non-patent' ? '비특허문헌' : '기존 문헌', row.url, row.reportMarkdown, ...['authors', 'title', 'publication', 'publicationPlace', 'publisher', 'publicationDate', 'volume', 'issue', 'pages', 'acquiredDate', 'dateNote'].map((field) => row.documentDetails[field as keyof typeof row.documentDetails] || '')])] },
     { name: '품질 순위', rows: [['출원번호', '조사 방식', '순위', '유효 여부'], ...cases.flatMap((item) => { const rank = state.rankings.find((entry) => entry.caseId === item.id); return caseMethods(state, item).map((method) => [item.applicationNumber, method.name, rank?.values[method.id] == null ? '—' : rankLabel(rank.values[method.id]), rankingIsCurrent(state, item, rank) ? '현재 결과' : rank ? '재확인 필요' : '미평가']); })] },
     { name: '문헌별 평가', rows: [['출원번호', '조사 방식', '문헌번호', '점수', '인용여부', '비고', '평가 상태'], ...rows.map((row) => [row.applicationNumber, row.methodName, row.number, row.score, row.cited, row.note, row.status])] },

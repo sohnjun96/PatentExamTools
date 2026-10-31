@@ -170,7 +170,19 @@
 .ev-progress { height:8px; margin-top:16px; overflow:hidden; border-radius:8px; background:var(--krds-color-light-gray-10); }
 .ev-progress span { display:block; height:100%; border-radius:8px; background:var(--ev-teal); }
 .ev-form-stack { display:grid; gap:20px; }
-.ev-selection-input { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:12px; align-items:end; }
+.ev-selection-input { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end; }
+.ev-selection-input > .ev-application-number { flex:0 1 272px; max-width:100%; }
+.ev-selection-input > .ev-selection-cpc { flex:0 1 144px; width:144px; }
+.ev-selection-report { display:flex; flex-direction:column; gap:8px; }
+.ev-selection-bulk { margin-top:20px; max-width:720px; }
+.ev-selection-bulk > summary { width:fit-content; min-height:44px; padding:10px 0; cursor:pointer; color:var(--ev-muted); font-size:14px; }
+.ev-selection-bulk label { margin-top:12px; }
+.ev-selection-bulk > .ev-muted { margin-top:8px; font-size:14px; }
+.ev-selection-table { width:auto; max-width:100%; table-layout:auto; }
+.ev-selection-table .ev-selection-row-number { width:180px; }
+.ev-selection-table .ev-selection-row-cpc { width:144px; }
+.ev-selection-unrecorded { display:block; margin-top:4px; color:var(--ev-muted); font-size:12px; }
+.ev-review-case-report { display:block; margin-top:4px; font-size:13px; }
 .ev-subheading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:28px 0 16px; }
 .ev-divider { margin:24px 0; border:0; border-top:1px solid var(--ev-line); }
 .ev-kpi-note { display:flex; gap:20px; flex-wrap:wrap; padding:16px 24px; border-top:1px solid var(--ev-line); background:var(--krds-color-light-gray-5); color:var(--ev-muted); font-size:14px; }
@@ -249,9 +261,9 @@
 .ev-application-number { min-width:0; margin:0; padding:0; border:0; }
 .ev-selection-caption { display:flex; align-items:baseline; gap:6px; font-size:16px; font-weight:500; }
 .ev-application-number > .ev-selection-caption { margin-bottom:8px; }
-.ev-application-number-parts { display:grid; grid-template-columns:minmax(0,2fr) auto minmax(0,4fr) auto minmax(0,7fr); align-items:center; gap:6px; }
+.ev-application-number-parts { display:grid; grid-template-columns:minmax(44px,52px) auto minmax(64px,76px) auto minmax(92px,108px); align-items:center; gap:6px; }
 .ev-application-number-part { display:contents; }
 .ev-application-number-part .krds-input { width:100%; min-width:0; padding-inline:8px; text-align:center; font-variant-numeric:tabular-nums; }
-.ev .ev-application-number-hint { margin-top:10px; font-size:14px; }
+
 
 @media(max-width:480px) { .ev-application-number-part .krds-input { padding-inline:6px; font-size:16px; } }
