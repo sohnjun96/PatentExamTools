@@ -98,7 +98,7 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
   const [storedState, setState] = useState<EvaluationState | null>(null);
   const [stateScopeKey, setStateScopeKey] = useState('');
   const [revision, setRevision] = useState(0);
-  const [userId, setUserId] = useState('');
+  const [userId, setSelectedUserId] = useState('');
   const [monthId, setMonthId] = useState('');
   const [view, setView] = useState<View>(admin ? bureau ? 'settings' : 'stats' : 'review');
   const [adminSection, setAdminSection] = useState<AdminSection>(bureau ? 'examiners' : 'overview');
@@ -116,6 +116,11 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
   const state = stateForWorkspaceScope(storedState, stateScopeKey, sessionKey, sessionReady);
   const loadGeneration = useRef(0);
   const saveGeneration = useRef(0);
+  const setUserId = useCallback((nextUserId: string) => {
+    // Invalidate the prior selection before React runs the next load effect.
+    loadGeneration.current++;
+    setSelectedUserId(nextUserId);
+  }, []);
   useEffect(() => {
     loadGeneration.current++; saveGeneration.current++;
     let raw: string | null = null;
@@ -126,7 +131,7 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
     lastAttempt.current = null;
     setRestoredSessionKey(sessionKey);
     return () => { loadGeneration.current++; saveGeneration.current++; };
-  }, [admin, bureau, sessionKey]);
+  }, [admin, bureau, sessionKey, setUserId]);
   useEffect(() => {
     if (!sessionReady) return;
     try { sessionStorage.setItem(sessionKey, JSON.stringify({ userId, monthId, view, adminSection })); } catch { /* Storage is optional. */ }
@@ -137,8 +142,13 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
     try {
       const response = await fetch(evaluationApiUrl(bureau, admin, selectedUser), { cache: 'no-store' });
       const payload = await response.json() as { state: EvaluationState; revision: number; error?: string; warnings?: string[] };
-      if (!response.ok) throw new Error(payload.error || '업무 자료를 불러오지 못했습니다.');
       if (requestId !== loadGeneration.current) return;
+      if (response.status === 403 && !admin && selectedUser) {
+        // A removed or inactive remembered user must not block the directory.
+        // Changing the selection lets the existing effect load public data.
+        setUserId(''); setView('review'); return;
+      }
+      if (!response.ok) throw new Error(payload.error || '업무 자료를 불러오지 못했습니다.');
       setState(payload.state); setStateScopeKey(sessionKey); setRevision(payload.revision); setLoadSerial((value) => value + 1);
       setConflict(false);
       if (!admin && selectedUser) {
@@ -149,7 +159,7 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
       setMonthId((previous) => (admin && previous === ALL_OPERATION_MONTHS) || listedOperationMonths(payload.state.months).some((month: OperationMonth) => month.id === previous) ? previous : preferredOperationMonth(payload.state.months));
     } catch (reason) { if (requestId === loadGeneration.current) setError(reason instanceof TypeError ? '업무 자료에 연결할 수 없습니다. 연결 상태를 확인한 뒤 다시 불러오세요.' : reason instanceof Error && /[가-힣]/.test(reason.message) ? reason.message : '업무 자료를 불러오지 못했습니다. 다시 불러와 주세요. 계속되면 관리자에게 알려 주세요.'); }
     finally { if (requestId === loadGeneration.current) setLoading(false); }
-  }, [admin, bureau, userId, sessionKey]);
+  }, [admin, bureau, userId, sessionKey, setUserId]);
   useEffect(() => { if (sessionReady) void load(); }, [load, sessionReady]);
   useEffect(() => {
     if (!sessionReady) return;
