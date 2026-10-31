@@ -1143,8 +1143,9 @@ assert(exportedWorkbook.filename.includes('전기국'));
 assert.deepEqual(Array.from(exportedWorkbook.sheets, sheet => sheet.name), ['그룹별 통계','계정별 현황','출원별 현황','조사 방식별 통계','AI 검색 결과 평가','조회 기준']);
 assert.equal(exportedWorkbook.sheets.find(sheet => sheet.name === 'AI 검색 결과 평가').rows.length, 141);
 assert.equal(exportedWorkbook.sheets.find(sheet => sheet.name === '출원별 현황').rows.length, 11);
-assert.deepEqual(Array.from(exportedWorkbook.sheets.find(sheet => sheet.name === '계정별 현황').rows[0]), ['심사과', '이름', '대상 건 선정', 'AI 입력 대상', 'AI 입력 완료', '평가 완료']);
-assert.deepEqual(Array.from(exportedWorkbook.sheets.find(sheet => sheet.name === '계정별 현황').rows[1].slice(2)), [2, 10, 10, 2]);
+assert.deepEqual(Array.from(exportedWorkbook.sheets.find(sheet => sheet.name === '계정별 현황').rows[0]), ['심사과', '이름', '소속 그룹', '담당 AI', '대상 건 선정', 'AI 입력 대상', 'AI 입력 완료', '평가 완료']);
+assert.deepEqual(Array.from(exportedWorkbook.sheets.find(sheet => sheet.name === '계정별 현황').rows[1].slice(4)), [2, 10, 10, 2]);
+assert.deepEqual(Array.from(exportedWorkbook.sheets.find(sheet => sheet.name === '계정별 현황').rows[1].slice(2, 4)), ['가상 1그룹', 'ChatGPT']);
 // Admin month scope is shared by the overview, target list, filters, and exports.
 assert.equal(adminUI.ADMIN_NAV.find(entry => entry.id === 'cases').label, '대상 출원 목록');
 const multiMonthState = structuredClone(demo);
@@ -1204,9 +1205,9 @@ assert(!descendants(allOverview).some(({ element }) => element.props['aria-label
 assert(descendants(allOverview).some(({ element }) => element.type === 'button' && element.props.children === '계정별 진행' && element.props['aria-pressed']));
 const accountProgressTable = tree => descendants(tree).find(({ element }) => element.type === 'table' && element.props.children[0]?.props.children === '계정별 심사 및 AI 담당 업무 진행').element;
 const accountProgress = accountProgressTable(allOverview);
-assert.deepEqual(descendants(accountProgress).filter(({ element }) => element.type === 'th').map(({ element }) => element.props.children), ['심사과', '이름', '대상 건 선정', 'AI 입력 대상', 'AI 입력 완료', '평가 완료']);
+assert.deepEqual(descendants(accountProgress).filter(({ element }) => element.type === 'th').map(({ element }) => element.props.children), ['심사과', '이름', '소속 그룹', '담당 AI', '대상 건 선정', 'AI 입력 대상', 'AI 입력 완료', '평가 완료']);
 const firstAccount = descendants(accountProgress).find(({ element }) => element.type === 'tbody').element.props.children[0];
-assert.deepEqual(Array.from(firstAccount.props.children.slice(2), cell => cell.props.children), [3, 11, 10, 2], 'Selection, AI target, AI completion, and evaluation counts stay in their labelled columns.');
+assert.deepEqual(Array.from(firstAccount.props.children.slice(4), cell => cell.props.children), [3, 11, 10, 2], 'Selection, AI target, AI completion, and evaluation counts stay in their labelled columns.');
 assert(descendants(scopedOverview(['', '', 'documents'])).some(({ element }) => element.type === 'th' && element.props.children === '운영월'));
 hookIndex = 0; hookOverrides = [];
 const rootAll = adminUI.default({ ...allAdminProps, section: 'overview' });
@@ -1360,4 +1361,17 @@ assert.deepEqual(Array.from(tableRows(qualityTable), row => row.props.children[0
 await adminUI.exportAdminStatistics(methodHistory, '2026-11', '', '', '기획국');
 assert.deepEqual(Array.from(exportedWorkbook.sheets.find(sheet => sheet.name === '조사 방식별 통계').rows.slice(1), row => row[0]), ['ChatGPT', '클로드', '활성 새 AI', '지난 AI']);
 assert.equal(JSON.stringify(methodHistory), historyBefore);
+// Account context uses current personnel, not historical case snapshots or repeated group assignments.
+assert.deepEqual(JSON.parse(JSON.stringify(adminUI.accountAssignmentLabels(multiMonthState, demo.users[0].id))), { groupName: '가상 1그룹', aiNames: 'ChatGPT' });
+assert.deepEqual(Array.from(firstAccount.props.children.slice(2, 4), cell => cell.props.children), ['가상 1그룹', 'ChatGPT']);
+const assignedAccount = structuredClone(multiMonthState);
+assignedAccount.personnel.assignments.push({ userId: demo.users[0].id, groupId: 'group-b', methodId: 'chatgpt' }, { userId: demo.users[0].id, groupId: 'group-a', methodId: 'claude' });
+assignedAccount.personnel.memberships.find(entry => entry.userId === demo.users[0].id).groupId = 'group-b';
+const accountBefore = JSON.stringify(assignedAccount);
+assert.deepEqual(JSON.parse(JSON.stringify(adminUI.accountAssignmentLabels(assignedAccount, demo.users[0].id))), { groupName: '가상 2그룹', aiNames: 'ChatGPT, 클로드' });
+assert.equal(JSON.stringify(assignedAccount), accountBefore, 'Reading account assignments must not change personnel or historical cases.');
+assert.equal(assignedAccount.cases[0].groupName, '가상 1그룹');
+assert.equal(adminUI.accountAssignmentLabels(assignedAccount, demo.users[2].id).aiNames, '—');
+assignedAccount.personnel.memberships = assignedAccount.personnel.memberships.filter(entry => entry.userId !== demo.users[2].id);
+assert.equal(adminUI.accountAssignmentLabels(assignedAccount, demo.users[2].id).groupName, '그룹 미배정');
 console.log('Admin and bureau workspace UI tests passed: six task menus, scoped sessions and forms, search/filter combinations, target publication handoff, independent downloads, draft-save guidance, closed-month controls, and six-sheet filtered exports.');

@@ -315,3 +315,6 @@
 .adm-operation-table thead th { font-weight:700; }
 .adm-operation-table .adm-month-link { font-size:19px; }
 .adm-operation-table .krds-form-select { font-size:18px; }
+
+.adm-account-progress-table { min-width:960px; }
+.adm-account-progress-table :is(th,td):nth-child(-n+2) { white-space:nowrap; }
