@@ -70,7 +70,7 @@ function loadModule(relative, append = '') {
 }
 const ui = loadModule('app/evaluation/workspace.tsx', '\nexport { AIWorkspace as TestAIWorkspace, SelectionEditor as TestSelectionEditor, StageNotice as TestStageNotice, ReviewWorkspace as TestReviewWorkspace, exportPersonal as TestExportPersonal };');
 ui.TestEvaluationEditor = loadModule('app/evaluation/task/evaluation-reader.tsx').default;
-const adminUI = loadModule('app/evaluation/admin-workspace.tsx', '\nexport { AccountManager as TestAccountManager, MethodManager as TestMethodManager };');
+const adminUI = loadModule('app/evaluation/admin-workspace.tsx', '\nexport { AccountManager as TestAccountManager, MethodManager as TestMethodManager, CaseManager as TestCaseManager, CaseRegistration as TestCaseRegistration, Overview as TestOverview };');
 const domain = loadModule('app/lib/evaluation.ts');
 const { BUREAUS } = loadModule('app/lib/bureaus.ts');
 const BureauNotice = loadModule('app/components/bureau-notice.tsx').default;
@@ -1122,4 +1122,77 @@ assert(exportedWorkbook.filename.includes('전기국'));
 assert.deepEqual(Array.from(exportedWorkbook.sheets, sheet => sheet.name), ['그룹별 통계','계정별 현황','출원별 현황','조사 방식별 통계','AI 검색 결과 평가','조회 기준']);
 assert.equal(exportedWorkbook.sheets.find(sheet => sheet.name === 'AI 검색 결과 평가').rows.length, 141);
 assert.equal(exportedWorkbook.sheets.find(sheet => sheet.name === '출원별 현황').rows.length, 11);
+// Admin month scope is shared by the overview, target list, filters, and exports.
+assert.equal(adminUI.ADMIN_NAV.find(entry => entry.id === 'cases').label, '대상 출원 목록');
+const multiMonthState = structuredClone(demo);
+multiMonthState.months[0].id = '2026-11';
+multiMonthState.cases.forEach(item => { item.monthId = '2026-11'; });
+multiMonthState.months.push({ ...domain.emptyMonth('2026-12'), closed: true }, domain.emptyMonth('2027-01'), { ...domain.emptyMonth('2026-10'), archived: true, closed: true });
+multiMonthState.cases.push(
+  { ...multiMonthState.cases[0], id: 'december-case', monthId: '2026-12', applicationNumber: '10-2026-0012345', cpc: 'H04L' },
+  { ...multiMonthState.cases[0], id: 'december-draft', monthId: '2026-12', status: 'draft', applicationNumber: '10-2026-0012346' },
+  { ...multiMonthState.cases[0], id: 'archived-case', monthId: '2026-10', applicationNumber: '10-2026-0012347' },
+);
+function scopePage(section, scope = 'all', admin = true) {
+  const key = ui.workspaceSessionKey(`simsadesk-workspace-${admin ? 'admin' : 'user'}`, '기획국');
+  hookIndex = 0; hookOverrides = [];
+  hookOverrides[0] = multiMonthState; hookOverrides[1] = key; hookOverrides[3] = admin ? '' : demo.users[0].id;
+  hookOverrides[4] = scope; hookOverrides[5] = admin ? 'stats' : 'review'; hookOverrides[6] = section; hookOverrides[7] = false; hookOverrides[13] = key;
+  return ui.default({ admin, bureau: '기획국' });
+}
+for (const section of ['overview', 'cases']) {
+  const nodes = descendants(scopePage(section));
+  const selector = nodes.find(({ element }) => element.props['aria-label'] === '운영월').element;
+  assert.equal(selector.props.value, 'all');
+  assert(descendants(selector).some(({ element }) => element.type === 'option' && element.props.value === 'all' && element.props.children === '전체 보기'));
+  assert(!nodes.some(({ element }) => element.type?.name === 'Badge' && ['운영 전', '운영 중', '운영 종료'].includes(element.props.children)), 'All months must not be labelled with a single month status.');
+  const content = nodes.find(({ element }) => element.type?.name === 'AdminWorkspace').element;
+  assert.equal(content.props.allMonths, true); assert.equal(content.props.month, undefined);
+  hookWrites.length = 0; selector.props.onChange({ target: { value: '2026-11' } });
+  assert(hookWrites.some(write => write.index === 4 && write.value === '2026-11'));
+  const monthNodes = descendants(scopePage(section, '2026-11'));
+  assert.equal(monthNodes.find(({ element }) => element.type?.name === 'AdminWorkspace').element.props.month.id, '2026-11');
+}
+for (const section of ['examiners', 'ai', 'month', 'notices']) assert(!descendants(scopePage(section)).some(({ element }) => element.props['aria-label'] === '운영월'));
+assert(!descendants(scopePage('overview', '2026-11', false)).some(({ element }) => element.type === 'option' && element.props.value === 'all'));
+const allAdminProps = { ...managerProps, state: multiMonthState, month: undefined, allMonths: true, section: 'cases', initialStatus: 'all', selectMonth() {}, notify() {} };
+function scopedManager(overrides = [], props = {}) { hookIndex = 0; hookOverrides = overrides; return adminUI.TestCaseManager({ ...allAdminProps, ...props }); }
+const allTargets = scopedManager();
+assert.equal(descendants(allTargets).filter(({ element }) => element.type === 'button' && element.props.className?.startsWith('adm-list-item')).length, 22);
+assert.equal(adminUI.filterTargetCases(multiMonthState, 'all', { query: 'H04L' })[0].id, 'december-case');
+assert.equal(adminUI.filterTargetCases(multiMonthState, 'all', { status: 'inputPending', examinerId: demo.users[0].id }).length, 1);
+assert.equal(adminUI.filterTargetCases(multiMonthState, '2026-11').length, 20);
+assert.equal(adminUI.filterTargetCases(multiMonthState, 'all', { status: 'draft' }).length, 1);
+assert(JSON.stringify(allTargets).includes('2026년 12월'), 'Every all-month target keeps a visible month label.');
+for (const [id, locked] of [['december-case', true], [multiMonthState.cases[0].id, false]]) {
+  const selected = scopedManager(['', 'all', '', id]);
+  const cancel = descendants(selected).find(({ element }) => element.type?.name === 'Button' && element.props.children === '선정 취소').element;
+  assert.equal(cancel.props.disabled, locked, 'Cancellation uses the selected case’s actual month.');
+}
+function scopedOverview(overrides = [], props = {}) { hookIndex = 0; hookOverrides = overrides; return adminUI.TestOverview({ ...allAdminProps, navigateCases() {}, ...props }); }
+const allOverview = scopedOverview();
+assert.equal(descendants(allOverview).find(({ element }) => element.type?.name === 'Metric' && element.props.label === '확정 출원').element.props.value, '21건');
+assert(!descendants(allOverview).some(({ element }) => element.type?.name === 'Button' && ['월 운영 마감', '운영 재개방'].includes(element.props.children)));
+assert(descendants(allOverview).some(({ element }) => element.type === 'th' && element.props.children === '운영월'));
+assert(descendants(scopedOverview(['', '', 'documents', 'all'])).some(({ element }) => element.type === 'th' && element.props.children === '운영월'));
+hookIndex = 0; hookOverrides = [];
+const rootAll = adminUI.default({ ...allAdminProps, section: 'overview' });
+assert(descendants(rootAll).some(({ element }) => element.type === adminUI.TestOverview), 'All-month pages render without inventing a writable month record.');
+let registeredAction;
+for (const [monthId, writable] of [['2026-11', true], ['2026-12', false]]) {
+  registeredAction = undefined;
+  hookIndex = 0; hookOverrides = [demo.users[0].id, '10-2026-0000007', '', '', false, monthId];
+  const registration = adminUI.TestCaseRegistration({ ...allAdminProps, onClose() {}, save: async action => { registeredAction = action; return true; } });
+  const monthSelect = descendants(registration).find(({ element }) => element.props['aria-label'] === '등록 운영월').element;
+  assert.equal(descendants(monthSelect).find(({ element }) => element.type === 'option' && element.props.value === '2026-12').element.props.disabled, true);
+  await descendants(registration).find(({ element }) => element.type === 'form').element.props.onSubmit({ preventDefault() {} });
+  assert.equal(Boolean(registeredAction), writable);
+  if (writable) assert.equal(registeredAction.monthId, '2026-11');
+}
+await adminUI.exportAdminStatistics(multiMonthState, 'all', 'group-a', demo.users[0].id, '기획국');
+assert(exportedWorkbook.filename.includes('전체운영월'));
+const allExportCases = exportedWorkbook.sheets.find(sheet => sheet.name === '출원별 현황').rows;
+assert.equal(allExportCases[0][0], '운영월'); assert.equal(allExportCases.length, 4);
+assert.deepEqual([...new Set(allExportCases.slice(1).map(row => row[0]))], ['2026-11', '2026-12']);
+assert.equal(exportedWorkbook.sheets.find(sheet => sheet.name === 'AI 검색 결과 평가').rows[0][0], '운영월');
 console.log('Admin and bureau workspace UI tests passed: six task menus, scoped sessions and forms, search/filter combinations, target publication handoff, independent downloads, draft-save guidance, closed-month controls, and six-sheet filtered exports.');

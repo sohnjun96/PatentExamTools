@@ -10,7 +10,7 @@ export function readWorkspaceLocation(raw: string | null, admin: boolean): Works
     const allowed = admin ? ['stats', 'settings'] : ['review', 'ai'];
     return {
       userId: !admin && typeof stored.userId === 'string' && stored.userId.length < 200 ? stored.userId : '',
-      monthId: typeof stored.monthId === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(stored.monthId) ? stored.monthId : '',
+      monthId: typeof stored.monthId === 'string' && (/^\d{4}-(0[1-9]|1[0-2])$/.test(stored.monthId) || admin && stored.monthId === 'all') ? stored.monthId : '',
       view: typeof stored.view === 'string' && allowed.includes(stored.view) ? stored.view as WorkspaceView : fallback.view,
     };
   } catch { return fallback; }

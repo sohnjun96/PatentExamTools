@@ -6,6 +6,9 @@ assert.deepEqual(readWorkspaceLocation(JSON.stringify({ userId: 'user-1', monthI
 assert.deepEqual(readWorkspaceLocation(JSON.stringify({ userId: 'user-1', monthId: '2026-13', view: 'settings' }), false), { userId: 'user-1', monthId: '', view: 'review' });
 assert.equal(readWorkspaceLocation(JSON.stringify({ userId: 'user-1', monthId: '2026-10', view: 'review' }), true).view, 'stats');
 assert.equal(readWorkspaceLocation(JSON.stringify({ userId: 'user-1', monthId: '2026-10', view: 'settings' }), true).userId, '');
+assert.equal(readWorkspaceLocation(JSON.stringify({ monthId: 'all', view: 'stats' }), true).monthId, 'all');
+assert.equal(readWorkspaceLocation(JSON.stringify({ monthId: 'all', view: 'review' }), false).monthId, '', 'All-month viewing is reserved for administration.');
+assert.equal(readWorkspaceLocation(JSON.stringify({ monthId: 'all-months', view: 'stats' }), true).monthId, '');
 assert.equal(viewForRoles(['ai']), 'ai');
 assert.equal(viewForRoles(['examiner'], 'ai'), 'review');
 assert.equal(viewForRoles(['examiner', 'ai'], 'ai'), 'ai');

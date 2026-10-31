@@ -3,7 +3,7 @@
 import AppIcon from '@/app/components/app-icon';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  aiMethods, canInputResult, caseMethods, caseStatus, getStatistics, rankingIsCurrent,
+  aiMethods, ALL_OPERATION_MONTHS, canInputResult, caseMethods, caseStatus, getStatistics, rankingIsCurrent,
   resultFor, isOperationStageOpen, operationStageBlockReason, isDemoApplicationNumber,
   type EvaluationAction, type EvaluationCase, type EvaluationState,
   type EvaluationUser, type OperationMonth, type OperationStage, type RankValue, type SelectionRow,
@@ -144,7 +144,7 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
         if (selected) setView((previous) => viewForRoles(selected.roles, previous));
         else { setUserId(''); setView('review'); }
       }
-      setMonthId((previous) => listedOperationMonths(payload.state.months).some((month: OperationMonth) => month.id === previous) ? previous : preferredOperationMonth(payload.state.months));
+      setMonthId((previous) => (admin && previous === ALL_OPERATION_MONTHS) || listedOperationMonths(payload.state.months).some((month: OperationMonth) => month.id === previous) ? previous : preferredOperationMonth(payload.state.months));
     } catch (reason) { if (requestId === loadGeneration.current) setError(reason instanceof TypeError ? '업무 자료에 연결할 수 없습니다. 연결 상태를 확인한 뒤 다시 불러오세요.' : reason instanceof Error && /[가-힣]/.test(reason.message) ? reason.message : '업무 자료를 불러오지 못했습니다. 다시 불러와 주세요. 계속되면 관리자에게 알려 주세요.'); }
     finally { if (requestId === loadGeneration.current) setLoading(false); }
   }, [admin, bureau, userId, sessionKey]);
@@ -204,6 +204,7 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
   const month = state?.months.find((candidate) => candidate.id === monthId);
   const monthStatus = month ? operationMonthStatus(month) : 'pending';
   const globalAdmin = admin && ['examiners', 'ai', 'notices', 'month'].includes(adminSection);
+  const allMonths = admin && !globalAdmin && monthId === ALL_OPERATION_MONTHS;
   const activeAdmin = ADMIN_NAV.find((entry) => entry.id === adminSection) || ADMIN_NAV[0];
   const title = admin ? activeAdmin.label : view === 'ai' ? 'AI 검색 결과 입력' : '내 심사 업무';
   const loggedIn = admin || Boolean(user);
@@ -258,10 +259,10 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
     <main className="ev-main" id="evaluation-main" tabIndex={-1}>
       <div className="ev-content">{errorFeedback}{sessionReady && notice && <div className="ev-alert success" role="status">{notice}</div>}
         {!sessionReady || loading && !state ? <Empty title="업무 자료를 불러오고 있습니다." /> : !state ? <Empty title="자료에 연결할 수 없습니다."><button className="krds-btn medium ev-button" onClick={() => void load()}>다시 시도</button></Empty> : <>
-          <div className="ev-page-heading"><div><h1>{title}</h1></div>{!globalAdmin && <div className="ev-month"><select className="krds-form-select" aria-label="운영월" value={monthId} onChange={(event) => navigate(() => setMonthId(event.target.value))}>{listedOperationMonths(state.months).sort((a, b) => b.id.localeCompare(a.id)).map((candidate) => <option key={candidate.id} value={candidate.id}>{monthLabel(candidate.id)} · {OPERATION_MONTH_STATUS_LABELS[operationMonthStatus(candidate)]}</option>)}</select><Badge color={monthStatus === 'running' ? 'green' : monthStatus === 'closed' ? 'orange' : ''}>{OPERATION_MONTH_STATUS_LABELS[monthStatus]}</Badge></div>}</div>
+          <div className="ev-page-heading"><div><h1>{title}</h1></div>{!globalAdmin && <div className="ev-month"><select className="krds-form-select" aria-label="운영월" value={monthId} onChange={(event) => navigate(() => setMonthId(event.target.value))}>{admin && <option value={ALL_OPERATION_MONTHS}>전체 보기</option>}{listedOperationMonths(state.months).sort((a, b) => b.id.localeCompare(a.id)).map((candidate) => <option key={candidate.id} value={candidate.id}>{monthLabel(candidate.id)} · {OPERATION_MONTH_STATUS_LABELS[operationMonthStatus(candidate)]}</option>)}</select>{!allMonths && <Badge color={monthStatus === 'running' ? 'green' : monthStatus === 'closed' ? 'orange' : ''}>{OPERATION_MONTH_STATUS_LABELS[monthStatus]}</Badge>}</div>}</div>
           {!admin && user && (view === 'review' || view === 'ai') && month && <OperationSchedule month={month} />}{state.isDemo && !(admin && adminSection === 'notices') && <div className="ev-notice warning">가상 검증 자료 · 실제 업무 자료가 아닙니다.</div>}
           {month?.closed && !globalAdmin && <div className="ev-notice warning"><p>마감된 월의 업무는 수정할 수 없습니다.</p>{admin && <button className="krds-btn medium ev-button" onClick={() => navigate(() => { setAdminSection('month'); setView('settings'); })}>월별 운영에서 재개방</button>}</div>}
-          {(admin ? <AdminWorkspace key={`${bureau || 'legacy'}:${globalAdmin ? 'global' : monthId}:${loadSerial}`} bureau={bureau} state={state} month={month} save={save} busy={busy} dirty={setDirty} hasUnsaved={dirty} section={adminSection} onNavigate={(section) => navigate(() => { setAdminSection(section); setView(section === 'overview' ? 'stats' : 'settings'); })} selectMonth={(id) => navigate(() => setMonthId(id))} notify={setNotice} saveFeedback={errorFeedback} /> : month && user && view === 'ai' && user.roles.includes('ai') ? <AIWorkspace key={`${bureau || 'legacy'}:${userId}:${monthId}:${loadSerial}`} bureau={bureau} state={state} month={month} save={save} busy={busy} dirty={setDirty} user={user} notify={setNotice} saveFeedback={errorFeedback} /> : month && user ? <ReviewWorkspace key={`${bureau || 'legacy'}:${userId}:${monthId}:${loadSerial}`} bureau={bureau} state={state} month={month} save={save} busy={busy} dirty={setDirty} user={user} notify={setNotice} saveFeedback={errorFeedback} /> : null)}
+          {(admin ? <AdminWorkspace key={`${bureau || 'legacy'}:${globalAdmin ? 'global' : monthId}:${loadSerial}`} bureau={bureau} state={state} month={month} allMonths={allMonths} save={save} busy={busy} dirty={setDirty} hasUnsaved={dirty} section={adminSection} onNavigate={(section) => navigate(() => { setAdminSection(section); setView(section === 'overview' ? 'stats' : 'settings'); })} selectMonth={(id) => navigate(() => setMonthId(id))} notify={setNotice} saveFeedback={errorFeedback} /> : month && user && view === 'ai' && user.roles.includes('ai') ? <AIWorkspace key={`${bureau || 'legacy'}:${userId}:${monthId}:${loadSerial}`} bureau={bureau} state={state} month={month} save={save} busy={busy} dirty={setDirty} user={user} notify={setNotice} saveFeedback={errorFeedback} /> : month && user ? <ReviewWorkspace key={`${bureau || 'legacy'}:${userId}:${monthId}:${loadSerial}`} bureau={bureau} state={state} month={month} save={save} busy={busy} dirty={setDirty} user={user} notify={setNotice} saveFeedback={errorFeedback} /> : null)}
         </>}
       </div></main>
   </div></div>;

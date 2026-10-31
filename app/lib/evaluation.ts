@@ -268,11 +268,16 @@ export function defaultOperationDeadlines(id: string) {
 }
 
 export const DEFAULT_OPERATION_MONTHS = ['2026-11', '2026-12', '2027-01'] as const;
+export const ALL_OPERATION_MONTHS = 'all';
 const ARCHIVED_OPERATION_MONTHS = new Set(['2026-10']);
 const defaultGroups = (): EvaluationGroup[] => [{ id: 'group-1', name: '그룹 1' }, { id: 'group-2', name: '그룹 2' }];
 
 export function listedOperationMonths(months: OperationMonth[]) {
   return months.filter(month => !month.archived);
+}
+
+export function operationMonthsForScope(state: EvaluationState, monthId: string) {
+  return monthId === ALL_OPERATION_MONTHS ? listedOperationMonths(state.months) : state.months.filter(month => month.id === monthId);
 }
 
 export function withDefaultOperationMonths(state: EvaluationState): EvaluationState {
@@ -324,7 +329,8 @@ export function currentGroups(state: EvaluationState) {
 }
 
 export function operationGroups(state: EvaluationState, monthId: string) {
-  const historicalIds = new Set(state.cases.filter((item) => item.monthId === monthId && item.status === 'confirmed').map((item) => item.groupId));
+  const monthIds = new Set(operationMonthsForScope(state, monthId).map(month => month.id));
+  const historicalIds = new Set(state.cases.filter((item) => monthIds.has(item.monthId) && item.status === 'confirmed').map((item) => item.groupId));
   return state.groups.filter((group) => !group.deletedAt || historicalIds.has(group.id));
 }
 
@@ -842,10 +848,11 @@ export function visibleState(state: EvaluationState, actor: EvaluationActor): Ev
 }
 
 export function getStatistics(state: EvaluationState, monthId: string, groupId = '', examinerId = '') {
-  const month = state.months.find((entry) => entry.id === monthId);
-  const cases = state.cases.filter((item) => item.monthId === monthId && item.status === 'confirmed' && (!groupId || item.groupId === groupId) && (!examinerId || item.examinerId === examinerId));
+  const months = operationMonthsForScope(state, monthId);
+  const monthIds = new Set(months.map(month => month.id));
+  const cases = state.cases.filter((item) => monthIds.has(item.monthId) && item.status === 'confirmed' && (!groupId || item.groupId === groupId) && (!examinerId || item.examinerId === examinerId));
   const personnel = personnelOf(state);
-  const participants = (month ? personnel.memberships : []).filter((entry) => state.users.some((user) => user.id === entry.userId && user.active && user.roles.includes('examiner')) && (!groupId || entry.groupId === groupId) && (!examinerId || entry.userId === examinerId));
+  const participants = (months.length ? personnel.memberships : []).filter((entry) => state.users.some((user) => user.id === entry.userId && user.active && user.roles.includes('examiner')) && (!groupId || entry.groupId === groupId) && (!examinerId || entry.userId === examinerId));
   const assignments = personnel.assignments.filter((entry) => cases.some((item) => item.groupId === entry.groupId && assignedCaseMethods(state, item).some((method) => method.id === entry.methodId)));
   const rows = cases.flatMap((item) => caseMethods(state, item).filter((method) => method.kind === 'ai').flatMap((method) => {
     const result = resultFor(state, item.id, method.id);
@@ -854,11 +861,11 @@ export function getStatistics(state: EvaluationState, monthId: string, groupId =
       const document = evaluation?.documents.find((entry) => identity(entry.number) === identity(number));
       const documentDetails = literatureDetailsFor(result).find((entry) => entry.number === number)!;
       const stale = state.evaluations.some((entry) => entry.caseId === item.id && entry.methodId === method.id && entry.version !== result?.publishedVersion);
-      return { caseId: item.id, applicationNumber: item.applicationNumber, cpc: item.cpc, examinerId: item.examinerId, examinerName: item.examinerName, groupId: item.groupId, groupName: item.groupName, authorName: result?.publishedBy?.name ?? '', methodId: method.id, methodName: method.name, number, documentDetails, url: documentDetails.url ?? '', reportMarkdown: documentDetails.reportMarkdown ?? '', score: document?.score ?? null, cited: document?.cited ?? null, note: document?.note ?? '', status: stale ? '재확인 필요' : document?.score != null && document?.cited != null ? '평가 완료' : '미평가' };
+      return { caseId: item.id, monthId: item.monthId, applicationNumber: item.applicationNumber, cpc: item.cpc, examinerId: item.examinerId, examinerName: item.examinerName, groupId: item.groupId, groupName: item.groupName, authorName: result?.publishedBy?.name ?? '', methodId: method.id, methodName: method.name, number, documentDetails, url: documentDetails.url ?? '', reportMarkdown: documentDetails.reportMarkdown ?? '', score: document?.score ?? null, cited: document?.cited ?? null, note: document?.note ?? '', status: stale ? '재확인 필요' : document?.score != null && document?.cited != null ? '평가 완료' : '미평가' };
     });
   }));
-  const availableIds = new Set(month ? aiMethods(state, month.id).map((method) => method.id) : []);
-  const methods = (month ? state.methods.filter((method) => method.kind === 'baseline' || availableIds.has(method.id)) : []).map((method) => {
+  const availableIds = new Set(months.flatMap(month => aiMethods(state, month.id).map(method => method.id)));
+  const methods = (months.length ? state.methods.filter((method) => method.kind === 'baseline' || availableIds.has(method.id)) : []).map((method) => {
     const documents = rows.filter((row) => row.methodId === method.id);
     const scores = documents.filter((row) => row.score !== null);
     const citations = documents.filter((row) => row.cited !== null);
@@ -867,7 +874,7 @@ export function getStatistics(state: EvaluationState, monthId: string, groupId =
     return { id: method.id, name: method.name, kind: method.kind, target, completed, pending: target - completed, documents: documents.length, averageScore: scores.length ? scores.reduce((sum, row) => sum + row.score!, 0) / scores.length : null, citationRate: citations.length ? citations.filter((row) => row.cited === 'O').length / citations.length : null, firstPlace: cases.filter((item) => { const ranking = state.rankings.find((entry) => entry.caseId === item.id); return ranking?.finalized !== false && rankingIsCurrent(state, item, ranking) && rankingComplete(state, item, ranking?.values ?? {}) && ranking?.values[method.id] === 1; }).length };
   });
   const statuses = cases.map((item) => ({ ...item, ...caseStatus(state, item), documentCount: rows.filter((row) => row.caseId === item.id).length }));
-  const summary = { participants: participants.length, unselected: participants.filter((participant) => !month?.confirmedUserIds.includes(participant.userId)).length, cases: cases.length, inputComplete: statuses.filter((item) => item.inputComplete).length, inputPending: statuses.filter((item) => !item.inputComplete).length, unevaluated: statuses.filter((item) => item.evaluationStatus === '미평가').length, inProgress: statuses.filter((item) => item.evaluationStatus === '평가 중').length, complete: statuses.filter((item) => item.complete).length, recheck: statuses.filter((item) => item.stale).length, documents: rows.length, inputRate: cases.length ? statuses.filter((item) => item.inputComplete).length / cases.length : null, evaluationRate: cases.length ? statuses.filter((item) => item.complete).length / cases.length : null };
+  const summary = { participants: participants.length, unselected: participants.filter((participant) => !months.some(month => month.confirmedUserIds.includes(participant.userId))).length, cases: cases.length, inputComplete: statuses.filter((item) => item.inputComplete).length, inputPending: statuses.filter((item) => !item.inputComplete).length, unevaluated: statuses.filter((item) => item.evaluationStatus === '미평가').length, inProgress: statuses.filter((item) => item.evaluationStatus === '평가 중').length, complete: statuses.filter((item) => item.complete).length, recheck: statuses.filter((item) => item.stale).length, documents: rows.length, inputRate: cases.length ? statuses.filter((item) => item.inputComplete).length / cases.length : null, evaluationRate: cases.length ? statuses.filter((item) => item.complete).length / cases.length : null };
   const groups = operationGroups(state, monthId).filter((group) => !groupId || group.id === groupId).map((group) => {
     const items = statuses.filter((item) => item.groupId === group.id);
     return { id: group.id, name: group.name, participants: participants.filter((entry) => entry.groupId === group.id).length, cases: items.length, inputComplete: items.filter((item) => item.inputComplete).length, complete: items.filter((item) => item.complete).length, documents: rows.filter((row) => row.groupId === group.id).length, completionRate: items.length ? items.filter((item) => item.complete).length / items.length : null };
