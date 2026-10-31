@@ -1,6 +1,7 @@
 import type { LiteratureDocument } from '@/app/lib/evaluation';
 import { literatureLink } from '@/app/lib/literature-link';
 import NoticeMarkdown from './notice-markdown';
+import AppIcon from './app-icon';
 import './literature-details.css';
 
 const bibliographyFields = [
@@ -21,7 +22,7 @@ export default function LiteratureDetails({ document }: { document?: LiteratureD
       <dl>{fields.map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{document[key]}</dd></div>)}</dl>
     </details>}
     {url?.kind === 'url' && <a className="literature-source-url" href={url.href} target="_blank" rel="noopener noreferrer" aria-label={`${document.title || document.number} 원문 URL (새 창)`}>
-      <span>원문 URL</span> {document.url} <span aria-hidden="true">↗</span>
+      <span>원문 URL</span> {document.url} <AppIcon name="arrow-right-up" size={16} />
     </a>}
     {document.reportMarkdown ? <details className="literature-report">
       <summary>보고서 보기</summary>

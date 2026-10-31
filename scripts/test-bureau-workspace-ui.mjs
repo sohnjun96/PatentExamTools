@@ -37,6 +37,7 @@ function loadModule(relative, append = '') {
   const localRequire = (id) => {
     if (id === 'react') return hooks;
     if (id === 'react/jsx-runtime') return require(id);
+    if (id.endsWith('/app-icon')) return loadModule('app/components/app-icon.tsx');
     if (id.endsWith('/pdf-download')) return PdfStub;
     if (id.endsWith('/target-publication-download')) return TargetStub;
     if (id.endsWith('/target-publication-archive')) return TargetArchiveStub;

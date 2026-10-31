@@ -10,18 +10,19 @@ import { getAdminReadiness } from '@/app/lib/admin-guidance';
 import { exportWorkbook } from '@/app/lib/export-workbook';
 import type { Bureau } from '@/app/lib/bureaus';
 import AccessibleDialog from '@/app/components/accessible-dialog';
+import AppIcon from '@/app/components/app-icon';
 import NoticeManager from './notice-manager';
 import AccountManager, { AccountEditor, GroupEditor, GroupDeleteDialog, examinerForm, filterAdminUsers } from './examiner-manager';
 export { AccountEditor, GroupEditor, GroupDeleteDialog, examinerForm, filterAdminUsers };
 import './admin.css';
 
 export const ADMIN_NAV = [
-  { id: 'overview', label: '운영 현황', icon: '▦', description: '월별 진행을 확인하고 후속 업무를 찾습니다.' },
-  { id: 'examiners', label: '심사관 관리', icon: '▤', description: '사용자 계정과 소속 그룹·AI 담당 배정을 관리합니다.' },
-  { id: 'ai', label: 'AI 종류', icon: '◇', description: '비교에 사용할 AI 종류를 등록하고 관리합니다.' },
-  { id: 'month', label: '월별 운영', icon: '◷', description: '운영월별 기한과 단계별 운영 상태를 설정합니다.' },
-  { id: 'cases', label: '대상 출원', icon: '▧', description: '대상 출원을 찾고 운영상 필요한 등록과 취소를 처리합니다.' },
-  { id: 'notices', label: '공지사항 관리', icon: '▣', description: '메인 페이지에 표시할 공지사항을 마크다운으로 작성하고 관리합니다.' },
+  { id: 'overview', label: '운영 현황', icon: 'chart-square', description: '월별 진행을 확인하고 후속 업무를 찾습니다.' },
+  { id: 'examiners', label: '심사관 관리', icon: 'users', description: '사용자 계정과 소속 그룹·AI 담당 배정을 관리합니다.' },
+  { id: 'ai', label: 'AI 종류', icon: 'cpu', description: '비교에 사용할 AI 종류를 등록하고 관리합니다.' },
+  { id: 'month', label: '월별 운영', icon: 'calendar', description: '운영월별 기한과 단계별 운영 상태를 설정합니다.' },
+  { id: 'cases', label: '대상 출원', icon: 'document-text', description: '대상 출원을 찾고 운영상 필요한 등록과 취소를 처리합니다.' },
+  { id: 'notices', label: '공지사항 관리', icon: 'notification', description: '메인 페이지에 표시할 공지사항을 마크다운으로 작성하고 관리합니다.' },
 ] as const;
 export type AdminSection = typeof ADMIN_NAV[number]['id'];
 type Save = (action: EvaluationAction, message?: string) => Promise<boolean>;
@@ -88,7 +89,7 @@ function MethodManager(props: FormProps) {
       {ai.length ? <div className="adm-ai-grid">{ai.map((method) => <button type="button" key={method.id} className={'adm-ai-card ' + (method.active ? '' : 'is-inactive')} disabled={busy} aria-haspopup="dialog" aria-label={'AI 종류 ' + method.name + ' 수정'} aria-describedby={'adm-ai-state-' + method.id + ' adm-ai-assignment-' + method.id} onClick={() => open(method.id)}>
         <span className="adm-ai-card-top"><strong className="adm-ai-name">{method.name}</strong><span id={'adm-ai-state-' + method.id}><Pill tone={method.active ? 'is-active' : 'is-inactive'}>{method.active ? '활성' : '비활성'}</Pill></span></span>
         <span className="adm-secondary" id={'adm-ai-assignment-' + method.id}>담당 배정 {personnelOf(state).assignments.filter((entry) => entry.methodId === method.id).length}개 그룹</span>
-        <span className="adm-ai-edit">수정하기 <span aria-hidden="true">→</span></span>
+        <span className="adm-ai-edit">수정하기 <AppIcon name="arrow-right" /></span>
       </button>)}</div> : <Empty title="등록된 AI 종류가 없습니다.">AI 종류 추가를 눌러 ChatGPT·클로드 같은 AI 도구를 등록하세요.</Empty>}
     </section>
     {(editing === 'new' || selected) && <MethodEditor key={editing} method={selected} busy={busy} dirty={dirty} save={props.save} saveFeedback={props.saveFeedback} onClose={() => { dirty(false); setEditing(null); }} />}

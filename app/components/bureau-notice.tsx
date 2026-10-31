@@ -1,6 +1,7 @@
 import type { EvaluationNotice } from '@/app/lib/evaluation';
 import type { Bureau } from '@/app/lib/bureaus';
 import NoticeMarkdown from './notice-markdown';
+import AppIcon from './app-icon';
 import './bureau-notice.css';
 
 export default function BureauNotice({ notice, bureau }: { notice?: EvaluationNotice | null; bureau?: Bureau }) {
@@ -12,7 +13,7 @@ export default function BureauNotice({ notice, bureau }: { notice?: EvaluationNo
 
   return <section className="bureau-notice" aria-labelledby="bureau-notice-title">
     <div className="bureau-notice-heading">
-      <h2 id="bureau-notice-title"><span aria-hidden="true">▣</span>{bureau ? `${bureau} 공지사항` : '공지사항'}</h2>
+      <h2 id="bureau-notice-title"><AppIcon name="notification" size={24} />{bureau ? `${bureau} 공지사항` : '공지사항'}</h2>
       {dateLabel && <time dateTime={notice.updatedAt}>수정 {dateLabel}</time>}
     </div>
     <NoticeMarkdown markdown={notice.markdown} />

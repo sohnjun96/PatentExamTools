@@ -1,5 +1,6 @@
 'use client';
 
+import AppIcon from '@/app/components/app-icon';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   aiMethods, canInputResult, caseMethods, caseStatus, getStatistics, rankingIsCurrent, rankingComplete,
@@ -64,7 +65,7 @@ function useRememberedSelection(key: string) {
 }
 
 function Badge({ children, color = '' }: { children: React.ReactNode; color?: string }) { return <span className={`ev-badge ${color}`}>{children}</span>; }
-function Empty({ title, children }: { title: string; children?: React.ReactNode }) { return <div className="ev-empty"><div className="ev-empty-icon">▤</div><h3>{title}</h3>{children}</div>; }
+function Empty({ title, children }: { title: string; children?: React.ReactNode }) { return <div className="ev-empty"><div className="ev-empty-icon"><AppIcon name="clipboard-list" size={28} /></div><h3>{title}</h3>{children}</div>; }
 function Status({ state, item }: { state: EvaluationState; item: EvaluationCase }) { const status = caseStatus(state, item); return <><Badge color={status.inputComplete ? 'green' : ''}>{status.inputComplete ? '입력 완료' : '대기 중'}</Badge><Badge color={status.complete ? 'green' : status.stale ? 'orange' : ''}>{status.evaluationStatus}</Badge></>; }
 function Panel({ title, description, action, children }: { title: string; description?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) { return <section className="ev-panel"><div className="ev-panel-head"><div><h2>{title}</h2>{description && <p>{description}</p>}</div>{action}</div>{children}</section>; }
 function StageNotice({ month, stage }: { month: OperationMonth; stage: OperationStage }) {
@@ -76,7 +77,7 @@ function BureauEntryLinks() {
     <h2 id="bureau-entry-heading">소속 국의 평가 업무로 이동</h2>
     <p>심사국을 선택하세요.</p>
     <div className="ev-bureau-entry-grid">{BUREAUS.map((bureau) => <div className="ev-bureau-entry-card" key={bureau}>
-      <a className="ev-bureau-entry-name" href={bureauPath(bureau)}>{bureau}<span aria-hidden="true">→</span></a>
+      <a className="ev-bureau-entry-name" href={bureauPath(bureau)}>{bureau}<AppIcon name="arrow-right" /></a>
     </div>)}</div>
     <p className="ev-bureau-legacy-note">공용 업무는 아래에서 시작하세요.</p>
   </section>;
@@ -237,7 +238,7 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
               <h3 id={`examiner-group-${index}`}>{group.name}</h3>
               <ul className="ev-examiner-list">{group.members.map((candidate) => <li key={candidate.id}>
                 <button type="button" className="ev-examiner-choice" disabled={loading || busy} onClick={() => { setUserId(candidate.id); setView(viewForRoles(candidate.roles)); }}>
-                  <span>{candidate.division || '소속 미지정'} - {candidate.name}</span>{candidate.roles.includes('ai') && <span className="ev-examiner-role">AI 담당자</span>}<span aria-hidden="true">→</span>
+                  <span>{candidate.division || '소속 미지정'} - {candidate.name}</span>{candidate.roles.includes('ai') && <span className="ev-examiner-role">AI 담당자</span>}<AppIcon name="arrow-right" />
                 </button>
               </li>)}</ul>
             </section>)}</div> : <Empty title="선택할 수 있는 심사관이 없습니다.">관리자에게 심사관 등록을 요청해 주세요.</Empty>}
@@ -249,14 +250,14 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
   return <div className="ev"><a className="ev-skip-link" href="#evaluation-main">본문 바로가기</a><div className="ev-shell">
     <aside className="ev-sidebar"><a className="ev-brand" href={bureauPath(bureau)}><span className="ev-brand-mark" aria-hidden="true">AI</span><span><strong>AI 선행기술 검색 포털</strong><small>{bureau ? `${bureau} AI 검색 결과 평가` : 'AI 검색 결과 평가'}</small></span></a>
       <div className="ev-side-label">업무 메뉴</div><nav aria-label="주요 메뉴">
-        {admin ? <>{ADMIN_NAV.map((entry) => <button type="button" key={entry.id} className={`ev-nav ${adminSection === entry.id ? 'active' : ''}`} aria-current={adminSection === entry.id ? 'page' : undefined} disabled={busy || !sessionReady} onClick={() => navigate(() => { setAdminSection(entry.id); setView(entry.id === 'overview' ? 'stats' : 'settings'); })}><span aria-hidden="true">{entry.icon}</span>{entry.label}</button>)}</> : <><button className={`ev-nav ${view === 'review' ? 'active' : ''}`} aria-current={view === 'review' ? 'page' : undefined} onClick={() => navigate(() => setView('review'))}><span>▤</span>내 심사 업무</button>{user?.roles.includes('ai') && <button className={`ev-nav ${view === 'ai' ? 'active' : ''}`} aria-current={view === 'ai' ? 'page' : undefined} onClick={() => navigate(() => setView('ai'))}><span>⌕</span>AI 담당 업무</button>}</>}
+        {admin ? <>{ADMIN_NAV.map((entry) => <button type="button" key={entry.id} className={`ev-nav ${adminSection === entry.id ? 'active' : ''}`} aria-current={adminSection === entry.id ? 'page' : undefined} disabled={busy || !sessionReady} onClick={() => navigate(() => { setAdminSection(entry.id); setView(entry.id === 'overview' ? 'stats' : 'settings'); })}><AppIcon name={entry.icon} size={24} />{entry.label}</button>)}</> : <><button className={`ev-nav ${view === 'review' ? 'active' : ''}`} aria-current={view === 'review' ? 'page' : undefined} onClick={() => navigate(() => setView('review'))}><AppIcon name="clipboard-list" size={24} />내 심사 업무</button>{user?.roles.includes('ai') && <button className={`ev-nav ${view === 'ai' ? 'active' : ''}`} aria-current={view === 'ai' ? 'page' : undefined} onClick={() => navigate(() => setView('ai'))}><AppIcon name="search" size={24} />AI 담당 업무</button>}</>}
       </nav>
       <div className="ev-side-tools">
         {!admin && user && <section className="ev-side-account" aria-label="선택한 사용자">
           <div className="ev-side-user"><span className="ev-avatar" aria-hidden="true">{user.name.slice(0, 1)}</span><div><strong>{user.name}</strong><span>{user.division || '소속 미지정'}</span></div></div>
           <button type="button" className="krds-btn medium ev-button link" onClick={() => navigate(() => { setUserId(''); setView('review'); })}>로그아웃</button>
         </section>}
-        {admin && <a className="ev-nav" href={bureauPath(bureau)}><span aria-hidden="true">↗</span>일반사용자 화면</a>}
+        {admin && <a className="ev-nav" href={bureauPath(bureau)}><AppIcon name="arrow-right-up" size={24} />일반사용자 화면</a>}
       </div>
     </aside>
     <main className="ev-main" id="evaluation-main" tabIndex={-1}>
@@ -327,7 +328,7 @@ function ReviewWorkspace(props: Shared & { user: EvaluationUser; notify: (text: 
       <div ref={caseListHeading} tabIndex={-1} className="ev-case-list-head">내 평가 대상 건 <span className="ev-count">{cases.length}</span></div>
       <ul className="ev-review-case-items">{cases.map((item) => <li key={item.id}><button type="button" className="ev-review-case" aria-haspopup="dialog" disabled={busy} onClick={() => {
         if (!busy && (!unsaved || window.confirm('저장하지 않은 평가가 있습니다. 다른 출원으로 이동하시겠습니까?'))) { mark(false); setSaveFailed(false); setSelectedId(item.id); }
-      }}><strong>{numberLabel(item.applicationNumber)}</strong><span className="ev-muted ev-review-case-cpc">{item.cpc || 'CPC 미입력'}</span><span className="ev-case-status"><Status state={state} item={item} /></span><span className="ev-review-case-action">평가 입력 <span aria-hidden="true">→</span></span></button></li>)}</ul>
+      }}><strong>{numberLabel(item.applicationNumber)}</strong><span className="ev-muted ev-review-case-cpc">{item.cpc || 'CPC 미입력'}</span><span className="ev-case-status"><Status state={state} item={item} /></span><span className="ev-review-case-action">평가 입력 <AppIcon name="arrow-right" /></span></button></li>)}</ul>
       {!cases.length && <Empty title="선정 확정한 출원이 없습니다." />}
     </section>
     {selected && <AccessibleDialog labelledBy="ev-evaluation-dialog-title" className="ev-evaluation-dialog" onClose={closeEditor} fallbackFocusRef={caseListHeading}>

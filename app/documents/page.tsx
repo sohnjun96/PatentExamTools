@@ -1,5 +1,6 @@
 'use client';
 
+import AppIcon from '../components/app-icon';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import PdfDownloadButton, { fetchPdf, type PdfDownloadStatus, type PdfKind, type PdfNumberType } from '../components/pdf-download';
 import { chooseSaveFile, fileErrorMessage, SaveFileError, writeChosenFile } from '../lib/save-file';
@@ -168,7 +169,7 @@ export default function DocumentDownloads() {
               {row.detail && row.classification !== 'needs-type' && <p className="docs-job-detail">{row.detail}</p>}
               {job?.error && job.source !== 'individual' && <p className="docs-job-error" role="alert">{job.error}</p>}
               <div className="docs-job-actions">{row.classification === 'ready' && numberType && <PdfDownloadButton key={`${row.key}:${effectiveKind}`} applicationNumber={row.canonical} numberType={numberType} kind={effectiveKind} disabled={busy || individualBusy} label="PDF 받기" onStatusChange={(value, detail) => singleStatus(row, value, detail)} />}
-                {row.classification !== 'duplicate' && row.classification !== 'needs-type' && <a className="docs-source-link" href={`https://patents.google.com/?q=${encodeURIComponent(row.original)}`} target="_blank" rel="noreferrer" aria-label={`${row.original} 문헌 검색, 새 창`}>문헌 검색 <span aria-hidden="true">↗</span><span className="docs-sr-only"> (새 창)</span></a>}
+                {row.classification !== 'duplicate' && row.classification !== 'needs-type' && <a className="docs-source-link" href={`https://patents.google.com/?q=${encodeURIComponent(row.original)}`} target="_blank" rel="noreferrer" aria-label={`${row.original} 문헌 검색, 새 창`}>문헌 검색 <AppIcon name="arrow-right-up" size={16} /><span className="docs-sr-only"> (새 창)</span></a>}
               </div>
             </li>;
           })}</ol>}

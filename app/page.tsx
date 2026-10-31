@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { BUREAUS, bureauPath } from './lib/bureaus';
+import AppIcon from './components/app-icon';
 import './home.css';
 
 export const metadata: Metadata = {
@@ -22,9 +23,7 @@ export default function Home() {
               <li key={bureau}>
                 <a className="bureau-home-link" href={bureauPath(bureau)}>
                   <span>{bureau}</span>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
+                  <AppIcon name="arrow-right" size={24} />
                 </a>
               </li>
             ))}

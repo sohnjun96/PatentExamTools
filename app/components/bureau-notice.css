@@ -1,6 +1,6 @@
 .bureau-notice { min-width:0; margin-bottom:28px; padding:24px 28px; border:1px solid var(--ev-line); border-top:3px solid var(--krds-color-light-primary-50); border-radius:12px; background:#fff; }
 .bureau-notice-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 20px; margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid var(--krds-color-light-gray-10); }
 .ev .bureau-notice-heading h2 { display:flex; align-items:center; gap:10px; font-size:21px; }
-.bureau-notice-heading h2 span { color:var(--krds-color-light-primary-60); font-size:21px; }
+.bureau-notice-heading h2 .app-icon { color:var(--krds-color-light-primary-60); }
 .bureau-notice-heading time { color:var(--ev-muted); font-size:14px; }
 @media(max-width:640px) { .bureau-notice { padding:20px; } .bureau-notice-heading { gap:10px; } .ev .bureau-notice-heading h2 { font-size:20px; } }

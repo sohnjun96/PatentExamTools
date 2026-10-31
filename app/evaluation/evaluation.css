@@ -25,10 +25,10 @@
 .ev-sidebar { min-width:0; }
 .ev-sidebar nav { display:grid; min-width:0; max-width:100%; gap:6px; }
 .ev-nav { display:flex; align-items:center; gap:10px; width:100%; min-height:52px; margin:0; border:0; border-radius:8px; padding:12px; background:transparent; color:var(--krds-color-light-gray-80); font-size:16px; text-align:left; text-decoration:none; }
-.ev-nav span { flex-shrink:0; width:24px; font-size:20px; line-height:1; color:var(--ev-muted); }
+.ev-nav > .app-icon { color:var(--ev-muted); }
 .ev-nav:hover,.ev-nav.active { color:var(--krds-color-light-primary-70); background:var(--ev-teal-light); }
 .ev-nav.active { font-weight:700; box-shadow:none; }
-.ev-nav.active span { color:var(--krds-color-light-primary-60); }
+.ev-nav.active > .app-icon { color:var(--krds-color-light-primary-60); }
 .ev-side-tools { display:grid; gap:12px; margin-top:auto; padding-top:24px; border-top:1px solid var(--ev-line); }
 .ev-side-account { display:grid; gap:12px; padding:16px; border:1px solid var(--ev-line); border-radius:8px; background:var(--krds-color-light-gray-5); }
 .ev-side-user { display:flex; align-items:center; gap:12px; min-width:0; }
@@ -147,7 +147,7 @@
 @media(max-width:640px) { .ev-examiner-groups { gap:20px; padding:16px; } .ev-examiner-group + .ev-examiner-group { padding-top:20px; } }
 .ev-examiner-choice { display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; height:100%; min-height:60px; padding:16px 20px; border:1px solid var(--ev-line); border-radius:8px; background:white; color:var(--ev-ink); text-align:left; }
 .ev-examiner-choice > span:first-child { min-width:0; flex:1; overflow-wrap:anywhere; }
-.ev-examiner-choice > span:last-child { flex-shrink:0; color:var(--ev-teal); }
+.ev-examiner-choice > .app-icon { color:var(--ev-teal); }
 .ev-examiner-role { display:inline-flex; align-items:center; flex-shrink:0; padding:2px 7px; border:1px solid var(--krds-color-light-primary-20); border-radius:999px; background:var(--ev-teal-light); color:var(--krds-color-light-primary-70); font-size:12px; font-weight:500; line-height:1.5; white-space:nowrap; }
 .ev-examiner-choice:hover { border-color:var(--ev-teal); background:var(--ev-teal-light); }
 .ev-examiner-choice:focus-visible { outline:3px solid var(--krds-color-light-primary-60); outline-offset:3px; }

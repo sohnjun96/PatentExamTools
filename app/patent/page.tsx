@@ -1,6 +1,7 @@
 'use client';
 /* eslint-disable @next/next/no-img-element */
 
+import AppIcon, { type AppIconName } from '../components/app-icon';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import PdfDownloadButton from '../components/pdf-download';
 import AccessibleDialog from '../components/accessible-dialog';
@@ -220,13 +221,13 @@ const demoCase: PatentCase = {
   isDemo: true,
 };
 
-const navigation: Array<{ id: ViewName; index: string; label: string }> = [
-  { id: 'overview', index: '01', label: '심사 개요' },
-  { id: 'bibliography', index: '02', label: '서지정보' },
-  { id: 'specification', index: '03', label: '명세서 · 청구항' },
-  { id: 'history', index: '04', label: '행정처리 이력' },
-  { id: 'family', index: '05', label: '패밀리' },
-  { id: 'documents', index: '06', label: '문서함' },
+const navigation: Array<{ id: ViewName; icon: AppIconName; label: string }> = [
+  { id: 'overview', icon: 'chart-square', label: '심사 개요' },
+  { id: 'bibliography', icon: 'document-text', label: '서지정보' },
+  { id: 'specification', icon: 'book-open', label: '명세서 · 청구항' },
+  { id: 'history', icon: 'clock-circle', label: '행정처리 이력' },
+  { id: 'family', icon: 'hierarchy', label: '패밀리' },
+  { id: 'documents', icon: 'folder', label: '문서함' },
 ];
 
 const sourceLabels: Record<string, string> = {
@@ -583,7 +584,7 @@ export default function Home() {
   const facts = [
     { label: '출원일', value: caseData.applicationDate || '—', detail: `공개 ${caseData.publicationDate || '—'}` },
     { label: '청구항', value: `${caseData.claimCount}항`, detail: `독립항 ${caseData.claims.filter((claim) => !claim.text.trim().startsWith('제')).length} · 전체 ${caseData.claimCount}` },
-    { label: '주 CPC', value: caseData.cpc[0]?.number || '—', detail: caseData.cpc.length ? `전체 ${caseData.cpc.length}개 보기 ↗` : 'CPC 정보 없음', cpc: true },
+    { label: '주 CPC', value: caseData.cpc[0]?.number || '—', detail: caseData.cpc.length ? `전체 ${caseData.cpc.length}개 보기` : 'CPC 정보 없음', cpc: true },
     { label: '패밀리', value: familyCountryCount ? `${familyCountryCount}개 관할청` : '조회된 문헌 없음', detail: familyCountryCount ? `${caseData.family.length}개 문헌` : '다른 출원의 조회 결과도 확인할 수 있습니다.' },
   ];
 
@@ -608,8 +609,8 @@ export default function Home() {
         </a>
 
         <nav className="side-nav" aria-label="사건 메뉴">
-          <a className="nav-item" href="/"><span>←</span> AI 평가 업무</a>
-          <a className="nav-item" href="/documents"><span>↓</span> 전문 PDF 모으기</a>
+          <a className="nav-item" href="/"><AppIcon name="arrow-left" size={24} /> AI 평가 업무</a>
+          <a className="nav-item" href="/documents"><AppIcon name="document-download" size={24} /> 전문 PDF 모으기</a>
           <p className="nav-label">사건 검토</p>
           {navigation.map((item) => (
             <button
@@ -619,7 +620,7 @@ export default function Home() {
               key={item.id}
               onClick={() => item.id === 'specification' ? openFullText() : goTo(item.id)}
             >
-              <span>{item.index}</span> {item.label}
+              <AppIcon name={item.icon} size={24} /> {item.label}
               {caseVisible && item.id === 'history' && <em>{caseData.history.length}</em>}
               {caseVisible && item.id === 'documents' && <em>{caseData.notices.length + 2}</em>}
             </button>
@@ -640,7 +641,7 @@ export default function Home() {
           <form className="search-box" onSubmit={handleSearch}>
             <label htmlFor="application-search">출원번호로 사건 조회</label>
             <div>
-              <span aria-hidden="true">⌕</span>
+              <AppIcon name="search" />
               <input
                 id="application-search"
                 value={searchValue}
@@ -680,10 +681,10 @@ export default function Home() {
                         <span>{fact.label}</span>
                         {caseData.cpc[0] ? (
                           <a href={cpcSearchUrl(caseData.cpc[0].number)} target="_blank" rel="noreferrer" aria-label={`주 CPC ${caseData.cpc[0].number} 분류 검색, 새 창`}>
-                            <strong>{fact.value}</strong><i aria-hidden="true">↗</i>
+                            <strong>{fact.value}</strong><AppIcon name="arrow-right-up" size={16} />
                           </a>
                         ) : <strong>{fact.value}</strong>}
-                        <button type="button" onClick={() => setCpcOpen(true)} disabled={!caseData.cpc.length}>{fact.detail}</button>
+                        <button type="button" onClick={() => setCpcOpen(true)} disabled={!caseData.cpc.length}>{fact.detail}{caseData.cpc.length > 0 && <> <AppIcon name="arrow-right" size={16} /></>}</button>
                       </div>
                     ) : (
                       <><span>{fact.label}</span><strong>{fact.value}</strong><small>{fact.detail}</small></>
@@ -708,12 +709,12 @@ export default function Home() {
                     <button type="button" onClick={openFullText}>
                       <span className="review-icon" aria-hidden="true">1</span>
                       <p><strong>전체 명세서 · 청구항 검토</strong><small>명세서 본문과 청구항 {caseData.claimCount}개를 읽기 화면에서 확인하세요.</small></p>
-                      <em>→</em>
+                      <AppIcon name="arrow-right" />
                     </button>
                     <button type="button" onClick={() => goTo('family')}>
                       <span className="review-icon muted" aria-hidden="true">2</span>
                       <p><strong>패밀리 문헌 비교</strong><small>{familyCountryCount ? `${familyCountryCount}개 관할청 · ${caseData.family.length}개 문헌` : '조회된 패밀리 문헌이 없습니다.'}</small></p>
-                      <em>→</em>
+                      <AppIcon name="arrow-right" />
                     </button>
                   </div>
                   <div className="ai-summary-card">
@@ -812,8 +813,8 @@ export default function Home() {
                 <article className="panel detail-panel">
                   <h2>분류정보</h2>
                   <div className="classification-list">
-                    {caseData.cpc.slice(0, 3).map((cpc, index) => <div key={`${cpc.number}-${index}`}><span>{index === 0 ? '주 CPC' : 'CPC'}</span><a className="cpc-code-link" href={cpcSearchUrl(cpc.number)} target="_blank" rel="noreferrer" aria-label={`${cpc.number} CPC 분류 검색, 새 창`}>{cpc.number}<i aria-hidden="true">↗</i></a><small>{cpc.date || ''}</small></div>)}
-                    {caseData.cpc.length > 3 && <button className="classification-more" type="button" onClick={() => setCpcOpen(true)}>전체 CPC {caseData.cpc.length}개 보기 ↗</button>}
+                    {caseData.cpc.slice(0, 3).map((cpc, index) => <div key={`${cpc.number}-${index}`}><span>{index === 0 ? '주 CPC' : 'CPC'}</span><a className="cpc-code-link" href={cpcSearchUrl(cpc.number)} target="_blank" rel="noreferrer" aria-label={`${cpc.number} CPC 분류 검색, 새 창`}>{cpc.number}<AppIcon name="arrow-right-up" size={16} /></a><small>{cpc.date || ''}</small></div>)}
+                    {caseData.cpc.length > 3 && <button className="classification-more" type="button" onClick={() => setCpcOpen(true)}>전체 CPC {caseData.cpc.length}개 보기 <AppIcon name="arrow-right" size={16} /></button>}
                     {!caseData.cpc.length && <p className="classification-empty">CPC 정보가 없습니다.</p>}
                   </div>
                 </article>
@@ -885,7 +886,7 @@ export default function Home() {
 
       {selectedNotice && (
         <AccessibleDialog className="pdf-modal" labelledBy="pdf-title" onClose={() => setSelectedNotice(null)}>
-            <header><div><h2 id="pdf-title">의견제출통지서</h2><p>{formatDate(selectedNotice.date)} · {selectedNotice.documentNumber}</p></div><button type="button" onClick={() => setSelectedNotice(null)} aria-label="의견제출통지서 닫기">×</button></header>
+            <header><div><h2 id="pdf-title">의견제출통지서</h2><p>{formatDate(selectedNotice.date)} · {selectedNotice.documentNumber}</p></div><button type="button" onClick={() => setSelectedNotice(null)} aria-label="의견제출통지서 닫기"><AppIcon name="x" size={24} /></button></header>
             {selectedPdfUrl ? (
               <NoticePdfViewer key={selectedPdfUrl} url={selectedPdfUrl} title={`${formatDate(selectedNotice.date)} 의견제출통지서 PDF`} fileName={selectedNotice.pdf?.fileName || '의견제출통지서.pdf'} onLoaded={() => void fetchApiUsage().then(setApiUsage).catch(() => undefined)} />
             ) : (
@@ -896,12 +897,12 @@ export default function Home() {
 
       {cpcOpen && (
         <AccessibleDialog className="cpc-modal" labelledBy="cpc-title" onClose={() => setCpcOpen(false)}>
-            <header><div><h2 id="cpc-title">전체 CPC</h2><p>{caseData.applicationNumber} · 총 {caseData.cpc.length}개</p></div><button type="button" onClick={() => setCpcOpen(false)} aria-label="전체 CPC 닫기">×</button></header>
+            <header><div><h2 id="cpc-title">전체 CPC</h2><p>{caseData.applicationNumber} · 총 {caseData.cpc.length}개</p></div><button type="button" onClick={() => setCpcOpen(false)} aria-label="전체 CPC 닫기"><AppIcon name="x" size={24} /></button></header>
             <div className="cpc-modal-body">
               {caseData.cpc.length ? caseData.cpc.map((cpc, index) => (
                 <a className="cpc-row" href={cpcSearchUrl(cpc.number)} target="_blank" rel="noreferrer" aria-label={`${cpc.number} CPC 분류 검색, 새 창`} key={`${cpc.number}-${index}`}>
                   <span>{String(index + 1).padStart(2, '0')}</span>
-                  <div><strong>{cpc.number} <i aria-hidden="true">↗</i></strong><small>{cpc.date ? `분류일자 ${cpc.date}` : '분류일자 미수신'}</small></div>
+                  <div><strong>{cpc.number} <AppIcon name="arrow-right-up" size={16} /></strong><small>{cpc.date ? `분류일자 ${cpc.date}` : '분류일자 미수신'}</small></div>
                   {index === 0 ? <em>주 CPC</em> : <em>분류 조회</em>}
                 </a>
               )) : <p className="cpc-empty">조회된 CPC 정보가 없습니다.</p>}
@@ -910,11 +911,11 @@ export default function Home() {
       )}
 
       {drawingOpen && (
-        <AccessibleDialog className="drawing-modal" labelledBy="drawing-title" onClose={() => setDrawingOpen(false)}><header><div><h2 id="drawing-title">{caseData.title} · 대표도면</h2></div><button type="button" onClick={() => setDrawingOpen(false)} aria-label="대표도면 닫기">×</button></header><div>{caseData.drawing?.largeUrl ? <img src={caseData.drawing.largeUrl} alt={`${caseData.title} 대표도면 확대`} /> : <p>제공된 대표도면이 없습니다. 명세서에서 도면 설명을 확인해 주세요.</p>}</div></AccessibleDialog>
+        <AccessibleDialog className="drawing-modal" labelledBy="drawing-title" onClose={() => setDrawingOpen(false)}><header><div><h2 id="drawing-title">{caseData.title} · 대표도면</h2></div><button type="button" onClick={() => setDrawingOpen(false)} aria-label="대표도면 닫기"><AppIcon name="x" size={24} /></button></header><div>{caseData.drawing?.largeUrl ? <img src={caseData.drawing.largeUrl} alt={`${caseData.title} 대표도면 확대`} /> : <p>제공된 대표도면이 없습니다. 명세서에서 도면 설명을 확인해 주세요.</p>}</div></AccessibleDialog>
       )}
 
       {packageOpen && (
-        <AccessibleDialog className="package-modal" labelledBy="package-title" onClose={() => setPackageOpen(false)}><header><div><h2 id="package-title">심사자료 묶음 만들기</h2><p>{caseData.applicationNumber} · {caseData.title}</p></div><button type="button" onClick={() => setPackageOpen(false)} aria-label="심사자료 묶음 만들기 닫기">×</button></header>{packageError && <div className="panel detail-panel" role="alert">{packageError}</div>}<div className="package-body"><div className="package-options">{([
+        <AccessibleDialog className="package-modal" labelledBy="package-title" onClose={() => setPackageOpen(false)}><header><div><h2 id="package-title">심사자료 묶음 만들기</h2><p>{caseData.applicationNumber} · {caseData.title}</p></div><button type="button" onClick={() => setPackageOpen(false)} aria-label="심사자료 묶음 만들기 닫기"><AppIcon name="x" size={24} /></button></header>{packageError && <div className="panel detail-panel" role="alert">{packageError}</div>}<div className="package-body"><div className="package-options">{([
             ['summary', '사건 요약', '서지·상태·초록 JSON'],
             ['claims', '청구항', `${caseData.claimCount}개 청구항 JSON`],
             ['history', '행정처리 이력', `${caseData.history.length}건 CSV`],
