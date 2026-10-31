@@ -99,7 +99,7 @@
 .tw-evaluation-results { display:grid; gap:24px; min-width:0; padding:24px 28px 32px; }
 .tw-results-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; }
 .tw-results-heading h2 { font-size:22px; }
-.tw-results-table-scroll { border:1px solid var(--ev-line); border-radius:8px; background:white; max-height:480px; }
+.tw-results-table-scroll { border:1px solid var(--ev-line); border-radius:8px; background:white; max-height:480px; overscroll-behavior-y:auto; }
 .tw-results-table { min-width:680px; table-layout:fixed; }
 .tw-results-table .tw-result-ai-column { width:140px; }
 .tw-results-table .tw-result-kind-column { width:100px; }
