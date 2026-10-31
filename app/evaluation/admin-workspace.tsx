@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ALL_OPERATION_MONTHS, caseStatus, DEFAULT_OPERATION_MONTHS, listedOperationMonths, getStatistics, personnelOf, operationGroups, operationMonthsForScope, preferredOperationMonth, operationStageStatus, OPERATION_STAGES, OPERATION_STAGE_STATUS_LABELS,
-  type EvaluationAction, type EvaluationState,
+  ALL_OPERATION_MONTHS, caseMethods, caseStatus, DEFAULT_OPERATION_MONTHS, listedOperationMonths, getStatistics, literatureDetailsFor, personnelOf, operationGroups, operationMonthsForScope, preferredOperationMonth, operationStageStatus, OPERATION_STAGES, OPERATION_STAGE_STATUS_LABELS, rankingIsCurrent, resultFor, validEvaluation,
+  type EvaluationAction, type EvaluationCase, type EvaluationState,
   type InvestigationMethod, type OperationMonth, type OperationStage, type OperationStageStatus,
 } from '@/app/lib/evaluation';
 import { getAdminReadiness } from '@/app/lib/admin-guidance';
 import { exportWorkbook } from '@/app/lib/export-workbook';
+import { literatureLink } from '@/app/lib/literature-link';
 import type { Bureau } from '@/app/lib/bureaus';
 import ReportPresenceToggle from '@/app/components/report-presence-toggle';
 import AccessibleDialog from '@/app/components/accessible-dialog';
@@ -217,6 +218,63 @@ export function filterTargetCases(state: EvaluationState, monthId: string, optio
 }
 const caseFilters = [['all', '전체 상태'], ['confirmed', '선정 확정'], ['draft', '선정 초안'], ['cancelled', '선정 취소'], ['inputPending', 'AI 입력 대기'], ['recheck', '재확인 필요'], ['unevaluated', '미평가'], ['inProgress', '평가 중'], ['complete', '평가 완료']];
 
+export function CaseEvaluationDetails({ state, item }: { state: EvaluationState; item: EvaluationCase }) {
+  const methods = caseMethods(state, item);
+  const ai = methods.filter(method => method.kind === 'ai');
+  const identity = (number: string) => number.replace(/[\s\-.,]/g, '').toUpperCase();
+  const rows = ai.flatMap(method => {
+    const result = resultFor(state, item.id, method.id);
+    const evaluation = validEvaluation(state, item.id, method.id);
+    return literatureDetailsFor(result).map(document => {
+      const saved = evaluation?.documents.find(entry => identity(entry.number) === identity(document.number));
+      const kind = document.kind === 'patent' || document.kind === 'legacy' && literatureLink(document.number).kind === 'patent' ? '특허' : document.kind === 'non-patent' || document.kind === 'legacy' && literatureLink(document.number).kind === 'paper' ? '비특허' : '미확인';
+      return { methodId: method.id, methodName: method.name, number: document.number, name: document.kind === 'non-patent' ? document.title || document.number : document.number, kind, score: saved?.score ?? null, cited: saved?.cited ?? null };
+    });
+  });
+  const ranking = state.rankings.find(entry => entry.caseId === item.id);
+  const currentRanking = rankingIsCurrent(state, item, ranking) ? ranking : undefined;
+  const hasRanks = ai.length > 0 && methods.some(method => currentRanking?.values[method.id] != null);
+  const hasEvaluation = rows.some(row => row.score !== null || row.cited !== null);
+  const emptyMessage = ai.length ? 'AI 검색 평가 전' : 'AI 검색 입력 전';
+  const status = caseStatus(state, item);
+  const statusLabel = status.stale ? '재확인 필요' : !status.complete ? '평가 중' : '';
+  return <>
+    <section className="adm-case-section" aria-labelledby={`adm-case-basic-${item.id}`}>
+      <h3 id={`adm-case-basic-${item.id}`}>기본 정보</h3>
+      <dl className="adm-detail-list adm-case-basic">
+        <div><dt>운영월</dt><dd>{monthLabel(item.monthId)}</dd></div>
+        <div><dt>출원번호</dt><dd>{item.applicationNumber}</dd></div>
+        <div><dt>담당 심사관</dt><dd>{item.examinerName} · {item.division}</dd></div>
+        <div><dt>그룹</dt><dd>{item.groupName}</dd></div>
+        <div><dt>CPC</dt><dd>{item.cpc || '—'}</dd></div>
+        <div><dt>선행기술조사 보고서</dt><dd>{item.hasPriorArtReport === true ? '있음' : item.hasPriorArtReport === false ? '없음' : '미기록'}</dd></div>
+        <div><dt>선정 상태</dt><dd>{item.status === 'confirmed' ? '선정 확정' : item.status === 'cancelled' ? '선정 취소' : '선정 초안'}</dd></div>
+      </dl>
+    </section>
+    <section className="adm-case-section" aria-labelledby={`adm-case-ranks-${item.id}`}>
+      <div className="adm-case-section-heading"><h3 id={`adm-case-ranks-${item.id}`}>조사 방식별 검색 품질 순위</h3>{statusLabel && (hasRanks || status.stale) && <Pill tone={status.stale ? 'is-warning' : ''}>{statusLabel}</Pill>}</div>
+      {hasRanks ? <div className="adm-table-wrap adm-case-rankings"><table className="adm-table">
+        <caption className="sr-only">{item.applicationNumber} 조사 방식별 검색 품질 순위</caption>
+        <thead><tr><th scope="col">조사 방식</th><th scope="col">검색 품질 순위</th></tr></thead>
+        <tbody>{methods.map(method => {
+          const rank = currentRanking!.values[method.id];
+          const label = rank == null ? 'AI 검색 평가 전' : typeof rank === 'number' ? `${rank}위` : rank === 'excluded' ? '평가 제외' : rank === 'unranked' ? '순위 외' : '비교 불가';
+          return <tr key={method.id}><th scope="row">{method.kind === 'baseline' ? '선행기술조사 보고서' : method.name}</th><td>{label}</td></tr>;
+        })}</tbody>
+      </table></div> : <p className="adm-case-empty">{emptyMessage}</p>}
+    </section>
+    <section className="adm-case-section" aria-labelledby={`adm-case-documents-${item.id}`}>
+      <div className="adm-case-section-heading"><h3 id={`adm-case-documents-${item.id}`}>문헌 평가 결과</h3>{statusLabel && (hasEvaluation || status.stale) && <Pill tone={status.stale ? 'is-warning' : ''}>{statusLabel}</Pill>}</div>
+      {hasEvaluation ? <div className="adm-table-wrap adm-case-results" role="region" aria-label="문헌 평가 결과 표" tabIndex={0}><table className="adm-table adm-case-documents">
+        <caption className="sr-only">{item.applicationNumber} AI 검색 문헌 평가 결과</caption>
+        <colgroup><col className="adm-case-ai-column" /><col className="adm-case-kind-column" /><col /><col className="adm-case-score-column" /><col className="adm-case-cited-column" /></colgroup>
+        <thead><tr><th scope="col">AI 종류</th><th scope="col">특허 여부</th><th scope="col">인용문헌 명</th><th scope="col">문헌 점수</th><th scope="col">인용 여부</th></tr></thead>
+        <tbody>{rows.map(row => <tr key={`${row.methodId}:${row.number}`}><td>{row.methodName}</td><td>{row.kind}</td><td className="adm-case-citation">{row.name}</td><td>{row.score ?? '—'}</td><td>{row.cited ?? '—'}</td></tr>)}</tbody>
+      </table></div> : <p className="adm-case-empty">{emptyMessage}</p>}
+    </section>
+  </>;
+}
+
 function CaseManager(props: AdminProps & { initialStatus: string }) {
   const { state, month, busy, hasUnsaved, dirty } = props; const [query, setQuery] = useState(''); const [status, setStatus] = useState(props.initialStatus); const [examinerId, setExaminerId] = useState(''); const [editing, setEditing] = useState<string | null>(null);
   const scopeId = props.allMonths ? ALL_OPERATION_MONTHS : month!.id;
@@ -225,7 +283,7 @@ function CaseManager(props: AdminProps & { initialStatus: string }) {
   const selectedLocked = Boolean(!selectedMonth || selectedMonth.closed || selectedMonth.archived);
   const canRegister = (month ? [month] : listedOperationMonths(state.months)).some(entry => !entry.closed && !entry.archived);
   function open(id: string) { if (confirmDiscard(hasUnsaved)) { dirty(false); setEditing(id); } }
-  return <><div className="adm-toolbar"><div className="adm-search"><label className="sr-only" htmlFor="adm-case-search">출원번호, 담당자 또는 CPC 검색</label><input id="adm-case-search" className="krds-input" value={query} placeholder="출원번호, 담당자 또는 CPC 검색" onChange={(event) => setQuery(event.target.value)} /></div><select className="krds-form-select adm-filter" aria-label="대상 출원 상태 필터" value={status} onChange={(event) => setStatus(event.target.value)}>{caseFilters.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select className="krds-form-select adm-filter" aria-label="대상 출원 담당 심사관 필터" value={examinerId} onChange={(event) => setExaminerId(event.target.value)}><option value="">전체 담당 심사관</option>{state.users.filter((user) => personnelOf(state).memberships.some((entry) => entry.userId === user.id) || all.some((item) => item.examinerId === user.id)).map((user) => <option key={user.id} value={user.id}>{user.division} - {user.name}</option>)}</select><Button primary disabled={busy || !canRegister} onClick={() => open('new')}>대상 출원 등록</Button></div><div className="adm-split"><section className="adm-list"><div className="adm-list-head"><h2>대상 출원 목록</h2><span className="adm-secondary">{visible.length} / {all.length}건</span></div>{visible.length ? visible.map((item) => { const progress = item.status === 'confirmed' ? caseStatus(state, item) : null; return <button type="button" key={item.id} className={`adm-list-item ${editing === item.id ? 'is-selected' : ''}`} disabled={busy} aria-pressed={editing === item.id} onClick={() => open(item.id)}><span className="adm-name">{item.applicationNumber}<Pill tone={item.status === 'cancelled' ? 'is-inactive' : progress?.stale ? 'is-warning' : progress?.complete ? 'is-active' : ''}>{item.status === 'draft' ? '선정 초안' : item.status === 'cancelled' ? '선정 취소' : progress?.evaluationStatus}</Pill></span><span className="adm-secondary">{props.allMonths && `${monthLabel(item.monthId)} · `}{item.examinerName} · {item.groupName} · {item.cpc || 'CPC 미입력'}</span>{progress && <span className="adm-meta">AI {progress.inputComplete ? '입력 완료' : '입력 대기'}</span>}</button>; }) : <Empty title="현재 조건에 해당하는 출원이 없습니다." actions={<Button onClick={() => { setQuery(''); setStatus('all'); setExaminerId(''); }}>검색 조건 초기화</Button>} />}</section><section className="adm-editor">{editing === 'new' ? <CaseRegistration {...props} onClose={() => { dirty(false); setEditing(null); }} /> : selected ? <><EditorHeader title="선택한 대상 출원">{selected.applicationNumber}</EditorHeader><div className="adm-editor-body"><dl className="adm-detail-list">{props.allMonths && <div><dt>운영월</dt><dd>{monthLabel(selected.monthId)}</dd></div>}<div><dt>출원번호</dt><dd>{selected.applicationNumber}</dd></div><div><dt>담당 심사관</dt><dd>{selected.examinerName} · {selected.division}</dd></div><div><dt>그룹</dt><dd>{selected.groupName}</dd></div><div><dt>CPC</dt><dd>{selected.cpc || '—'}</dd></div><div><dt>선행기술조사 보고서</dt><dd>{selected.hasPriorArtReport === true ? '있음' : selected.hasPriorArtReport === false ? '없음' : '미기록'}</dd></div><div><dt>선정 상태</dt><dd>{selected.status === 'confirmed' ? '선정 확정' : selected.status === 'cancelled' ? '선정 취소' : '선정 초안'}</dd></div></dl><div className="adm-actions"><a className="krds-btn medium ev-button" target="_blank" rel="noopener noreferrer" href={`/patent?applicationNumber=${encodeURIComponent(selected.applicationNumber)}`}>사건 조회 <span className="ev-new-window">새 창</span></a>{selected.status === 'confirmed' && <Button className="danger" disabled={busy || selectedLocked} onClick={async () => { if (window.confirm(`${selected.applicationNumber} 선정을 취소하시겠습니까? AI 담당 업무와 평가 집계에서 제외됩니다.`) && await props.save({ type: 'cancelCase', caseId: selected.id }, `${selected.applicationNumber} 선정을 취소했습니다.`)) setEditing(null); }}>선정 취소</Button>}</div>{selectedLocked && <p className="adm-secondary">마감한 운영월에서는 출원을 추가하거나 취소할 수 없습니다.</p>}</div></> : <Empty title="확인할 출원을 선택하세요." actions={<Button primary disabled={busy || !canRegister} onClick={() => open('new')}>대상 출원 등록</Button>}>선정 확정한 출원은 운영상 필요한 경우 관리자가 취소할 수 있습니다.</Empty>}</section></div></>;
+  return <><div className="adm-toolbar"><div className="adm-search"><label className="sr-only" htmlFor="adm-case-search">출원번호, 담당자 또는 CPC 검색</label><input id="adm-case-search" className="krds-input" value={query} placeholder="출원번호, 담당자 또는 CPC 검색" onChange={(event) => setQuery(event.target.value)} /></div><select className="krds-form-select adm-filter" aria-label="대상 출원 상태 필터" value={status} onChange={(event) => setStatus(event.target.value)}>{caseFilters.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select className="krds-form-select adm-filter" aria-label="대상 출원 담당 심사관 필터" value={examinerId} onChange={(event) => setExaminerId(event.target.value)}><option value="">전체 담당 심사관</option>{state.users.filter((user) => personnelOf(state).memberships.some((entry) => entry.userId === user.id) || all.some((item) => item.examinerId === user.id)).map((user) => <option key={user.id} value={user.id}>{user.division} - {user.name}</option>)}</select><Button primary disabled={busy || !canRegister} onClick={() => open('new')}>대상 출원 등록</Button></div><div className="adm-split adm-case-split"><section className="adm-list"><div className="adm-list-head"><h2>대상 출원 목록</h2><span className="adm-secondary">{visible.length} / {all.length}건</span></div>{visible.length ? visible.map((item) => { const progress = item.status === 'confirmed' ? caseStatus(state, item) : null; return <button type="button" key={item.id} className={`adm-list-item ${editing === item.id ? 'is-selected' : ''}`} disabled={busy} aria-pressed={editing === item.id} onClick={() => open(item.id)}><span className="adm-name">{item.applicationNumber}<Pill tone={item.status === 'cancelled' ? 'is-inactive' : progress?.stale ? 'is-warning' : progress?.complete ? 'is-active' : ''}>{item.status === 'draft' ? '선정 초안' : item.status === 'cancelled' ? '선정 취소' : progress?.evaluationStatus}</Pill></span><span className="adm-secondary">{props.allMonths && `${monthLabel(item.monthId)} · `}{item.examinerName} · {item.groupName} · {item.cpc || 'CPC 미입력'}</span>{progress && <span className="adm-meta">AI {progress.inputComplete ? '입력 완료' : '입력 대기'}</span>}</button>; }) : <Empty title="현재 조건에 해당하는 출원이 없습니다." actions={<Button onClick={() => { setQuery(''); setStatus('all'); setExaminerId(''); }}>검색 조건 초기화</Button>} />}</section><section className="adm-editor" key={editing}>{editing === 'new' ? <CaseRegistration {...props} onClose={() => { dirty(false); setEditing(null); }} /> : selected ? <><EditorHeader title="선택한 대상 출원">{selected.applicationNumber}</EditorHeader><div className="adm-editor-body"><CaseEvaluationDetails state={state} item={selected} /><div className="adm-actions">{selected.status === 'confirmed' && <Button className="danger" disabled={busy || selectedLocked} onClick={async () => { if (window.confirm(`${selected.applicationNumber} 선정을 취소하시겠습니까? AI 담당 업무와 평가 집계에서 제외됩니다.`) && await props.save({ type: 'cancelCase', caseId: selected.id }, `${selected.applicationNumber} 선정을 취소했습니다.`)) setEditing(null); }}>선정 취소</Button>}</div>{selectedLocked && <p className="adm-secondary">마감한 운영월에서는 출원을 추가하거나 취소할 수 없습니다.</p>}</div></> : <Empty title="확인할 출원을 선택하세요." actions={<Button primary disabled={busy || !canRegister} onClick={() => open('new')}>대상 출원 등록</Button>}>선정 확정한 출원은 운영상 필요한 경우 관리자가 취소할 수 있습니다.</Empty>}</section></div></>;
 }
 
 function CaseRegistration({ state, month: selectedMonth, busy, dirty, save, onClose, onNavigate }: FormProps & { onClose: () => void }) {

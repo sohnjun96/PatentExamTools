@@ -1195,4 +1195,56 @@ const allExportCases = exportedWorkbook.sheets.find(sheet => sheet.name === '출
 assert.equal(allExportCases[0][0], '운영월'); assert.equal(allExportCases.length, 4);
 assert.deepEqual([...new Set(allExportCases.slice(1).map(row => row[0]))], ['2026-11', '2026-12']);
 assert.equal(exportedWorkbook.sheets.find(sheet => sheet.name === 'AI 검색 결과 평가').rows[0][0], '운영월');
+// Selected targets show saved results in the side panel without opening a patent window.
+for (const id of [multiMonthState.cases[0].id, 'december-case']) {
+  const selected = scopedManager(['', 'all', '', id]);
+  const panel = descendants(selected).find(({ element }) => element.props.className === 'adm-editor').element;
+  assert.equal(panel.key, id, 'Changing the selected case resets the side panel scroll position.');
+  assert.equal(descendants(panel).find(({ element }) => element.type === adminUI.CaseEvaluationDetails).element.props.item.id, id);
+  assert(!descendants(panel).some(({ element }) => element.type === 'a'), 'The case lookup new-window action is removed.');
+}
+const detailCase = structuredState.cases[0];
+const deliveredMethods = domain.caseMethods(structuredState, detailCase).filter(method => method.kind === 'ai');
+const detailState = domain.applyAction(structuredState, { userId: detailCase.examinerId }, {
+  type: 'saveEvaluation', caseId: detailCase.id, finalize: true,
+  versions: Object.fromEntries(deliveredMethods.map(method => [method.id, domain.resultFor(structuredState, detailCase.id, method.id).publishedVersion])),
+  rankings: { chatgpt: 1, claude: 2, baseline: 3 },
+  evaluations: deliveredMethods.map(method => {
+    const result = domain.resultFor(structuredState, detailCase.id, method.id);
+    return { methodId: method.id, version: result.publishedVersion, documents: result.publishedDocuments.map((number, index) => ({ number, score: index === 0 ? 0 : 4, cited: index === 0 ? 'X' : 'O', note: '' })) };
+  }),
+});
+const renderDetails = state => adminUI.CaseEvaluationDetails({ state, item: state.cases.find(item => item.id === detailCase.id) });
+const docTable = tree => descendants(tree).find(({ element }) => element.type === 'table' && element.props.className?.includes('adm-case-documents'))?.element;
+const tableRows = table => descendants(table).find(({ element }) => element.type === 'tbody').element.props.children;
+const detailTree = renderDetails(detailState), beforeDetailQuery = JSON.stringify(detailState);
+assert.deepEqual(descendants(docTable(detailTree)).filter(({ element }) => element.type === 'th').map(({ element }) => element.props.children), ['AI 종류', '특허 여부', '인용문헌 명', '문헌 점수', '인용 여부']);
+const savedRows = tableRows(docTable(detailTree));
+assert.equal(savedRows.length, 9);
+assert.deepEqual(Array.from(savedRows[0].props.children, cell => cell.props.children), ['ChatGPT', '특허', 'KR20100001234A', 0, 'X']);
+assert.deepEqual(Array.from(savedRows[1].props.children, cell => cell.props.children), ['ChatGPT', '비특허', 'A structured reference', 4, 'O']);
+assert(!JSON.stringify(detailTree).includes('심사관에게 보이면 안 되는 수정 초안'));
+assert(!descendants(detailTree).some(({ element }) => ['input', 'textarea', 'select', 'button', 'a'].includes(element.type)), 'Evaluation details are read-only.');
+const examinerSummary = summaryEditor({ ...structuredProps, state: detailState });
+const examinerTable = descendants(examinerSummary).find(({ element }) => element.type === 'table').element;
+assert.deepEqual(Array.from(savedRows, row => Array.from(row.props.children, cell => cell.props.children)), Array.from(tableRows(examinerTable), row => Array.from(row.props.children, (cell, index) => index === 2 ? cell.props.children.props.children : cell.props.children)), 'Administrator and examiner summaries show the same delivered documents and scores.');
+const noInput = structuredClone(detailState);
+noInput.results = noInput.results.filter(result => result.caseId !== detailCase.id);
+assert.deepEqual(descendants(renderDetails(noInput)).filter(({ element }) => element.props.className === 'adm-case-empty').map(({ element }) => element.props.children), ['AI 검색 입력 전', 'AI 검색 입력 전']);
+const noReview = structuredClone(detailState);
+noReview.evaluations = noReview.evaluations.filter(entry => entry.caseId !== detailCase.id);
+noReview.rankings = noReview.rankings.filter(entry => entry.caseId !== detailCase.id);
+assert.deepEqual(descendants(renderDetails(noReview)).filter(({ element }) => element.props.className === 'adm-case-empty').map(({ element }) => element.props.children), ['AI 검색 평가 전', 'AI 검색 평가 전']);
+const staleReview = structuredClone(detailState);
+staleReview.results.find(result => result.caseId === detailCase.id && result.methodId === 'chatgpt').publishedVersion++;
+const staleDetails = renderDetails(staleReview);
+assert.deepEqual(Array.from(tableRows(docTable(staleDetails))[0].props.children.slice(3), cell => cell.props.children), ['—', '—'], 'Old-version scores must not be attributed to updated AI results.');
+assert(!descendants(staleDetails).some(({ element }) => element.props.className === 'adm-table-wrap adm-case-rankings'));
+assert(descendants(staleDetails).some(({ element }) => element.props.children === '재확인 필요'));
+const partialReview = structuredClone(detailState);
+partialReview.rankings.find(entry => entry.caseId === detailCase.id).finalized = false;
+const partialDetails = renderDetails(partialReview);
+assert(descendants(partialDetails).some(({ element }) => element.props.children === '평가 중'));
+assert.equal(tableRows(docTable(partialDetails))[0].props.children[3].props.children, 0);
+assert.equal(JSON.stringify(detailState), beforeDetailQuery, 'Viewing selected cases never changes saved evaluations.');
 console.log('Admin and bureau workspace UI tests passed: six task menus, scoped sessions and forms, search/filter combinations, target publication handoff, independent downloads, draft-save guidance, closed-month controls, and six-sheet filtered exports.');
