@@ -11,6 +11,7 @@ const compile = relative => ts.transpileModule(fs.readFileSync(new URL(relative,
 const promptModule = { exports: {} };
 vm.runInNewContext(compile('../app/lib/standard-search-prompt.ts'), { module: promptModule, exports: promptModule.exports });
 const { STANDARD_SEARCH_PROMPT } = promptModule.exports;
+assert.equal(promptModule.exports.standardSearchPromptText({}), STANDARD_SEARCH_PROMPT);
 assert.equal(STANDARD_SEARCH_PROMPT.split('\n').length, 14);
 assert(STANDARD_SEARCH_PROMPT.startsWith('당신은 한국 특허 심사관을 보조하는 선행기술 조사 전문가입니다.\n첨부된 특허문서 PDF를 직접 분석하고,'));
 assert(STANDARD_SEARCH_PROMPT.includes('문헌은 최대 5건, 중복 없이 반환합니다.'));
@@ -29,7 +30,7 @@ function nodes(value, result = []) {
 function text(value) { return Array.isArray(value) ? value.map(text).join('') : value?.props ? text(value.props.children) : typeof value === 'string' || typeof value === 'number' ? String(value) : ''; }
 const successTitle = '복사 완료 되었습니다.';
 const successGuidance = 'AI에 공개공보를 첨부하고, 컨트롤 + V로 프롬프트를 대화창에 붙여넣으세요.';
-function session(navigatorValue) {
+function session(navigatorValue, prompt) {
   const values = [], refs = []; let stateCursor = 0, refCursor = 0, copied = 0;
   const hooks = {
     useState(initial) { const index = stateCursor++; if (!(index in values)) values[index] = initial; return [values[index], value => { values[index] = value; }]; },
@@ -47,9 +48,10 @@ function session(navigatorValue) {
     throw new Error('Unexpected dependency: ' + id);
   } };
   vm.runInNewContext(compile('../app/components/standard-search-prompt-button.tsx'), context);
-  function render() { stateCursor = refCursor = 0; return componentModule.exports.default({ onCopied() { copied++; } }); }
+  function render() { stateCursor = refCursor = 0; return componentModule.exports.default({ prompt, onCopied() { copied++; } }); }
   return {
     render,
+    setPrompt(value) { prompt = value; },
     button(label) { const found = nodes(render()).find(node => node.type === 'button' && node.props.children === label); assert(found, 'Missing button: ' + label); return found; },
     dialog() { return nodes(render()).find(node => node.type === Dialog); },
     get copied() { return copied; },
@@ -125,4 +127,16 @@ await trigger.props.onClick(); assert.equal(pendingWrites, 1, 'A pending clipboa
 finishCopy(); await firstCopy;
 assert.equal(pending.copied, 1); assert.equal(pending.button('표준 검색 프롬프트').props.disabled, false);
 assertSuccessDialog(pending);
-console.log('Standard search prompt passed: exact clipboard payload, literal JSON escapes, patent/paper schemas, visible success confirmation and paste guidance, dismissal, unsupported and denied clipboard fallback, selection, retry, deferred success and duplicate-copy protection.');
+const configuredPrompt = '관리자가 수정한 검색 프롬프트\n' + String.raw`JSON 줄바꿈: \n, 따옴표: \"`;
+assert.equal(promptModule.exports.standardSearchPromptText({ standardSearchPrompt: { text: configuredPrompt } }), configuredPrompt);
+const configuredWrites = [];
+const configured = session({ clipboard: { async writeText(text) { configuredWrites.push(text); } } }, configuredPrompt);
+await configured.button('표준 검색 프롬프트').props.onClick();
+assert.deepEqual(configuredWrites, [configuredPrompt]);
+configured.setPrompt('수정된 최신 프롬프트');
+await configured.button('표준 검색 프롬프트').props.onClick();
+assert.deepEqual(configuredWrites, [configuredPrompt, '수정된 최신 프롬프트']);
+const configuredFallback = session({}, configuredPrompt);
+await configuredFallback.button('표준 검색 프롬프트').props.onClick();
+assert.equal(nodes(configuredFallback.dialog()).find(node => node.type === 'textarea').props.value, configuredPrompt);
+console.log('Standard search prompt passed: default and administrator-edited exact clipboard payloads, refreshed text, literal JSON escapes, visible success guidance, denied clipboard fallback, retry and duplicate-copy protection.');

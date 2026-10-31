@@ -1,0 +1,8 @@
+.search-prompt-manager { padding:24px; }
+.search-prompt-manager > p:first-child { margin:0 0 24px; line-height:1.7; }
+.search-prompt-manager > label { display:block; margin-bottom:8px; font-weight:700; }
+.ev .search-prompt-manager > textarea { display:block; width:100%; min-height:420px; resize:vertical; font-family:ui-monospace,SFMono-Regular,Consolas,monospace!important; font-size:15px!important; line-height:1.7; white-space:pre-wrap; overflow-wrap:anywhere; }
+.search-prompt-count { margin:8px 0; color:var(--ev-muted); font-size:14px; text-align:right; font-variant-numeric:tabular-nums; }
+.search-prompt-manager > footer { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; margin-top:24px; padding-top:20px; border-top:1px solid var(--ev-line); }
+.search-prompt-manager > footer > div { min-height:24px; }
+@media(max-width:640px) { .search-prompt-manager { padding:20px; } .ev .search-prompt-manager > textarea { min-height:320px; } .search-prompt-manager > footer > button { width:100%; } }

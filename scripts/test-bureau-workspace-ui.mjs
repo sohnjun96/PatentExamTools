@@ -27,6 +27,8 @@ function TargetStub(props) { return PdfStub({ ...props, kind: 'publication', num
 function TargetArchiveStub() { return null; }
 function NoticeMarkdownStub(props) { return require('react/jsx-runtime').jsx('div', { children: props.markdown }); }
 function NoticeManagerStub() { return null; }
+function SearchPromptManagerStub() { return null; }
+function StandardPromptButtonStub() { return null; }
 function loadModule(relative, append = '') {
   const filename = path.join(root, relative);
   const { outputText } = ts.transpileModule(fs.readFileSync(filename, 'utf8') + append, {
@@ -47,6 +49,9 @@ function loadModule(relative, append = '') {
     if (id === './examiner-manager') return loadModule('app/evaluation/examiner-manager.tsx');
     if (id === './admin-workspace') return loadModule('app/evaluation/admin-workspace.tsx');
     if (id === './notice-manager') return NoticeManagerStub;
+    if (id === './search-prompt-manager') return SearchPromptManagerStub;
+    if (id.endsWith('/standard-search-prompt-button')) return StandardPromptButtonStub;
+    if (id.endsWith('/standard-search-prompt')) return loadModule('app/lib/standard-search-prompt.ts');
     if (id === './literature-editor') return loadModule('app/evaluation/literature-editor.tsx');
     if (id.endsWith('/bureau-notice')) return loadModule('app/components/bureau-notice.tsx');
     if (id === '@/app/components/operation-schedule') return loadModule('app/components/operation-schedule.tsx');
@@ -235,6 +240,9 @@ hookIndex = 0; hookOverrides = [];
 const noticeAdmin = adminUI.default({ state: domain.createInitialState('2026-10'), month: domain.emptyMonth('2026-10'), bureau: '기획국', section: 'notices', busy: false });
 assert(descendants(noticeAdmin).some(({ element }) => element.type === NoticeManagerStub));
 assert(!JSON.stringify(noticeAdmin).includes('가상 자료로 업무 흐름 확인'), 'Demo loading should not interrupt notice editing.');
+const promptAdmin = adminUI.default({ state: domain.createInitialState(), bureau: '기획국', section: 'prompts', busy: false });
+assert(descendants(promptAdmin).some(({ element }) => element.type === SearchPromptManagerStub));
+assert(!JSON.stringify(promptAdmin).includes('운영월을 등록하세요.'), 'Prompt management works without selecting an operating month.');
 const scheduleState = domain.createInitialState('2026-10');
 scheduleState.users = [{ id: 'schedule-reader', name: '일정 확인자', bureau: '기획국', division: '시험과', roles: ['examiner', 'ai'], active: true }];
 Object.assign(scheduleState.months[0], { selectionDeadline: '2026-10-24', resultDeadline: '2026-10-27', evaluationDeadline: '2026-10-30' });
@@ -335,7 +343,9 @@ hookIndex=0;hookOverrides=[];
 const taskList=ui.TestAIWorkspace({state:archiveState,month:archiveState.months[0],user:archiveUser,bureau:'기획국',busy:false,dirty(){},save:async()=>true,notify(){}});
 for(const {element} of descendants(taskList).filter(({element})=>element.type===ui.AITaskCard)){const url=new URL(element.props.href,'http://localhost');assert.equal(url.pathname,'/evaluation/task');assert.equal(url.searchParams.get('userId'),archiveUser.id);assert.equal(url.searchParams.get('caseId'),element.props.item.id);assert.equal(url.searchParams.get('bureau'),'기획국');}
 
-assert.deepEqual(Array.from(adminUI.ADMIN_NAV, entry => entry.id), ['overview', 'examiners', 'ai', 'month', 'cases', 'notices']);
+assert.deepEqual(Array.from(adminUI.ADMIN_NAV, entry => entry.id), ['overview', 'examiners', 'ai', 'month', 'cases', 'notices', 'prompts']);
+assert.equal(adminUI.ADMIN_NAV.at(-1).label, '표준 검색 프롬프트 관리');
+assert.equal(adminUI.readAdminSection(JSON.stringify({ adminSection: 'prompts' }), '전기국', 'settings'), 'prompts');
 assert.equal(adminUI.readAdminSection(null, '전기국', 'settings'), 'examiners');
 assert.equal(adminUI.readAdminSection(null, undefined, 'stats'), 'overview');
 assert.equal(adminUI.readAdminSection(JSON.stringify({ adminSection: 'ai' }), '전기국', 'settings'), 'ai');
@@ -1177,7 +1187,7 @@ for (const section of ['overview', 'cases']) {
   const monthNodes = descendants(scopePage(section, '2026-11'));
   assert.equal(monthNodes.find(({ element }) => element.type?.name === 'AdminWorkspace').element.props.month.id, '2026-11');
 }
-for (const section of ['examiners', 'ai', 'month', 'notices']) assert(!descendants(scopePage(section)).some(({ element }) => element.props['aria-label'] === '운영월'));
+for (const section of ['examiners', 'ai', 'month', 'notices', 'prompts']) assert(!descendants(scopePage(section)).some(({ element }) => element.props['aria-label'] === '운영월'));
 assert(!descendants(scopePage('overview', '2026-11', false)).some(({ element }) => element.type === 'option' && element.props.value === 'all'));
 const allAdminProps = { ...managerProps, state: multiMonthState, month: undefined, allMonths: true, section: 'cases', initialStatus: 'all', selectMonth() {}, notify() {} };
 function scopedManager(overrides = [], props = {}) { hookIndex = 0; hookOverrides = overrides; return adminUI.TestCaseManager({ ...allAdminProps, ...props }); }
@@ -1374,4 +1384,7 @@ assert.equal(assignedAccount.cases[0].groupName, '가상 1그룹');
 assert.equal(adminUI.accountAssignmentLabels(assignedAccount, demo.users[2].id).aiNames, '—');
 assignedAccount.personnel.memberships = assignedAccount.personnel.memberships.filter(entry => entry.userId !== demo.users[2].id);
 assert.equal(adminUI.accountAssignmentLabels(assignedAccount, demo.users[2].id).groupName, '그룹 미배정');
-console.log('Admin and bureau workspace UI tests passed: six task menus, scoped sessions and forms, search/filter combinations, target publication handoff, independent downloads, draft-save guidance, closed-month controls, and six-sheet filtered exports.');
+hookIndex = 0; hookOverrides = [];
+const customPromptTasks = ui.TestAIWorkspace({ state: { ...archiveState, standardSearchPrompt: { text: '심사국 전용 검색 프롬프트', updatedAt: '2026-10-31T00:00:00Z' } }, month: archiveState.months[0], user: archiveUser, bureau: '기획국', busy: false, dirty() {}, save: async () => true, notify() {} });
+assert.equal(descendants(customPromptTasks).find(({ element }) => element.type === StandardPromptButtonStub).element.props.prompt, '심사국 전용 검색 프롬프트');
+console.log('Admin and bureau workspace UI tests passed: seven task menus, scoped prompt management, AI prompt delivery, sessions and forms, filters, publication handoff, downloads, closed-month controls, and six-sheet exports.');

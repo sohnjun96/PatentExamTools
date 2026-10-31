@@ -73,6 +73,7 @@ export type RankValue = 1 | 2 | 3 | 'unranked' | 'excluded' | 'incomparable' | n
 export type QualityRanking = { caseId: string; versions: Record<string, number>; values: Record<string, RankValue>; updatedAt: string; overallComment?: string; baselineAvailable?: boolean; finalized?: boolean };
 export type EvaluationNotice = { markdown: string; updatedAt: string };
 export const NOTICE_MAX_LENGTH = 20_000;
+export const SEARCH_PROMPT_MAX_LENGTH = 20_000;
 export const LITERATURE_MAX_LENGTH = 2_000;
 export const LITERATURE_REPORT_MAX_LENGTH = 30_000;
 export const OVERALL_COMMENT_MAX_LENGTH = 4_000;
@@ -83,10 +84,12 @@ export type EvaluationState = {
   defaultGroupVersion?: 1;
   months: OperationMonth[]; cases: EvaluationCase[]; results: AIResult[]; evaluations: MethodEvaluation[];
   rankings: QualityRanking[]; isDemo: boolean; notice?: EvaluationNotice | null; personnel?: Personnel;
+  standardSearchPrompt?: { text: string; updatedAt: string };
 };
 export type EvaluationActor = { admin?: boolean; userId?: string };
 export type EvaluationAction =
   | { type: 'saveNotice'; markdown: string }
+  | { type: 'saveStandardSearchPrompt'; text: string }
   | { type: 'saveUser'; user: Omit<EvaluationUser, 'id'> & { id?: string } }
   | { type: 'saveExaminer'; user: Omit<EvaluationUser, 'id'> & { id?: string }; groupId: string; responsibilities: { groupId: string; methodId: string }[] }
   | { type: 'saveGroup'; group: { id?: string; name: string } }
@@ -603,13 +606,19 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
     case 'loadDemo': {
       requireAdmin(actor);
       if (state.cases.length || state.users.length || state.groups.some(group => group.deletedAt || !defaultGroups().some(initial => initial.id === group.id && initial.name === group.name))) fail('운영 자료가 있는 상태에는 가상 자료를 추가할 수 없습니다.');
-      return { ...createDemoState(listedOperationMonths(state.months)[0]?.id ?? DEFAULT_OPERATION_MONTHS[0]), notice: state.notice ?? null };
+      return { ...createDemoState(listedOperationMonths(state.months)[0]?.id ?? DEFAULT_OPERATION_MONTHS[0]), notice: state.notice ?? null, ...(state.standardSearchPrompt ? { standardSearchPrompt: state.standardSearchPrompt } : {}) };
     }
     case 'saveNotice': {
       requireAdmin(actor);
       if (typeof action.markdown !== 'string' || action.markdown.length > NOTICE_MAX_LENGTH) fail('공지사항은 20,000자 이내의 텍스트로 입력해 주세요.');
       const markdown = action.markdown.trim();
       state.notice = markdown ? { markdown, updatedAt: now.toISOString() } : null;
+      return state;
+    }
+    case 'saveStandardSearchPrompt': {
+      requireAdmin(actor);
+      if (typeof action.text !== 'string' || !action.text.trim() || action.text.length > SEARCH_PROMPT_MAX_LENGTH) fail('표준 검색 프롬프트는 내용이 있는 20,000자 이내의 텍스트로 입력해 주세요.');
+      state.standardSearchPrompt = { text: action.text, updatedAt: now.toISOString() };
       return state;
     }
     case 'saveUser': {

@@ -13,6 +13,7 @@ import ReportPresenceToggle from '@/app/components/report-presence-toggle';
 import AccessibleDialog from '@/app/components/accessible-dialog';
 import AppIcon from '@/app/components/app-icon';
 import NoticeManager from './notice-manager';
+import SearchPromptManager from './search-prompt-manager';
 import AccountManager, { AccountEditor, GroupEditor, GroupDeleteDialog, examinerForm, filterAdminUsers } from './examiner-manager';
 export { AccountEditor, GroupEditor, GroupDeleteDialog, examinerForm, filterAdminUsers };
 import './admin.css';
@@ -24,6 +25,7 @@ export const ADMIN_NAV = [
   { id: 'month', label: '월별 운영', icon: 'calendar', description: '운영월별 기한과 단계별 운영 상태를 설정합니다.' },
   { id: 'cases', label: '대상 출원 목록', icon: 'document-text', description: '대상 출원을 찾고 운영상 필요한 등록과 취소를 처리합니다.' },
   { id: 'notices', label: '공지사항 관리', icon: 'notification', description: '메인 페이지에 표시할 공지사항을 마크다운으로 작성하고 관리합니다.' },
+  { id: 'prompts', label: '표준 검색 프롬프트 관리', icon: 'document-text', description: 'AI 담당자에게 제공할 표준 검색 프롬프트를 작성하고 관리합니다.' },
 ] as const;
 export type AdminSection = typeof ADMIN_NAV[number]['id'];
 type Save = (action: EvaluationAction, message?: string) => Promise<boolean>;
@@ -68,8 +70,9 @@ export default function AdminWorkspace(props: AdminProps) {
       : section === 'ai' ? <MethodManager {...props} />
       : section === 'month' ? <MonthManager {...props} />
       : section === 'notices' ? <NoticeManager {...props} />
+      : section === 'prompts' ? <SearchPromptManager {...props} />
       : month || allMonths ? <CaseManager {...props} initialStatus="all" /> : <Empty title="운영월을 등록하세요." actions={<Button onClick={() => onNavigate('month')}>월별 운영</Button>} />}
-    {section !== 'notices' && section !== 'month' && !state.users.length && !state.groups.length && !state.cases.length && <section className="adm-demo ev-notice">
+    {!['notices', 'prompts', 'month'].includes(section) && !state.users.length && !state.groups.length && !state.cases.length && <section className="adm-demo ev-notice">
       <strong>가상 자료로 업무 흐름 확인</strong><p>가상 자료: 사용자 10명·그룹 2개·출원 20건</p>
       <Button disabled={props.busy} onClick={() => { if (window.confirm('가상 검증 자료를 불러오시겠습니까? 실제 출원과 실적이 아닌 예시가 저장됩니다.')) void props.save({ type: 'loadDemo' }, '가상 검증 자료를 불러왔습니다.'); }}>가상 검증 자료 불러오기</Button>
     </section>}

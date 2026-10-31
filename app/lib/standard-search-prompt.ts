@@ -1,3 +1,9 @@
+import type { EvaluationState } from './evaluation';
+
+export function standardSearchPromptText(state: Pick<EvaluationState, 'standardSearchPrompt'>) {
+  return state.standardSearchPrompt?.text || STANDARD_SEARCH_PROMPT;
+}
+
 export const STANDARD_SEARCH_PROMPT = String.raw`당신은 한국 특허 심사관을 보조하는 선행기술 조사 전문가입니다.
 첨부된 특허문서 PDF를 직접 분석하고, 추가 질문 없이 해당 특허와 관련된 선행기술을 조사하세요.
 특허문서 전체의 기술적 내용과 청구항의 필수 구성요소를 종합하여 검색전략을 스스로 수립하고, 조사 결과에 따라 반복적으로 보완하세요.
