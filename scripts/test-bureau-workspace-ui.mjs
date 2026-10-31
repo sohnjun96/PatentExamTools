@@ -1122,6 +1122,8 @@ assert(exportedWorkbook.filename.includes('전기국'));
 assert.deepEqual(Array.from(exportedWorkbook.sheets, sheet => sheet.name), ['그룹별 통계','계정별 현황','출원별 현황','조사 방식별 통계','AI 검색 결과 평가','조회 기준']);
 assert.equal(exportedWorkbook.sheets.find(sheet => sheet.name === 'AI 검색 결과 평가').rows.length, 141);
 assert.equal(exportedWorkbook.sheets.find(sheet => sheet.name === '출원별 현황').rows.length, 11);
+assert.deepEqual(Array.from(exportedWorkbook.sheets.find(sheet => sheet.name === '계정별 현황').rows[0]), ['심사과', '이름', '대상 건 선정', 'AI 입력 대상', 'AI 입력 완료', '평가 완료']);
+assert.deepEqual(Array.from(exportedWorkbook.sheets.find(sheet => sheet.name === '계정별 현황').rows[1].slice(2)), [2, 10, 10, 2]);
 // Admin month scope is shared by the overview, target list, filters, and exports.
 assert.equal(adminUI.ADMIN_NAV.find(entry => entry.id === 'cases').label, '대상 출원 목록');
 const multiMonthState = structuredClone(demo);
@@ -1176,8 +1178,15 @@ assert.equal(descendants(allOverview).find(({ element }) => element.type?.name =
 assert.equal(descendants(allOverview).find(({ element }) => element.type?.name === 'Metric' && element.props.label === 'AI 입력 완료 / AI 입력 대상').element.props.value, '40건 / 42건');
 assert(!descendants(allOverview).some(({ element }) => element.props.className === 'adm-followups' || element.props.className === 'adm-link-card'), 'Separate follow-up cards are consolidated into the overview metrics.');
 assert(!descendants(allOverview).some(({ element }) => element.type?.name === 'Button' && ['월 운영 마감', '운영 재개방'].includes(element.props.children)));
-assert(descendants(allOverview).some(({ element }) => element.type === 'th' && element.props.children === '운영월'));
-assert(descendants(scopedOverview(['', '', 'documents', 'all'])).some(({ element }) => element.type === 'th' && element.props.children === '운영월'));
+assert(!descendants(allOverview).some(({ element }) => element.type === 'button' && element.props.children === '출원별 후속 업무'));
+assert(!descendants(allOverview).some(({ element }) => element.props['aria-label'] === '후속 업무 상태'));
+assert(descendants(allOverview).some(({ element }) => element.type === 'button' && element.props.children === '계정별 진행' && element.props['aria-pressed']));
+const accountProgressTable = tree => descendants(tree).find(({ element }) => element.type === 'table' && element.props.children[0]?.props.children === '계정별 심사 및 AI 담당 업무 진행').element;
+const accountProgress = accountProgressTable(allOverview);
+assert.deepEqual(descendants(accountProgress).filter(({ element }) => element.type === 'th').map(({ element }) => element.props.children), ['심사과', '이름', '대상 건 선정', 'AI 입력 대상', 'AI 입력 완료', '평가 완료']);
+const firstAccount = descendants(accountProgress).find(({ element }) => element.type === 'tbody').element.props.children[0];
+assert.deepEqual(Array.from(firstAccount.props.children.slice(2), cell => cell.props.children), [3, 11, 10, 2], 'Selection, AI target, AI completion, and evaluation counts stay in their labelled columns.');
+assert(descendants(scopedOverview(['', '', 'documents'])).some(({ element }) => element.type === 'th' && element.props.children === '운영월'));
 hookIndex = 0; hookOverrides = [];
 const rootAll = adminUI.default({ ...allAdminProps, section: 'overview' });
 assert(descendants(rootAll).some(({ element }) => element.type === adminUI.TestOverview), 'All-month pages render without inventing a writable month record.');
