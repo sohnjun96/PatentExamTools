@@ -263,6 +263,11 @@
 .adm-operation-table th[scope=row] { position:static; white-space:nowrap; }
 .adm-operation-table td { width:25%; }
 .adm-operation-table select { width:100%; min-width:140px; }
+.adm-operation-table select[data-status=running] { --adm-stage-color:var(--krds-color-light-success-50); }
+.adm-operation-table select[data-status=stopped] { --adm-stage-color:var(--krds-color-light-danger-50); }
+.adm-operation-table select[data-status=closed] { --adm-stage-color:var(--krds-color-light-primary-50); }
+.ev .adm-operation-table select:is([data-status=running],[data-status=stopped],[data-status=closed]) { --krds-form-select--color-background:var(--adm-stage-color); --krds-form-select--color-background-disabled:var(--adm-stage-color); color:white; border-color:var(--adm-stage-color); padding-right:44px; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-position:right 14px center; background-repeat:no-repeat; }
+.ev .adm-operation-table select option { color:var(--ev-ink); background:white; }
 .adm-month-link { padding:8px 0; border:0; background:transparent; color:var(--krds-color-light-primary-70); font:inherit; font-weight:700; text-align:left; text-decoration:underline; text-underline-offset:4px; }
 .adm-deadline-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; }
 @media(max-width:640px) { .adm-deadline-grid { grid-template-columns:minmax(0,1fr); } }
