@@ -1,0 +1,6 @@
+.standard-search-prompt-dialog { display:flex; flex-direction:column; }
+.standard-search-prompt-body { min-height:0; padding:20px 22px; overflow-y:auto; }
+.standard-search-prompt-body p { margin:0 0 12px; color:var(--ev-muted); font-size:15px; line-height:1.6; }
+.standard-search-prompt-body textarea { display:block; width:100%; height:min(52vh,480px); min-height:180px; resize:vertical; white-space:pre-wrap; }
+.standard-search-prompt-dialog > footer { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:12px; padding:16px 22px; border-top:1px solid var(--ev-line); }
+@media(max-width:640px) { .standard-search-prompt-body { padding:16px; } .standard-search-prompt-dialog > footer { padding:16px; } }
