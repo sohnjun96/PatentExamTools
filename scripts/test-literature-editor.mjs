@@ -170,13 +170,13 @@ for (const node of tree.filter(node => ['input', 'select', 'textarea'].includes(
   assert.equal(node.props.disabled, true, 'Closed or busy editors must block all mutations.');
 }
 const rowCount = tree.filter(node => node.type === 'fieldset').length;
-button(tree, '한 문헌 추가').props.onClick();
+button(tree, '수동 추가').props.onClick();
 assert.equal(render().filter(node => node.type === 'fieldset').length, rowCount);
 
 // Mixing bulk and single entry must preserve all the other records, including deleting the last row.
 reset();
 tree=render();
-button(tree,'한 문헌 추가').props.onClick();tree=render();
+button(tree,'수동 추가').props.onClick();tree=render();
 input(tree,'-number').props.onChange({target:{value:'US20200123456A1'}});
 input(tree,'-report').props.onChange({target:{value:'## 직접 입력한 보고서'}});tree=render();
 tree.find(node=>node.type==='button'&&node.props['aria-label']===initial[0].number+' 삭제').props.onClick();tree=render();
@@ -189,11 +189,11 @@ tree.find(node=>node.type==='textarea'&&node.props.id.endsWith('-bulk')).props.o
 tree=render();button(tree,'입력란 비우기').props.onClick();
 assert.equal(dirty.at(-1),true,'Unsaved document deletions still need close protection after clearing bulk text.');
 tree=render();
-button(tree,'한 문헌 추가').props.onClick();tree=render();assert(input(tree,'-number'));
+button(tree,'수동 추가').props.onClick();tree=render();assert(input(tree,'-number'));
 
 // A synchronous ref lock prevents duplicate saves and edits from pre-render event handlers.
 reset();let finish;let requests=0;props.onSave=()=>{requests++;return new Promise(resolve=>{finish=resolve;});};
-tree=render();button(tree,'임시저장').props.onClick();button(tree,'임시저장').props.onClick();button(tree,'한 문헌 추가').props.onClick();
+tree=render();button(tree,'임시저장').props.onClick();button(tree,'임시저장').props.onClick();button(tree,'수동 추가').props.onClick();
 assert.equal(requests,1);assert.equal(render().filter(node=>node.props.className==='tw-editable-doc').length,1);finish(false);await settle();
 assert.equal(input(render(),'-number').props.value,initial[0].number);
 
@@ -255,4 +255,89 @@ button(tree, '표 삽입').props.onClick();
 assert.equal(input(render(), '-report').props.value, initial[0].reportMarkdown);
 finishTableSave(false);
 await settle();
-console.log('Literature editor passed: bulk/single editing, Markdown table import/insertion/preview/publication, content and length protection, bibliography recovery, save failure and duplicate-request protection.');
+
+// Entry actions belong to the document sidebar; automatic entry only opens the preserved bulk draft.
+reset();
+tree = render();
+const sidebar = tree.find(node => node.type === 'aside' && node.props['aria-label'] === '입력 문헌');
+const workArea = tree.find(node => node.type === 'main' && node.props.className === 'tw-input-work');
+for (const label of ['수동 추가', '자동 추가']) {
+  assert(button(nodes(sidebar), label), `${label} must appear inside the document sidebar.`);
+  assert.equal(button(nodes(workArea), label), undefined, `${label} must not be duplicated in the right work area.`);
+}
+assert.equal(button(tree, '한 문헌 추가'), undefined);
+assert.equal(button(tree, '한꺼번에 입력'), undefined);
+assert.equal(button(tree, '하나씩 입력'), undefined);
+assert(!tree.some(node => node.props.role === 'group' && node.props['aria-label'] === '입력 방법'), 'The removed right-side mode switch must not remain in the accessibility tree.');
+assert(button(nodes(workArea), '포맷팅 프롬프트'));
+const documentRows = candidate => candidate.filter(node => node.props.className === 'tw-editable-doc');
+const selectOriginal = candidate => candidate.find(node => node.type === 'button' && node.props.className === 'tw-doc-choice' && text(node.props.children).includes(initial[0].number));
+const bulkPanel = candidate => candidate.find(node => node.type === 'section' && node.props['aria-label'] === '한꺼번에 입력');
+const singlePanel = candidate => candidate.find(node => node.type === 'section' && node.props['aria-label'] === '하나씩 입력');
+selectOriginal(tree).props.onClick();
+tree = render();
+assert.equal(singlePanel(tree).props.hidden, false);
+const beforeAutomaticRows = documentRows(tree).map(node => text(node.props.children));
+button(tree, '자동 추가').props.onClick();
+tree = render();
+assert.equal(bulkPanel(tree).props.hidden, false);
+assert.equal(singlePanel(tree).props.hidden, true);
+assert.deepEqual(documentRows(tree).map(node => text(node.props.children)), beforeAutomaticRows);
+assert.equal(input(tree, '-report').props.value, initial[0].reportMarkdown);
+assert.equal(dirty.length, 0, 'Opening automatic entry must not mark document data as changed.');
+const unconsumedJSON = JSON.stringify({ documents: [{ kind: 'patent', number: 'US20200123456A1' }] });
+bulk(tree).props.onChange({ target: { value: unconsumedJSON } });
+tree = render();
+selectOriginal(tree).props.onClick();
+tree = render();
+button(tree, '자동 추가').props.onClick();
+tree = render();
+assert.equal(bulk(tree).props.value, unconsumedJSON, 'Switching back to automatic entry must retain unapplied pasted results.');
+assert.equal(input(tree, '-report').props.value, initial[0].reportMarkdown);
+assert.equal(documentRows(tree).length, 1);
+button(tree, '수동 추가').props.onClick();
+tree = render();
+assert.equal(documentRows(tree).length, 2);
+assert.equal(singlePanel(tree).props.hidden, false);
+assert.equal(input(tree, '-number').props.value, '', 'Manual addition must select the new empty document.');
+assert.equal(input(tree, '-report').props.value, '');
+assert.equal(bulk(tree).props.value, unconsumedJSON);
+selectOriginal(tree).props.onClick();
+tree = render();
+assert.equal(input(tree, '-report').props.value, initial[0].reportMarkdown, 'Manual and automatic entry must preserve existing authored reports.');
+
+for (const maximum of [false, true]) {
+  reset(maximum ? rules.normalizeLiteratureDocuments(Array.from({ length: 7 }, (_, index) => ({ kind: 'patent', number: `KR2020000000${index}A` }))) : initial);
+  props.disabled = !maximum;
+  tree = render();
+  tree.find(node => node.type === 'button' && node.props.className === 'tw-doc-choice').props.onClick();
+  tree = render();
+  const beforeRows = documentRows(tree).map(node => text(node.props.children));
+  const previousMode = bulkPanel(tree).props.hidden;
+  for (const label of ['수동 추가', '자동 추가']) {
+    assert.equal(button(tree, label).props.disabled, true, `${label} must be disabled when ${maximum ? 'seven documents are present' : 'the editor is closed'}.`);
+    button(tree, label).props.onClick();
+  }
+  tree = render();
+  assert.deepEqual(documentRows(tree).map(node => text(node.props.children)), beforeRows);
+  assert.equal(bulkPanel(tree).props.hidden, previousMode, 'Disabled automatic-entry handlers must not change the editor mode.');
+}
+
+reset();
+let finishAddSave;
+props.onSave = () => new Promise(resolve => { finishAddSave = resolve; });
+tree = render();
+selectOriginal(tree).props.onClick();
+tree = render();
+button(tree, '임시저장').props.onClick();
+// Handlers captured before React's pending render must also honor the synchronous save guard.
+button(tree, '수동 추가').props.onClick();
+button(tree, '자동 추가').props.onClick();
+tree = render();
+assert.equal(documentRows(tree).length, 1);
+assert.equal(singlePanel(tree).props.hidden, false);
+assert.equal(button(tree, '수동 추가').props.disabled, true);
+assert.equal(button(tree, '자동 추가').props.disabled, true);
+finishAddSave(false);
+await settle();
+console.log('Literature editor passed: sidebar manual/automatic entry, preserved bulk/report drafts, blocked addition guards, Markdown table import/insertion/preview/publication, bibliography recovery and save protection.');
