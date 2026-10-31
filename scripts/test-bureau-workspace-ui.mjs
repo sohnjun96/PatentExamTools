@@ -724,6 +724,32 @@ for (const month of [reviewState.months[0], { ...reviewState.months[0], stages: 
   assert.equal(link.type,'a');assert.equal(link.props.target,'_blank');
   assert.equal(new URL(link.props.href,'http://localhost').searchParams.get('caseId'),submitted.at(-1).id);
 }
+// Counts describe delivered AI literature, independently of private drafts and baseline reports.
+const literatureState = structuredClone(demo);
+const literatureCase = literatureState.cases.find(item => item.examinerId === reviewUser.id);
+for (const result of literatureState.results.filter(result => result.caseId === literatureCase.id)) {
+  if (result.methodId === 'chatgpt') result.publishedDocuments = result.publishedDocuments.slice(0, 5);
+  if (result.methodId === 'claude') result.publishedDocuments = result.publishedDocuments.slice(0, 3);
+  result.draftDocuments = Array.from({ length: 7 }, (_, index) => 'Private draft ' + index);
+}
+literatureState.methods.push({ id: 'private-ai', name: '미공개 AI', kind: 'ai', active: true });
+literatureState.results.push({ ...structuredClone(literatureState.results.find(result => result.caseId === literatureCase.id && result.methodId === 'chatgpt')), methodId: 'private-ai', publishedVersion: 0, publishedDocuments: [] });
+const literatureTable = renderReview(literatureState.months[0], { state: literatureState });
+const literatureNodes = descendants(literatureTable);
+assert.deepEqual(Array.from(literatureNodes.filter(({ element }) => element.type === 'th' && element.props.scope === 'col'), ({ element }) => element.props.children), ['출원번호', 'CPC', 'AI 검색 문헌', '진행 상태', '평가']);
+const literatureRows = literatureNodes.find(({ element }) => element.type === 'tbody').element.props.children;
+const literatureRow = literatureRows.find(row => row.key === literatureCase.id);
+assert.equal(literatureRow.props.children[2].props.children, 'ChatGPT 5, 클로드 3');
+assert.equal(literatureRow.props.children[0].props.children.props.children, literatureCase.applicationNumber);
+const cpcCellContent = literatureRow.props.children[1].props.children.props.children;
+assert.equal(Array.isArray(cpcCellContent) ? cpcCellContent[0] : cpcCellContent, literatureCase.cpc || 'CPC 미입력');
+assert.equal(literatureRow.props.children[4].props.children.props.target, '_blank');
+const pendingLiteratureState = structuredClone(literatureState);
+pendingLiteratureState.results.filter(result => result.caseId === literatureCase.id).forEach(result => { result.publishedVersion = 0; result.publishedDocuments = []; });
+const pendingLiterature = renderReview(pendingLiteratureState.months[0], { state: pendingLiteratureState });
+const pendingLiteratureRow = descendants(pendingLiterature).find(({ element }) => element.type === 'tbody').element.props.children.find(row => row.key === literatureCase.id);
+assert.equal(pendingLiteratureRow.props.children[2].props.children.props.children, '입력 대기');
+
 const noSubmissions = { ...reviewState, cases: reviewState.cases.filter(item => item.examinerId !== reviewUser.id) };
 hookIndex = 0; hookOverrides = [];
 const emptyReview = ui.TestReviewWorkspace({ state: noSubmissions, month: { ...reviewState.months[0], stages: { evaluation: 'stopped' } }, user: reviewUser, busy: false, dirty() {}, save: async () => true, notify() {} });

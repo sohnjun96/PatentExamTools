@@ -286,7 +286,18 @@ function ReviewWorkspace(props: Shared & { user: EvaluationUser; notify: (text: 
   </Panel>;
   return <>
     <div className="ev-actions end" style={{ marginBottom: 15 }}>{editSelection}<button type="button" className="krds-btn medium ev-button" onClick={downloadOwnWork}>내 업무 자료 엑셀 저장</button></div>
-    <section className="ev-panel ev-review-case-list"><div className="ev-case-list-head">내 평가 대상 건 <span className="ev-count">{cases.length}</span></div><ul className="ev-review-case-items">{cases.map(item => <li key={item.id}><a className="ev-review-case" href={taskWindowUrl({ kind: 'evaluation', userId: user.id, caseId: item.id, monthId: month.id, methodId: '', bureau })} target="_blank" rel="noopener noreferrer" onClick={openTaskWindow} aria-label={`${numberLabel(item.applicationNumber)} 평가 입력, 새 창`}><strong>{numberLabel(item.applicationNumber)}</strong><span className="ev-muted ev-review-case-cpc">{item.cpc || 'CPC 미입력'}</span><span className="ev-case-status"><Status state={state} item={item} /></span><span className="ev-review-case-action">평가 입력<AppIcon name="arrow-right-up" size={18} /></span></a></li>)}</ul>{!cases.length && <Empty title="선정 확정한 출원이 없습니다." />}</section>
+    <section className="ev-panel ev-review-case-list"><div className="ev-case-list-head">내 평가 대상 건 <span className="ev-count">{cases.length}</span></div>
+      {cases.length ? <div className="ev-table-scroll ev-review-target-scroll" role="region" aria-label="내 평가 대상 건 표" tabIndex={0}><table className="ev-table ev-review-target-table">
+        <caption className="sr-only">{monthLabel(month.id)} 내 평가 대상 건</caption>
+        <colgroup><col className="ev-review-number-column" /><col className="ev-review-cpc-column" /><col /><col className="ev-review-status-column" /><col className="ev-review-action-column" /></colgroup>
+        <thead><tr><th scope="col">출원번호</th><th scope="col">CPC</th><th scope="col">AI 검색 문헌</th><th scope="col">진행 상태</th><th scope="col">평가</th></tr></thead>
+        <tbody>{cases.map(item => {
+          const href = taskWindowUrl({ kind: 'evaluation', userId: user.id, caseId: item.id, monthId: month.id, methodId: '', bureau });
+          const literature = caseMethods(state, item).filter(method => method.kind === 'ai').map(method => `${method.name} ${resultFor(state, item.id, method.id)?.publishedDocuments.length || 0}`).join(', ');
+          return <tr key={item.id}><th scope="row"><a className="ev-review-case" href={href} target="_blank" rel="noopener noreferrer" onClick={openTaskWindow} aria-label={`${numberLabel(item.applicationNumber)} 평가 입력, 새 창`}>{numberLabel(item.applicationNumber)}</a></th><td><span className="ev-review-case-cpc">{item.cpc || 'CPC 미입력'}</span></td><td className="ev-review-literature">{literature || <span className="ev-muted">입력 대기</span>}</td><td><span className="ev-case-status"><Status state={state} item={item} /></span></td><td><a className="ev-review-case-action" href={href} target="_blank" rel="noopener noreferrer" onClick={openTaskWindow} aria-label={`${numberLabel(item.applicationNumber)} 평가 입력, 새 창`}>평가 입력<AppIcon name="arrow-right-up" size={18} /></a></td></tr>;
+        })}</tbody>
+      </table></div> : <Empty title="선정 확정한 출원이 없습니다." />}
+    </section>
   </>;
 }
 
