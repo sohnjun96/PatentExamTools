@@ -15,10 +15,18 @@ const root = path.resolve(import.meta.dirname, '..');
 const toasts = [];
 let notifyToast = () => {};
 let nextId = 0;
+let activeHooks = null;
+function hookValue(initial) {
+  const context = activeHooks;
+  if (!context) return [initial, () => {}];
+  const index = context.cursor++;
+  if (!(index in context.values)) context.values[index] = initial;
+  return [context.values[index], next => { context.values[index] = next; }];
+}
 const hooks = {
-  useState: initial => [initial, () => {}],
+  useState: hookValue,
   useEffect: () => {},
-  useRef: value => ({ current: value }),
+  useRef: value => hookValue({ current: value })[0],
   useId: () => `pdf-test-${++nextId}`,
 };
 const cache = new Map();
@@ -139,6 +147,71 @@ test('a target-publication click keeps the existing error toast for that target 
   } finally {
     globalThis.fetch = previous; notifyToast = () => {};
     if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument;
+  }
+});
+
+test('target feedback keeps independent progress, duplicate-click protection, failure and retry messages', async () => {
+  const previousFetch = globalThis.fetch, previousWindow = globalThis.window, previousDocument = globalThis.document;
+  const previousCreate = URL.createObjectURL, previousRevoke = URL.revokeObjectURL;
+  const requests = [], writes = [];
+  globalThis.fetch = input => new Promise(resolve => { requests.push({ input: String(input), resolve }); });
+  globalThis.window = { setTimeout: callback => { callback(); return 1; } };
+  globalThis.document = { body: { appendChild() {} }, createElement: () => ({ remove() {}, click() { writes.push(this.download); } }) };
+  URL.createObjectURL = () => 'blob:target-feedback'; URL.revokeObjectURL = () => {};
+  function instance(number) {
+    const wrapper = TargetPublicationDownload({ applicationNumber: number, showContext: false });
+    assert(!descendants(wrapper).some(element => element.props.className === 'pd-target-publication-context'));
+    const control = descendants(wrapper).find(element => element.type === PdfDownloadButton);
+    assert.equal(control.props.feedback, 'notice');
+    const context = { values: [], cursor: 0 };
+    let resolveStatus;
+    const statuses = [];
+    const props = { ...control.props, onStatusChange: (status, message) => { statuses.push({ status, message }); if (status !== 'loading') resolveStatus?.(); } };
+    return {
+      statuses, done: () => new Promise(resolve => { resolveStatus = resolve; }),
+      render() {
+        activeHooks = context; context.cursor = 0;
+        try {
+          const tree = PdfDownloadButton(props), nodes = descendants(tree);
+          return { button: nodes.find(element => element.type === 'button'), message: nodes.find(element => element.props.id && element.type === 'span') };
+        } finally { activeHooks = null; }
+      },
+    };
+  }
+  const tick = () => new Promise(resolve => setImmediate(resolve));
+  try {
+    const first = instance('10-2023-0012931'), second = instance('10-2026-0123981');
+    const originalButton = first.render().button;
+    originalButton.props.onClick(); originalButton.props.onClick();
+    let view = first.render();
+    assert.equal(view.button.props.disabled, true); assert.equal(view.button.props['aria-busy'], true);
+    assert.equal(view.message.props.role, 'status'); assert.match(view.message.props.children, /준비하고 있습니다/);
+    assert.equal(second.render().message, undefined, 'An unrelated row must stay quiet.');
+    second.render().button.props.onClick(); await tick();
+    assert.equal(requests.length, 2, 'Repeated clicks must not create a second transfer for one row.');
+    assert.match(first.render().message.props.children, /불러오고 있습니다/);
+    assert.match(second.render().message.props.children, /불러오고 있습니다/);
+    const firstDone = first.done(); requests[0].resolve(new Response('%PDF-1.7\nfirst')); await deadline(firstDone);
+    view = first.render();
+    assert.match(view.message.props.className, /is-success/); assert.match(view.message.props.children, /다운로드를 요청했습니다/);
+    assert(!view.message.props.children.includes('10-2023-0012931'), 'Visible feedback must not repeat the application number.');
+    assert(!view.message.props.children.includes('저장했습니다'), 'Browser handoff is not a confirmed disk save.');
+    assert.equal(view.button.props.disabled, false); assert.match(second.render().message.props.children, /불러오고 있습니다/);
+    const secondDone = second.done(); requests[1].resolve(Response.json({ error: '공개 전문 PDF가 제공되지 않습니다.' }, { status: 404 })); await deadline(secondDone);
+    view = second.render(); assert.match(view.message.props.className, /is-error/); assert.match(view.message.props.children, /다시 시도|문헌번호/);
+    assert.equal(view.button.props.disabled, false); assert.equal(toasts.at(-1).documentNumber, '10-2026-0123981');
+    second.render().button.props.onClick(); await tick();
+    assert.match(second.render().message.props.className, /is-info/); assert.match(second.render().message.props.children, /불러오고 있습니다/);
+    const retried = second.done(); requests[2].resolve(new Response('%PDF-1.7\nsecond')); await deadline(retried);
+    assert.match(second.render().message.props.className, /is-success/);
+    assert.deepEqual(writes, ['10-2023-0012931_공개공보.pdf', '10-2026-0123981_공개공보.pdf']);
+    assert.deepEqual(first.statuses.map(entry => entry.status), ['loading', 'requested']);
+    assert.deepEqual(second.statuses.map(entry => entry.status), ['loading', 'error', 'loading', 'requested']);
+  } finally {
+    activeHooks = null; globalThis.fetch = previousFetch;
+    if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow;
+    if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument;
+    URL.createObjectURL = previousCreate; URL.revokeObjectURL = previousRevoke;
   }
 });
 

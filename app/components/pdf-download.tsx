@@ -32,23 +32,32 @@ export function choosePdfDestination(applicationNumber: string, kind: PdfKind, q
   return quickDownload ? Promise.resolve({ handle: null, filename }) : chooseSaveFile(filename, 'application/pdf', 'pdf');
 }
 
-export default function PdfDownloadButton({ applicationNumber, label = 'PDF 받기', ariaLabel, kind = 'publication', numberType = 'application', disabled = false, quickDownload = false, onStatusChange }: {
+export default function PdfDownloadButton({ applicationNumber, label = 'PDF 받기', ariaLabel, kind = 'publication', numberType = 'application', disabled = false, quickDownload = false, feedback = 'inline', onStatusChange }: {
   applicationNumber: string; label?: string; kind?: PdfKind; numberType?: PdfNumberType; disabled?: boolean;
   ariaLabel?: string;
   quickDownload?: boolean;
+  feedback?: 'inline' | 'notice';
   onStatusChange?: (status: PdfDownloadStatus, message?: string) => void;
 }) {
   const [stage, setStage] = useState<'idle' | 'choosing' | 'loading' | 'saving'>('idle');
   const [message, setMessage] = useState('');
   const [messageKind, setMessageKind] = useState<'info' | 'success' | 'error'>('info');
   const controller = useRef<AbortController | null>(null);
+  const inFlight = useRef(false);
   const mounted = useRef(true);
   const button = useRef<HTMLButtonElement | null>(null);
   const messageId = useId();
   const { enabled: hasErrorToast, showError } = useErrorToast();
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; controller.current?.abort(); }; }, []);
+  function updateStage(next: 'choosing' | 'loading' | 'saving') {
+    if (!mounted.current) return;
+    setStage(next);
+    if (feedback === 'notice') setMessage(next === 'choosing' ? `${documentKindLabels[kind]} PDF를 준비하고 있습니다.` : next === 'loading' ? `${documentKindLabels[kind]} PDF를 불러오고 있습니다. 잠시만 기다려 주세요.` : quickDownload ? 'PDF 다운로드를 요청하고 있습니다.' : 'PDF를 저장하고 있습니다.');
+  }
   async function download() {
-    setMessage(''); setMessageKind('info'); setStage('choosing'); onStatusChange?.('loading');
+    if (disabled || inFlight.current) return;
+    inFlight.current = true;
+    setMessage(''); setMessageKind('info'); updateStage('choosing'); onStatusChange?.('loading');
     try {
       const result = await transferPdf({
         choose: () => choosePdfDestination(applicationNumber, kind, quickDownload),
@@ -57,21 +66,22 @@ export default function PdfDownloadButton({ applicationNumber, label = 'PDF 받�
           return fetchPdf(applicationNumber, kind, numberType, AbortSignal.any([abort.signal, AbortSignal.timeout(90_000)]));
         },
         save: writeChosenFile,
-        onStage: setStage,
+        onStage: updateStage,
         isActive: () => mounted.current,
       });
       if (!mounted.current) return;
-      setMessage(result.message); setMessageKind(result.status === 'saved' ? 'success' : 'info'); onStatusChange?.(result.status, result.message);
+      const detail = feedback !== 'notice' ? result.message : result.status === 'requested' ? 'PDF 다운로드를 요청했습니다. 브라우저의 다운로드 목록에서 저장 결과를 확인해 주세요.' : result.status === 'saved' ? 'PDF를 저장했습니다.' : result.message;
+      setMessage(detail); setMessageKind(result.status === 'saved' || feedback === 'notice' && result.status === 'requested' ? 'success' : 'info'); onStatusChange?.(result.status, result.message);
     } catch (error) {
       if (!mounted.current) return;
       const original = error instanceof PdfTransferFailure ? error.originalError : error;
       const detail = (error instanceof PdfTransferFailure && error.stage !== 'loading') || original instanceof SaveFileError ? fileErrorMessage(original) : documentErrorMessage(original);
       setMessage(detail); setMessageKind('error'); onStatusChange?.('error', detail);
       showError({ documentNumber: applicationNumber, documentKind: documentKindLabels[kind], message: detail, returnFocus: button.current });
-    } finally { if (mounted.current) setStage('idle'); controller.current = null; }
+    } finally { inFlight.current = false; if (mounted.current) setStage('idle'); controller.current = null; }
   }
   const loadingLabel = stage === 'choosing' && !quickDownload ? '저장 위치 선택 중' : stage === 'saving' ? '저장 중…' : 'PDF 불러오는 중…';
-  return <span className="pd-download">
+  return <span className={`pd-download${feedback === 'notice' ? ' has-notice' : ''}`}>
     <button type="button" ref={button} className="pd-button krds-btn medium tertiary" onClick={() => void download()} disabled={disabled || stage !== 'idle'} aria-describedby={message ? messageId : undefined} aria-busy={stage !== 'idle'} aria-label={ariaLabel ?? `${applicationNumber} ${documentKindLabels[kind]} PDF 받기`}>{stage !== 'idle' ? loadingLabel : label}</button>
     {message && <span id={messageId} className={`pd-message is-${messageKind}`} role={messageKind === 'error' ? hasErrorToast ? undefined : 'alert' : 'status'}>{message}</span>}
   </span>;

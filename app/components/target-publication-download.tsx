@@ -16,6 +16,7 @@ export default function TargetPublicationDownload({ applicationNumber, disabled 
       numberType="application"
       kind="publication"
       quickDownload
+      feedback="notice"
       disabled={disabled}
       label={context === 'list' ? '공개공보 PDF 받기' : '대상 출원 공개공보 PDF'}
       ariaLabel={`대상 출원 ${applicationNumber} 공개공보 PDF 받기`}

@@ -86,7 +86,7 @@ export function AITaskCard({ item, methodName, selected = false, complete, demo,
       <strong>{numberLabel(item.applicationNumber)}</strong><span className="ev-muted">{item.examinerName} · {item.groupName}</span>
       <div className="ev-case-status"><Badge>{methodName}</Badge><Badge color={complete ? 'green' : ''}>{complete ? '입력 완료' : '대기 중'}</Badge></div>
     </a>
-    <div className="ev-case-pdf"><TargetPublicationDownload applicationNumber={item.applicationNumber} disabled={synthetic} context="list" />{synthetic && <span className="ev-case-pdf-note">가상 출원번호는 PDF를 받을 수 없습니다.</span>}</div>
+    <div className="ev-case-pdf"><TargetPublicationDownload applicationNumber={item.applicationNumber} disabled={synthetic} context="list" showContext={false} />{synthetic && <span className="ev-case-pdf-note">가상 출원번호는 PDF를 받을 수 없습니다.</span>}</div>
   </div>;
 }
 

@@ -277,6 +277,7 @@ assert(!pdf.ancestors.some(element => element.type === 'button'), 'PDF controls 
 assert.equal(pdf.element.props.applicationNumber, item.applicationNumber);
 assert.equal(pdf.element.props.disabled, false);
 assert.equal(pdf.element.props.context, 'list');
+assert.equal(pdf.element.props.showContext, false, 'The task heading already identifies the application; its PDF action must not repeat it.');
 assert.equal(pdf.element.props.numberType, undefined);
 assert.equal(pdf.element.props.kind, undefined);
 TargetStub(pdf.element.props).props.onClick();
