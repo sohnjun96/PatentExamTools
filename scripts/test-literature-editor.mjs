@@ -10,6 +10,8 @@ let values = [];
 let hookIndex = 0;
 const hooks = {
   useId: () => 'editor-test',
+  useEffect() {},
+  useCallback: callback => callback,
   useState(initial) {
     const index = hookIndex++;
     if (!(index in values)) values[index] = typeof initial === 'function' ? initial() : initial;

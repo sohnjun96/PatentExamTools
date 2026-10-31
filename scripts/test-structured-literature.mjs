@@ -137,6 +137,43 @@ assert.deepEqual(migratedResult.draftDocuments, []);
 assert.deepEqual(migratedResult.draftDocumentDetails ?? [], [], 'Bureau migration must not leak another bureau\'s private reports.');
 assert.deepEqual(migratedResult.publishedDocumentDetails, foreignDraft.publishedDocumentDetails);
 
+// Autosaved editor snapshots preserve unfinished values without replacing canonical or published results.
+let snapshotState = rules.createDemoState('2026-11');
+const snapshotCase = snapshotState.cases.find(entry => entry.examinerId === 'demo-user-3');
+const canonicalBeforeSnapshot = structuredClone(rules.resultFor(snapshotState, snapshotCase.id, 'chatgpt'));
+const rawEditorState = {
+  documents: [
+    { kind: 'patent', number: ' kr  미완성 ', url: 'javascript:입력 중', reportMarkdown: '  ## 작성 중인 보고서\n\n| 구성 | 근거 |\n| --- | --- |\n  ' },
+    { kind: 'non-patent', number: '', title: '', authors: '저자 입력 중  ' },
+    { kind: 'non-patent', number: '', title: '', authors: '저자 입력 중  ' },
+  ],
+  bulkInput: '  {"documents": [\n  아직 완성하지 않은 JSON\n',
+};
+const snapshotAction = editorState => ({ type: 'saveResultDraft', caseId: snapshotCase.id, methodId: 'chatgpt', editorState });
+snapshotState = rules.applyAction(snapshotState, author, snapshotAction(rawEditorState));
+const snapshotResult = rules.resultFor(snapshotState, snapshotCase.id, 'chatgpt');
+assert.deepEqual(snapshotResult.draftEditorState, rawEditorState, 'Incomplete fields, duplicate unfinished rows and whitespace must survive autosave exactly.');
+assert.deepEqual(snapshotResult.draftDocuments, canonicalBeforeSnapshot.draftDocuments);
+assert.deepEqual(snapshotResult.publishedDocuments, canonicalBeforeSnapshot.publishedDocuments);
+assert.equal(snapshotResult.publishedVersion, canonicalBeforeSnapshot.publishedVersion);
+assert.deepEqual(rules.visibleState(snapshotState, author).results.find(entry => entry.id === snapshotResult.id).draftEditorState, rawEditorState);
+assert.equal(rules.visibleState(snapshotState, { userId: snapshotCase.examinerId }).results.find(entry => entry.id === snapshotResult.id).draftEditorState, undefined, 'Unpublished editor snapshots must never reach the examiner.');
+for (const value of [null, {}, { documents: [], bulkInput: 1 }, { documents: [], bulkInput: '', unsupported: true }, { documents: [{ kind: 'unknown', number: '' }], bulkInput: '' }, { documents: [{ kind: 'patent', number: '', reportMarkdown: [] }], bulkInput: '' }, { documents: [], bulkInput: 'x'.repeat(600001) }, { documents: [{ kind: 'patent', number: '', reportMarkdown: 'x'.repeat(rules.LITERATURE_REPORT_MAX_LENGTH + 1) }], bulkInput: '' }, { documents: Array.from({ length: 8 }, () => ({ kind: 'patent', number: '' })), bulkInput: '' }]) {
+  assert.throws(() => rules.applyAction(snapshotState, author, snapshotAction(value)), badRequest);
+}
+assert.throws(() => rules.applyAction(snapshotState, { userId: 'demo-user-3' }, snapshotAction(rawEditorState)), error => error.status === 403);
+const pausedSnapshotState = structuredClone(snapshotState);
+pausedSnapshotState.months[0].stages.result = 'stopped';
+assert.throws(() => rules.applyAction(pausedSnapshotState, author, snapshotAction(rawEditorState)), error => error.status === 409);
+assert.throws(() => rules.applyAction(snapshotState, author, { type: 'saveResult', caseId: snapshotCase.id, methodId: 'chatgpt', documents: rawEditorState.documents.map(document => document.number), documentDetails: rawEditorState.documents, publish: true }), badRequest, 'Autosaved incomplete values must still fail strict publication validation.');
+const committedSnapshotState = rules.applyAction(snapshotState, author, { type: 'saveResult', caseId: snapshotCase.id, methodId: 'chatgpt', documents: documents.map(document => document.number), documentDetails: documents, publish: false });
+assert.equal(rules.resultFor(committedSnapshotState, snapshotCase.id, 'chatgpt').draftEditorState, undefined, 'A successful explicit result save must clear the obsolete raw snapshot.');
+assert.deepEqual(rules.resultFor(rules.applyAction(snapshotState, author, snapshotAction({ documents: [], bulkInput: '' })), snapshotCase.id, 'chatgpt').draftEditorState, { documents: [], bulkInput: '' }, 'Deleting the last document must remain recoverable as an empty draft.');
+const foreignSnapshotState = structuredClone(scopedSource);
+const foreignSnapshotResult = rules.resultFor(foreignSnapshotState, item.id, 'chatgpt');
+foreignSnapshotResult.draftEditorState = rawEditorState;
+assert.equal(rules.resultFor(migration.migrateEvaluationBureau(foreignSnapshotState, '기획국'), item.id, 'chatgpt').draftEditorState, undefined, 'Another bureau\'s raw editor snapshot must not migrate into the workspace.');
+
 // Round-trip the real JSON payload through the real store in an isolated D1 database.
 const mf = new Miniflare({ modules: true, script: 'export default { fetch() { return new Response("test") } }', compatibilityDate: '2026-05-01', d1Databases: { DB: 'structured-literature-test' }, d1Persist: false });
 try {
@@ -223,6 +260,31 @@ try {
   const adminBody = await adminResponse.text();
   assert(!adminBody.includes('reportRef'), 'Administrative API responses must also contain hydrated reports rather than storage hashes.');
   assert(adminBody.includes('심사관에게 공개하기 전의 보고서'));
+  const persistedSnapshot = await store.mutateEvaluationState(afterStale.revision, author, { type: 'saveResultDraft', caseId: privacyCase.id, methodId: 'chatgpt', editorState: rawEditorState });
+  const recoveredSnapshot = await store.readEvaluationState();
+  assert.deepEqual(rules.resultFor(recoveredSnapshot.state, privacyCase.id, 'chatgpt').draftEditorState, rawEditorState, 'D1 must restore the exact unfinished editor and unapplied JSON draft.');
+  assert.deepEqual(rules.literatureDetailsFor(rules.resultFor(recoveredSnapshot.state, privacyCase.id, 'chatgpt')), originalPrivacyDocuments);
+  const rawSnapshotRow = await db.prepare('SELECT payload_json FROM evaluation_workspace WHERE id = ?').bind('main').first();
+  assert(!rawSnapshotRow.payload_json.includes('아직 완성하지 않은 JSON'), 'Unapplied bulk JSON must be externalized alongside reports.');
+  assert(!JSON.stringify(recoveredSnapshot.state).includes('bulkInputRef'), 'Hydrated application state must not expose private bulk storage references.');
+  const hiddenSnapshot = rules.visibleState(recoveredSnapshot.state, { userId: privacyCase.examinerId }).results.find(entry => entry.caseId === privacyCase.id && entry.methodId === 'chatgpt');
+  assert.equal(hiddenSnapshot.draftEditorState, undefined);
+  const maximumEscapedEditor = {
+    documents: Array.from({ length: 7 }, () => ({ kind: 'patent', number: '', reportMarkdown: '\n'.repeat(rules.LITERATURE_REPORT_MAX_LENGTH) })),
+    bulkInput: '"\\\n'.repeat(200000),
+  };
+  const largePostBody = { revision: persistedSnapshot.revision, actor: author, action: { type: 'saveResultDraft', caseId: privacyCase.id, methodId: 'chatgpt', editorState: maximumEscapedEditor } };
+  const encodedLargePost = JSON.stringify(largePostBody);
+  assert(encodedLargePost.length > 1_000_000 && encodedLargePost.length < 2_000_000, 'The maximum escaped snapshot fixture must exercise the expanded API request cap.');
+  const largeSnapshotResponse = await api.POST({ nextUrl: new URL('http://localhost/api/evaluation'), text: async () => encodedLargePost });
+  assert.equal(largeSnapshotResponse.status, 200, 'A valid heavily escaped raw draft must fit the API request cap.');
+  const largeSnapshotApi = await largeSnapshotResponse.json();
+  assert.deepEqual(rules.resultFor(largeSnapshotApi.state, privacyCase.id, 'chatgpt').draftEditorState, maximumEscapedEditor);
+  const reloadedMaximum = await store.readEvaluationState();
+  assert.deepEqual(rules.resultFor(reloadedMaximum.state, privacyCase.id, 'chatgpt').draftEditorState, maximumEscapedEditor);
+  const staleMaximumRevision = persistedSnapshot.revision;
+  await assert.rejects(() => store.mutateEvaluationState(staleMaximumRevision, author, { type: 'saveResultDraft', caseId: privacyCase.id, methodId: 'chatgpt', editorState: rawEditorState }), error => error.status === 409);
+  assert.deepEqual(rules.resultFor((await store.readEvaluationState()).state, privacyCase.id, 'chatgpt').draftEditorState, maximumEscapedEditor, 'A rejected stale autosave must not overwrite newer unfinished work.');
   console.log(`Large-report D1 persistence: ${hydratedBytes.toLocaleString('en-US')} hydrated bytes, ${Buffer.byteLength(rawRow.payload_json, 'utf8').toLocaleString('en-US')} persisted workspace bytes, ${new Set(refs).size} unique report references.`);
 } finally {
   await mf.dispose();

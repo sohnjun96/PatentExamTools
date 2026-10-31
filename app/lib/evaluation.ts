@@ -56,11 +56,14 @@ export type LiteratureDocument = {
   publisher?: string; publicationDate?: string; volume?: string; issue?: string; pages?: string;
   acquiredDate?: string; dateNote?: string; url?: string; reportMarkdown?: string;
 };
+/** Unfinished editor values remain private and are validated only when published. */
+export type ResultDraftEditorState = { documents: LiteratureDocument[]; bulkInput: string };
 export type AIResult = {
   id: string; caseId: string; methodId: string; draftDocuments: string[]; draftAuthorId: string;
   publishedDocuments: string[]; publishedVersion: number; publishedBy: { id: string; name: string } | null;
   publishedAt: string | null;
   draftDocumentDetails?: LiteratureDocument[]; publishedDocumentDetails?: LiteratureDocument[];
+  draftEditorState?: ResultDraftEditorState;
 };
 export type DocumentEvaluation = { number: string; score: number | null; cited: 'O' | 'X' | null; note: string };
 export type MethodEvaluation = { caseId: string; methodId: string; version: number; documents: DocumentEvaluation[]; updatedAt: string };
@@ -96,6 +99,7 @@ export type EvaluationAction =
   | { type: 'adminAddCase'; monthId: string; examinerId: string; row: SelectionRow }
   | { type: 'cancelCase'; caseId: string }
   | { type: 'saveResult'; caseId: string; methodId: string; documents: string[]; documentDetails?: LiteratureDocument[]; publish: boolean }
+  | { type: 'saveResultDraft'; caseId: string; methodId: string; editorState: ResultDraftEditorState }
   | { type: 'saveEvaluation'; caseId: string; evaluations: { methodId: string; version: number; documents: DocumentEvaluation[] }[]; rankings: Record<string, RankValue>; versions: Record<string, number>; overallComment?: string }
   | { type: 'loadDemo' };
 
@@ -172,6 +176,33 @@ export function normalizeLiteratureDocuments(values: unknown, allowEmpty = false
   if (!allowEmpty && documents.length === 0) fail('입력 완료하려면 문헌을 한 건 이상 입력해 주세요.');
   if (new Set(documents.map((document) => identity(document.number))).size !== documents.length) fail('같은 AI 결과 안에 중복 문헌이 있습니다.');
   return documents;
+}
+
+/** Autosave accepts incomplete work without changing whitespace or interpreting it. */
+function resultDraftEditorStateFrom(value: unknown): ResultDraftEditorState {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return fail('자동저장할 입력 형식을 확인해 주세요.');
+  const entry = value as Record<string, unknown>;
+  if (Object.keys(entry).some((field) => field !== 'documents' && field !== 'bulkInput')) return fail('자동저장할 입력 필드를 확인해 주세요.');
+  if (!Array.isArray(entry.documents) || entry.documents.length > 7) return fail('자동저장할 문헌은 최대 7건까지 입력할 수 있습니다.');
+  if (typeof entry.bulkInput !== 'string' || entry.bulkInput.length > 600_000) return fail('자동 입력 원문은 600,000자 이내로 입력해 주세요.');
+  const documents = entry.documents.map((value, index): LiteratureDocument => {
+    const label = `${index + 1}번째 문헌`;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return fail(`${label}의 자동저장 형식을 확인해 주세요.`);
+    const document = value as Record<string, unknown>;
+    if (typeof document.kind !== 'string' || !['patent', 'non-patent', 'legacy'].includes(document.kind)) return fail(`${label}의 문헌 종류를 확인해 주세요.`);
+    if (Object.keys(document).some((field) => field !== 'kind' && field !== 'number' && !(literatureFields as readonly string[]).includes(field))) return fail(`${label}의 자동저장 필드를 확인해 주세요.`);
+    if (typeof document.number !== 'string' || document.number.length > LITERATURE_MAX_LENGTH) return fail(`${label}의 문헌번호·서지정보는 2,000자 이내의 텍스트로 입력해 주세요.`);
+    const snapshot: LiteratureDocument = { kind: document.kind as LiteratureDocument['kind'], number: document.number };
+    for (const field of literatureFields) {
+      const raw = document[field];
+      if (raw === undefined) continue;
+      const limit = field === 'reportMarkdown' ? LITERATURE_REPORT_MAX_LENGTH : LITERATURE_MAX_LENGTH;
+      if (typeof raw !== 'string' || raw.length > limit) return fail(`${label}의 ${field} 필드는 ${limit.toLocaleString('ko-KR')}자 이내의 텍스트로 입력해 주세요.`);
+      snapshot[field] = raw;
+    }
+    return snapshot;
+  });
+  return { documents, bulkInput: entry.bulkInput };
 }
 
 /** Accept the exact JSON response, including the single code block commonly returned by AI. */
@@ -670,12 +701,21 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       cancelEvaluationCase(state, item);
       return state;
     }
+    case 'saveResultDraft':
     case 'saveResult': {
       const user = actorUser(state, actor);
       const item = state.cases.find((entry) => entry.id === action.caseId && entry.status === 'confirmed') ?? fail('확정 출원이 없습니다.');
       const month = monthOf(state, item.monthId);
       editable(month, 'result');
       if (!canInputResult(state, actor, item, action.methodId)) fail('배정받은 그룹과 AI 조사 방식만 입력할 수 있습니다.', 403);
+      if (action.type === 'saveResultDraft') {
+        const editorState = resultDraftEditorStateFrom(action.editorState);
+        let result = resultFor(state, item.id, action.methodId);
+        if (!result) { result = { id: uid(), caseId: item.id, methodId: action.methodId, draftDocuments: [], draftAuthorId: user.id, publishedDocuments: [], publishedVersion: 0, publishedBy: null, publishedAt: null }; state.results.push(result); }
+        result.draftEditorState = editorState;
+        result.draftAuthorId = user.id;
+        return state;
+      }
       const documents = documentsFrom(action.documents, !action.publish);
       let result = resultFor(state, item.id, action.methodId);
       const details = action.documentDetails === undefined
@@ -687,6 +727,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       if (!result) { result = { id: uid(), caseId: item.id, methodId: action.methodId, draftDocuments: [], draftAuthorId: user.id, publishedDocuments: [], publishedVersion: 0, publishedBy: null, publishedAt: null }; state.results.push(result); }
       result.draftDocuments = documents;
       result.draftDocumentDetails = structuredClone(orderedDetails);
+      delete result.draftEditorState;
       result.draftAuthorId = user.id;
       if (action.publish) {
         if (!sameSet(result.publishedDocuments, documents) || !sameLiteratureDetails(literatureDetailsFor(result), orderedDetails)) result.publishedVersion += 1;
@@ -767,7 +808,7 @@ export function visibleState(state: EvaluationState, actor: EvaluationActor): Ev
       return item.examinerId === user?.id || canInputResult(state, actor, item, result.methodId);
     }).map((result) => {
       const item = visibleCases.find((entry) => entry.id === result.caseId)!;
-      return canInputResult(state, actor, item, result.methodId) ? result : { ...result, draftDocuments: [], draftDocumentDetails: [], draftAuthorId: '' };
+      return canInputResult(state, actor, item, result.methodId) ? result : { ...result, draftDocuments: [], draftDocumentDetails: [], draftEditorState: undefined, draftAuthorId: '' };
     }),
     evaluations: state.evaluations.filter((evaluation) => visibleCases.some((item) => item.id === evaluation.caseId && item.examinerId === user?.id)),
     rankings: state.rankings.filter((ranking) => visibleCases.some((item) => item.id === ranking.caseId && item.examinerId === user?.id)),

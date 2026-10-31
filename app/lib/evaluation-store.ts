@@ -25,16 +25,22 @@ async function evaluationDatabase() {
 }
 
 type PersistedLiteratureDocument = LiteratureDocument & { reportRef?: string };
+type PersistedBulkInput = { bulkInput?: string; bulkInputRef?: string };
 
 function reportDocuments(state: EvaluationState): PersistedLiteratureDocument[] {
-  return state.results.flatMap((result) => [...(result.draftDocumentDetails ?? []), ...(result.publishedDocumentDetails ?? [])]);
+  return state.results.flatMap((result) => [...(result.draftDocumentDetails ?? []), ...(result.publishedDocumentDetails ?? []), ...(result.draftEditorState?.documents ?? [])]);
+}
+
+function bulkInputs(state: EvaluationState): PersistedBulkInput[] {
+  return state.results.flatMap((result) => result.draftEditorState ? [result.draftEditorState] : []);
 }
 
 /** Keep the workspace row small; immutable reports can safely serve in-flight readers. */
 async function encodeReports(state: EvaluationState) {
   const persisted = structuredClone(state);
   const documents = reportDocuments(persisted);
-  const contents = [...new Set(documents.map((document) => document.reportMarkdown).filter((value): value is string => typeof value === 'string' && value.length > 0))];
+  const bulk = bulkInputs(persisted);
+  const contents = [...new Set([...documents.map((document) => document.reportMarkdown), ...bulk.map((entry) => entry.bulkInput)].filter((value): value is string => typeof value === 'string' && value.length > 0))];
   const hashes = new Map(await Promise.all(contents.map(async (markdown): Promise<[string, string]> => {
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(markdown));
     const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -44,6 +50,12 @@ async function encodeReports(state: EvaluationState) {
     if (document.reportMarkdown) {
       document.reportRef = hashes.get(document.reportMarkdown)!;
       delete document.reportMarkdown;
+    }
+  }
+  for (const entry of bulk) {
+    if (entry.bulkInput) {
+      entry.bulkInputRef = hashes.get(entry.bulkInput)!;
+      delete entry.bulkInput;
     }
   }
   return { payload: JSON.stringify(persisted), reports: contents.map((markdown) => ({ hash: hashes.get(markdown)!, markdown })) };
@@ -63,9 +75,11 @@ function reportInserts(db: D1Database, id: string, reports: { hash: string; mark
 async function hydrateReports(db: D1Database, id: string, state: EvaluationState) {
   const documents = reportDocuments(state);
   const references = documents.filter((document) => Object.prototype.hasOwnProperty.call(document, 'reportRef'));
-  if (!references.length) return state; // Existing inline Markdown remains readable.
-  if (references.some((document) => typeof document.reportRef !== 'string' || !/^[a-f0-9]{64}$/.test(document.reportRef))) throw new EvaluationError('문헌 보고서 참조를 확인할 수 없습니다. 관리자에게 문의해 주세요.', 500);
-  const hashes = [...new Set(references.map((document) => document.reportRef!))];
+  const bulkReferences = bulkInputs(state).filter((entry) => Object.prototype.hasOwnProperty.call(entry, 'bulkInputRef'));
+  if (!references.length && !bulkReferences.length) return state; // Existing inline text remains readable.
+  const rawHashes = [...references.map((document) => document.reportRef), ...bulkReferences.map((entry) => entry.bulkInputRef)];
+  if (rawHashes.some((hash) => typeof hash !== 'string' || !/^[a-f0-9]{64}$/.test(hash))) throw new EvaluationError('문헌 보고서·자동 입력 원문 참조를 확인할 수 없습니다. 관리자에게 문의해 주세요.', 500);
+  const hashes = [...new Set(rawHashes as string[])];
   const markdownByHash = new Map<string, string>();
   // One workspace parameter plus at most 79 hashes per lookup.
   for (let offset = 0; offset < hashes.length; offset += 79) {
@@ -79,6 +93,12 @@ async function hydrateReports(db: D1Database, id: string, state: EvaluationState
     if (markdown === undefined) throw new EvaluationError('저장된 문헌 보고서를 불러올 수 없습니다. 관리자에게 문의해 주세요.', 500);
     document.reportMarkdown = markdown;
     delete document.reportRef;
+  }
+  for (const entry of bulkReferences) {
+    const bulkInput = markdownByHash.get(entry.bulkInputRef!);
+    if (bulkInput === undefined) throw new EvaluationError('저장된 자동 입력 원문을 불러올 수 없습니다. 관리자에게 문의해 주세요.', 500);
+    entry.bulkInput = bulkInput;
+    delete entry.bulkInputRef;
   }
   return state;
 }

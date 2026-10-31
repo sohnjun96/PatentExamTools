@@ -35,7 +35,7 @@ export function resolveTask(state: EvaluationState, request: TaskRequest) {
 export function taskContentKey(state: EvaluationState, request: TaskRequest) {
   if (request.kind === 'result') {
     const result = resultFor(state, request.caseId, request.methodId);
-    return JSON.stringify({ draft: literatureDetailsFor(result, 'draft'), publishedVersion: result?.publishedVersion || 0 });
+    return JSON.stringify({ draft: literatureDetailsFor(result, 'draft'), editorState: result?.draftEditorState, publishedVersion: result?.publishedVersion || 0 });
   }
   const item = state.cases.find(entry => entry.id === request.caseId);
   return JSON.stringify({

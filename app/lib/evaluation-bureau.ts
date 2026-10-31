@@ -47,6 +47,7 @@ export function migrateEvaluationBureau(legacy: EvaluationState, bureau: Bureau)
       // identity and unpublished edit do not belong to this workspace.
       draftDocuments: userIds.has(result.draftAuthorId) ? result.draftDocuments : [],
       draftDocumentDetails: userIds.has(result.draftAuthorId) ? result.draftDocumentDetails : [],
+      draftEditorState: userIds.has(result.draftAuthorId) ? result.draftEditorState : undefined,
       draftAuthorId: userIds.has(result.draftAuthorId) ? result.draftAuthorId : '',
       publishedBy: result.publishedBy && userIds.has(result.publishedBy.id) ? result.publishedBy : null,
     })),

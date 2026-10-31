@@ -10,4 +10,11 @@
 .lit-editor summary:focus-visible { outline:3px solid var(--krds-color-light-primary-60); outline-offset:3px; }
 .lit-report-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
 .lit-editor .lit-report-help { margin:0; color:var(--ev-muted); font-size:13px; line-height:1.7; }
+.lit-autosave { display:flex; align-items:center; gap:12px; flex-wrap:wrap; min-width:0; color:var(--ev-muted,#58616a); font-size:14px; line-height:1.6; }
+.lit-autosave p { margin:0; overflow-wrap:anywhere; }
+.lit-autosave-saved { color:var(--krds-color-light-success-70,#1b6431); }
+.lit-autosave-error { color:var(--krds-color-light-danger-70,#8a231f); }
+.lit-autosave-waiting,.lit-autosave-saving { color:var(--krds-color-light-primary-70,#083891); }
+.lit-editor .tw-footer > .lit-error { flex-basis:100%; }
+.lit-editor .tw-footer > .ev-actions { margin-left:auto; }
 @media(max-width:640px) { .lit-field-grid { grid-template-columns:1fr; } .lit-editor fieldset.lit-document { padding:16px; } }
