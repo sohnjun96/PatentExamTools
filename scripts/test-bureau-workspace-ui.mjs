@@ -568,23 +568,26 @@ for(const patch of [{busy:true},{hasUnsaved:true}]) {
 const mixedReferences = ['KR1020200000000A', 'Attention Is All You Need', '10.48550/arXiv.1706.03762', 'https://arxiv.org/abs/1706.03762'];
 const mixedState = domain.applyAction(demo, { userId: 'demo-user-1' }, { type: 'saveResult', caseId: demo.cases[0].id, methodId: 'chatgpt', documents: mixedReferences, publish: true });
 const mixedProps = { state: mixedState, item: mixedState.cases[0], month: mixedState.months[0], busy: false, dirty() {}, save: async () => true };
-const commentField = tree => descendants(tree).find(({ element }) => element.type === 'textarea' && element.props['aria-label'] === `${mixedProps.item.applicationNumber} 건 관련 피드백(선택)`).element;
+const commentField = tree => descendants(tree).find(({ element }) => element.type === 'textarea' && element.props['aria-label'] === `${mixedProps.item.applicationNumber} 건 관련 피드백(선택)`)?.element;
+function summaryEditor(props, overrides = []) { hookIndex = 0; hookOverrides = overrides; hookOverrides[7] = 'results'; return ui.TestEvaluationEditor(props); }
 hookIndex=0; hookOverrides=[];
 const evaluationTree=ui.TestEvaluationEditor(mixedProps);
-assert.equal(commentField(evaluationTree).props.value,'');
-assert.equal(commentField(evaluationTree).props.maxLength,domain.OVERALL_COMMENT_MAX_LENGTH);
+assert.equal(commentField(evaluationTree),undefined,'Case feedback belongs to the result-review step.');
+const summaryTree=summaryEditor(mixedProps);
+assert.equal(commentField(summaryTree).props.value,'');
+assert.equal(commentField(summaryTree).props.maxLength,domain.OVERALL_COMMENT_MAX_LENGTH);
 assert(!descendants(evaluationTree).some(({element})=>element.type==='table'),'Reports and evaluations use independent panes.');
 const deliveredOnlyState=structuredClone(mixedState); deliveredOnlyState.months[0].methodIds=[];
 deliveredOnlyState.results=deliveredOnlyState.results.filter(result=>result.caseId!==mixedProps.item.id||result.methodId!=='claude');
 hookIndex=0;hookOverrides=[];
-assert.deepEqual(descendants(ui.TestEvaluationEditor({...mixedProps,state:deliveredOnlyState})).filter(({element})=>element.props.className==='tw-rank-buttons').map(({element})=>element.props['aria-label']),['ChatGPT 품질 순위','선행기술조사 품질 순위']);
+assert.deepEqual(descendants(summaryEditor({...mixedProps,state:deliveredOnlyState})).filter(({element})=>element.props.className==='tw-rank-buttons').map(({element})=>element.props['aria-label']),['ChatGPT 품질 순위','선행기술조사 품질 순위']);
 let savedCommentAction;
 hookIndex=0;hookOverrides=[];hookOverrides[2]='작성한 총평';
-const commentSaveTree=ui.TestEvaluationEditor({...mixedProps,save:async action=>{savedCommentAction=action;return false;}});
-await descendants(commentSaveTree).find(({element})=>element.type==='button'&&Array.isArray(element.props.children)&&element.props.children.includes('평가 저장')).element.props.onClick();
+const commentSaveTree=summaryEditor({...mixedProps,save:async action=>{savedCommentAction=action;return false;}},hookOverrides);
+await descendants(commentSaveTree).find(({element})=>element.type==='button'&&element.props.children==='임시저장').element.props.onClick();
 await new Promise(resolve=>setImmediate(resolve));
 assert.equal(savedCommentAction.overallComment,'작성한 총평');
-for(const blocked of [{busy:true},{month:{...mixedProps.month,closed:true}}]){hookIndex=0;hookOverrides=[];assert.equal(commentField(ui.TestEvaluationEditor({...mixedProps,...blocked})).props.disabled,true);}
+for(const blocked of [{busy:true},{month:{...mixedProps.month,closed:true}}]){assert.equal(commentField(summaryEditor({...mixedProps,...blocked})).props.disabled,true);}
 const structuredDocuments=domain.normalizeLiteratureDocuments([
  {kind:'patent',number:'KR20100001234A',url:'https://example.test/published-patent',reportMarkdown:'## 공개 특허 보고서\n\n구성 대비 내용.'},
  {kind:'non-patent',authors:'Lee, S.',title:'A structured reference',publication:'Research Journal',publicationPlace:'Seoul',publisher:'Research Press',publicationDate:'2020-06',volume:'Vol. 1',issue:'No. 3',pages:'pp. 12–16',acquiredDate:'2026-10-30',dateNote:'발행일 미상',url:'https://example.test/published-paper',reportMarkdown:'## 공개 논문 보고서\n\n관련 구성과 근거.'}
@@ -994,7 +997,7 @@ assert.equal(blockedReportChanges, 0);
 const noReportReviewState = domain.createDemoState('2026-11');
 noReportReviewState.cases[0].hasPriorArtReport = false;
 hookIndex = 0; hookOverrides = [];
-const noReportReview = ui.TestEvaluationEditor({ state: noReportReviewState, month: noReportReviewState.months[0], item: noReportReviewState.cases[0], busy: false, dirty() {}, save: async () => true });
+const noReportReview = summaryEditor({ state: noReportReviewState, month: noReportReviewState.months[0], item: noReportReviewState.cases[0], busy: false, dirty() {}, save: async () => true });
 assert(!descendants(noReportReview).some(({ element }) => /^선행기술조사 (?:품질 순위|[123]위)/.test(element.props['aria-label'] || '')), 'A missing prior-art report must not appear in examiner ranking controls.');
 assert(descendants(noReportReview).some(({ element }) => element.props['aria-label'] === 'ChatGPT 품질 순위'));
 assert(descendants(noReportReview).some(({ element }) => element.props['aria-label'] === '클로드 품질 순위'));

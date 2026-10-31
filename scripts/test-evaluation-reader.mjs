@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import ts from 'typescript';
 import * as domain from '../app/lib/evaluation.ts';
 import * as guidance from '../app/lib/evaluation-guidance.ts';
+import * as literatureLinks from '../app/lib/literature-link.ts';
 
 const require = createRequire(import.meta.url);
 let cells = [], refs = [], cursor = 0, refCursor = 0, props, actions = [];
@@ -26,6 +27,7 @@ vm.runInNewContext(compiled, { module, exports: module.exports, require: id => {
   if (id === 'react/jsx-runtime') return require(id);
   if (id.endsWith('/evaluation')) return domain;
   if (id.endsWith('/evaluation-guidance')) return guidance;
+  if (id.endsWith('/literature-link')) return literatureLinks;
   return { default: () => null };
 } });
 const Reader = module.exports.default;
@@ -48,63 +50,98 @@ function reset(state = domain.createDemoState('2026-11')) {
 }
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-reset();
-assert(text(render()).includes('10-2026-0123981 건에 대한 조사 방식별 검색 품질 순위'));
-assert(!text(render()).includes('미선택으로 변경'));
-assert(!nodes(render()).some(node => node.type === 'select'));
-assert(field('문헌별 피드백(선택)'));
+const hasButton = label => nodes(render()).some(node => node.type === 'button' && (node.props['aria-label'] === label || text(node) === label));
+function completeDocuments() {
+  for (;;) {
+    choose('0'); choose('미인용 X');
+    if (button('다음 문헌').props.disabled) break;
+    choose('다음 문헌');
+  }
+}
+const incomplete = domain.createDemoState('2026-11');
+incomplete.evaluations.find(entry => entry.caseId === incomplete.cases[0].id && entry.methodId === 'chatgpt').documents[0].score = null;
+reset(incomplete);
+assert(!hasButton('평가 결과 보기'), 'Do not offer final review before every published document is scored and cited.');
+assert(!field('10-2026-0123981 건 관련 피드백(선택)'));
+assert(!nodes(render()).some(node => node.props.className === 'tw-rank-buttons'));
+const progress = nodes(render()).find(node => node.type === 'progress');
+assert.equal(progress.props.value, 13); assert.equal(progress.props.max, 14);
+field('문헌별 피드백(선택)').props.onChange({ target: { value: '첫 문헌 피드백' } });
+choose('0');
+assert(hasButton('평가 결과 보기'), 'A score of zero and an X citation still count as evaluated.');
+completeDocuments();
+assert.equal(nodes(render()).find(node => node.type === 'progress').props.value, 14);
+choose('임시저장'); await settle();
+assert.equal(actions[0].finalize, false);
+assert.equal(domain.caseStatus(domain.applyAction(props.state, { userId: props.item.examinerId }, actions[0]), props.item).complete, false);
+choose('평가 결과 보기');
+assert.equal(actions.length, 1, 'Opening the summary must not prematurely finalize or save.');
+let tableNodes = nodes(render());
+assert.deepEqual(tableNodes.filter(node => node.type === 'th').map(node => text(node)), ['AI 종류', '특허 여부', '인용문헌 명', '문헌 점수', '인용 여부']);
+assert.equal(tableNodes.find(node => node.type === 'tbody').props.children.length, 14);
+assert.equal(button('평가 종료').props.disabled, true, 'Finalization requires complete rankings.');
+assert(!field('문헌별 피드백(선택)'));
 assert(field('10-2026-0123981 건 관련 피드백(선택)'));
-assert(text(render()).includes('순위 선택 0/3'));
 choose('ChatGPT 1위'); choose('클로드 2위'); choose('선행기술조사 3위');
-assert(text(render()).includes('선택 완료'));
-// Reordering a complete ranking should take one click and preserve uniqueness.
 choose('선행기술조사 1위');
 assert(selected('ChatGPT 3위')); assert(selected('클로드 2위')); assert(selected('선행기술조사 1위'));
-field('문헌별 피드백(선택)').props.onChange({ target: { value: '문헌의 구성 대응을 확인했습니다.' } });
-field('10-2026-0123981 건 관련 피드백(선택)').props.onChange({ target: { value: '출원 전체에 대한 피드백' } });
-choose('0'); choose('미인용 X');
-const firstNote = field('문헌별 피드백(선택)').props.value;
-choose('다음 문헌');
-assert.notEqual(field('문헌별 피드백(선택)').props.value, firstNote, 'Feedback stays attached to its document.');
-choose('평가 저장'); await settle();
-const action = actions[0];
-assert.equal(action.rankings.chatgpt, 3); assert.equal(action.rankings.claude, 2); assert.equal(action.rankings.baseline, 1);
-assert.equal(action.overallComment, '출원 전체에 대한 피드백');
-const first = action.evaluations.find(entry => entry.methodId === 'chatgpt').documents[0];
-assert.equal(first.score, 0); assert.equal(first.cited, 'X'); assert.equal(first.note, firstNote);
-const persisted = domain.applyAction(props.state, { userId: props.item.examinerId }, action);
-assert.equal(persisted.rankings.find(entry => entry.caseId === props.item.id).overallComment, action.overallComment);
+field('10-2026-0123981 건 관련 피드백(선택)').props.onChange({ target: { value: '출원 전체 피드백' } });
+const firstCitation = nodes(render()).find(node => node.props.className === 'tw-result-document');
+firstCitation.props.onClick();
+assert.equal(field('문헌별 피드백(선택)').props.value, '첫 문헌 피드백');
+choose('평가 결과 보기');
+assert.equal(field('10-2026-0123981 건 관련 피드백(선택)').props.value, '출원 전체 피드백');
+assert(selected('ChatGPT 3위'));
+choose('평가 종료'); await settle();
+const finalAction = actions.at(-1);
+assert.equal(finalAction.finalize, true); assert.equal(finalAction.overallComment, '출원 전체 피드백');
+assert.equal(finalAction.evaluations[0].documents[0].score, 0); assert.equal(finalAction.evaluations[0].documents[0].cited, 'X');
+assert.equal(finalAction.evaluations[0].documents[0].note, '첫 문헌 피드백');
+assert(domain.caseStatus(domain.applyAction(props.state, { userId: props.item.examinerId }, finalAction), props.item).complete);
+assert(text(render()).includes('평가가 종료되었습니다.')); assert.equal(button('평가 종료됨').props.disabled, true);
+assert.equal(field('10-2026-0123981 건 관련 피드백(선택)').props.disabled, true);
+choose('평가 수정');
+assert(field('문헌별 피드백(선택)')); assert.equal(field('문헌별 피드백(선택)').props.disabled, false);
+assert(!nodes(render()).some(node => node.props.className === 'tw-rank-buttons'));
 
-reset(); choose('ChatGPT 1위');
-choose('클로드 1위');
-assert(!selected('ChatGPT 1위'), 'Assigning an occupied rank clears an unranked method rather than inventing a tie.');
-choose('평가 저장'); await settle();
-assert(text(render()).includes('중간 저장됨')); assert(text(render()).includes('검색 품질 순위가 미완료'));
-assert.equal(actions[0].rankings.claude, 1);
-assert(nodes(render()).some(node => node.props['aria-label'] === 'ChatGPT 품질 순위' && node.props['aria-invalid']));
-
-reset();
-let finish;
-props.save = action => { actions.push(action); return new Promise(resolve => { finish = resolve; }); };
-choose('ChatGPT 1위'); field('문헌별 피드백(선택)').props.onChange({ target: { value: '저장 실패 후에도 보관' } });
-const saveButton = button('평가 저장'); saveButton.props.onClick(); saveButton.props.onClick();
-button('클로드 1위').props.onClick();
+reset(); choose('평가 결과 보기'); choose('ChatGPT 1위'); choose('클로드 2위'); choose('선행기술조사 3위');
+field('10-2026-0123981 건 관련 피드백(선택)').props.onChange({ target: { value: '실패해도 유지할 피드백' } });
+let finish; props.save = action => { actions.push(action); return new Promise(resolve => { finish = resolve; }); };
+const ending = button('평가 종료'); ending.props.onClick(); ending.props.onClick(); button('클로드 1위').props.onClick();
 assert.equal(actions.length, 1); assert(selected('ChatGPT 1위')); assert.equal(button('클로드 1위').props.disabled, true);
 finish(false); await settle();
-assert.equal(field('문헌별 피드백(선택)').props.value, '저장 실패 후에도 보관'); assert(selected('ChatGPT 1위'));
+assert.equal(field('10-2026-0123981 건 관련 피드백(선택)').props.value, '실패해도 유지할 피드백');
+assert(!text(render()).includes('평가가 종료되었습니다.')); assert.equal(button('평가 종료').props.disabled, false);
 for (const status of ['pending', 'stopped', 'closed']) {
   props.month = { ...props.month, stages: { ...props.month.stages, evaluation: status } };
-  assert.equal(button('클로드 1위').props.disabled, true); assert.equal(field('문헌별 피드백(선택)').props.disabled, true);
+  assert.equal(button('평가 종료').props.disabled, true); assert.equal(button('클로드 1위').props.disabled, true);
+  assert.equal(field('10-2026-0123981 건 관련 피드백(선택)').props.disabled, true);
 }
+
+const structured = domain.createDemoState('2026-11');
+const details = domain.normalizeLiteratureDocuments([{ kind: 'patent', number: 'KR20100001234A' }, { kind: 'non-patent', title: '공정 제어 연구', authors: 'Kim, J.' }]);
+const mixed = domain.applyAction(structured, { userId: structured.cases[0].examinerId }, { type: 'saveResult', caseId: structured.cases[0].id, methodId: 'chatgpt', documents: details.map(entry => entry.number), documentDetails: details, publish: true });
+reset(mixed); completeDocuments(); choose('평가 결과 보기');
+const rows = nodes(render()).find(node => node.type === 'tbody').props.children;
+assert.equal(text(rows[0].props.children[1]), '특허'); assert.equal(text(rows[0].props.children[2]), 'KR20100001234A');
+assert.equal(text(rows[1].props.children[1]), '비특허'); assert.equal(text(rows[1].props.children[2]), '공정 제어 연구');
+assert.equal(rows.length, 9); assert.equal(text(rows[0].props.children[3]), '0'); assert.equal(text(rows[0].props.children[4]), 'X');
 
 const four = domain.createDemoState('2026-11');
 four.methods.push({ ...four.methods.find(method => method.id === 'chatgpt'), id: 'third-ai', name: '세 번째 AI' });
 four.results.push({ ...structuredClone(four.results.find(result => result.caseId === four.cases[0].id && result.methodId === 'chatgpt')), methodId: 'third-ai' });
-reset(four); choose('ChatGPT 1위'); choose('클로드 2위'); choose('세 번째 AI 3위'); choose('선행기술조사 순위 외');
-assert(text(render()).includes('선택 완료'));
-choose('세 번째 AI 평가 제외');
-assert(button('선행기술조사 순위 외 (다시 선택해 주세요)').props.disabled);
-choose('선행기술조사 3위'); assert(text(render()).includes('선택 완료'));
+reset(four); completeDocuments(); choose('평가 결과 보기');
+choose('ChatGPT 1위'); choose('클로드 2위'); choose('세 번째 AI 3위'); choose('선행기술조사 순위 외');
+assert.equal(button('평가 종료').props.disabled, false);
+choose('세 번째 AI 평가 제외'); assert(button('선행기술조사 순위 외 (다시 선택해 주세요)').props.disabled);
+choose('선행기술조사 3위'); assert.equal(button('평가 종료').props.disabled, false);
 choose('ChatGPT 평가 제외'); choose('클로드 평가 제외'); choose('선행기술조사 비교 불가');
-assert(text(render()).includes('선택 완료'), 'Existing exclusion and single-comparable rules must remain valid.');
-console.log('Evaluation reader passed: per-case feedback, rank toggles/swaps, incomplete-rank reminders, 0/X preservation, persistence, failure recovery, duplicate-save lock, phase guards and comparison edge cases.');
+assert.equal(button('평가 종료').props.disabled, false);
+
+reset(domain.createDemoState('2026-11'));
+// A persisted final evaluation reopens as a read-only result view, with explicit editing while the phase is open.
+const persisted = domain.applyAction(props.state, { userId: props.item.examinerId }, { ...finalAction, caseId: props.item.id });
+props = { ...props, state: persisted, item: persisted.cases[0] }; cells = []; refs = [];
+assert(text(render()).includes('평가가 종료되었습니다.')); assert(!field('문헌별 피드백(선택)'));
+assert.equal(button('평가 종료됨').props.disabled, true); assert(hasButton('평가 수정'));
+console.log('Evaluation reader passed: gated two-step workflow, progress, five-column summary, patent/paper names, 0/X, draft/final persistence, retained edits, explicit reopening, failure recovery, phase guards and ranking edge cases.');

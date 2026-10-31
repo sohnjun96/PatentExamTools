@@ -68,7 +68,7 @@ export type AIResult = {
 export type DocumentEvaluation = { number: string; score: number | null; cited: 'O' | 'X' | null; note: string };
 export type MethodEvaluation = { caseId: string; methodId: string; version: number; documents: DocumentEvaluation[]; updatedAt: string };
 export type RankValue = 1 | 2 | 3 | 'unranked' | 'excluded' | 'incomparable' | null;
-export type QualityRanking = { caseId: string; versions: Record<string, number>; values: Record<string, RankValue>; updatedAt: string; overallComment?: string; baselineAvailable?: boolean };
+export type QualityRanking = { caseId: string; versions: Record<string, number>; values: Record<string, RankValue>; updatedAt: string; overallComment?: string; baselineAvailable?: boolean; finalized?: boolean };
 export type EvaluationNotice = { markdown: string; updatedAt: string };
 export const NOTICE_MAX_LENGTH = 20_000;
 export const LITERATURE_MAX_LENGTH = 2_000;
@@ -100,7 +100,7 @@ export type EvaluationAction =
   | { type: 'cancelCase'; caseId: string }
   | { type: 'saveResult'; caseId: string; methodId: string; documents: string[]; documentDetails?: LiteratureDocument[]; publish: boolean }
   | { type: 'saveResultDraft'; caseId: string; methodId: string; editorState: ResultDraftEditorState }
-  | { type: 'saveEvaluation'; caseId: string; evaluations: { methodId: string; version: number; documents: DocumentEvaluation[] }[]; rankings: Record<string, RankValue>; versions: Record<string, number>; overallComment?: string }
+  | { type: 'saveEvaluation'; caseId: string; evaluations: { methodId: string; version: number; documents: DocumentEvaluation[] }[]; rankings: Record<string, RankValue>; versions: Record<string, number>; overallComment?: string; finalize?: boolean }
   | { type: 'loadDemo' };
 
 export class EvaluationError extends Error {
@@ -447,7 +447,7 @@ export function caseStatus(state: EvaluationState, item: EvaluationCase) {
     return result && result.publishedDocuments.length > 0 && result.publishedDocuments.every((number) => evaluation?.documents.some((document) => identity(document.number) === identity(number) && document.score !== null && document.cited !== null));
   });
   const ranking = state.rankings.find((entry) => entry.caseId === item.id);
-  const complete = methods.length > 0 && !stale && allDocuments && rankingIsCurrent(state, item, ranking) && rankingComplete(state, item, ranking?.values ?? {});
+  const complete = methods.length > 0 && !stale && allDocuments && ranking?.finalized !== false && rankingIsCurrent(state, item, ranking) && rankingComplete(state, item, ranking?.values ?? {});
   const started = state.evaluations.some((entry) => entry.caseId === item.id) || Boolean(ranking);
   return { inputComplete, evaluationStatus: complete ? '평가 완료' : stale ? '재확인 필요' : started ? '평가 중' : '미평가', complete, stale };
 }
@@ -765,6 +765,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       if (item.examinerId !== user.id || !user.roles.includes('examiner')) fail('본인이 선정한 출원만 평가할 수 있습니다.', 403);
       const month = monthOf(state, item.monthId);
       editable(month, 'evaluation');
+      if (action.finalize !== undefined && typeof action.finalize !== 'boolean') fail('평가 종료 여부를 확인해 주세요.');
       if (action.overallComment !== undefined && (typeof action.overallComment !== 'string' || action.overallComment.length > OVERALL_COMMENT_MAX_LENGTH)) fail('총평은 4,000자 이내의 텍스트로 입력해 주세요.');
       const overallComment = action.overallComment === undefined
         ? state.rankings.find((entry) => entry.caseId === item.id)?.overallComment ?? ''
@@ -805,8 +806,11 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
         }
       }
       const ranking: QualityRanking = { caseId: item.id, versions: Object.fromEntries(caseMethods(state, item).filter((method) => method.kind === 'ai').map((method) => [method.id, resultFor(state, item.id, method.id)!.publishedVersion])), values, updatedAt: now.toISOString(), overallComment, baselineAvailable: caseMethods(state, item).some((method) => method.kind === 'baseline') };
+      const finalized = action.finalize ?? state.rankings.find(entry => entry.caseId === item.id)?.finalized;
+      if (finalized !== undefined) ranking.finalized = finalized;
       state.rankings = state.rankings.filter((old) => old.caseId !== item.id);
       state.rankings.push(ranking);
+      if (action.finalize && !caseStatus(state, item).complete) fail('모든 문헌의 점수·인용 여부와 조사 방식별 검색 품질 순위를 확인한 뒤 평가를 종료해 주세요.');
       return state;
     }
     default: return fail('지원하지 않는 동작입니다.');
@@ -860,7 +864,7 @@ export function getStatistics(state: EvaluationState, monthId: string, groupId =
     const citations = documents.filter((row) => row.cited !== null);
     const completed = method.kind === 'ai' ? cases.filter((item) => resultFor(state, item.id, method.id)?.publishedVersion).length : 0;
     const target = method.kind === 'ai' ? cases.filter((item) => assignedCaseMethods(state, item).some((assigned) => assigned.id === method.id) || Boolean(resultFor(state, item.id, method.id)?.publishedVersion)).length : 0;
-    return { id: method.id, name: method.name, kind: method.kind, target, completed, pending: target - completed, documents: documents.length, averageScore: scores.length ? scores.reduce((sum, row) => sum + row.score!, 0) / scores.length : null, citationRate: citations.length ? citations.filter((row) => row.cited === 'O').length / citations.length : null, firstPlace: cases.filter((item) => { const ranking = state.rankings.find((entry) => entry.caseId === item.id); return rankingIsCurrent(state, item, ranking) && rankingComplete(state, item, ranking?.values ?? {}) && ranking?.values[method.id] === 1; }).length };
+    return { id: method.id, name: method.name, kind: method.kind, target, completed, pending: target - completed, documents: documents.length, averageScore: scores.length ? scores.reduce((sum, row) => sum + row.score!, 0) / scores.length : null, citationRate: citations.length ? citations.filter((row) => row.cited === 'O').length / citations.length : null, firstPlace: cases.filter((item) => { const ranking = state.rankings.find((entry) => entry.caseId === item.id); return ranking?.finalized !== false && rankingIsCurrent(state, item, ranking) && rankingComplete(state, item, ranking?.values ?? {}) && ranking?.values[method.id] === 1; }).length };
   });
   const statuses = cases.map((item) => ({ ...item, ...caseStatus(state, item), documentCount: rows.filter((row) => row.caseId === item.id).length }));
   const summary = { participants: participants.length, unselected: participants.filter((participant) => !month?.confirmedUserIds.includes(participant.userId)).length, cases: cases.length, inputComplete: statuses.filter((item) => item.inputComplete).length, inputPending: statuses.filter((item) => !item.inputComplete).length, unevaluated: statuses.filter((item) => item.evaluationStatus === '미평가').length, inProgress: statuses.filter((item) => item.evaluationStatus === '평가 중').length, complete: statuses.filter((item) => item.complete).length, recheck: statuses.filter((item) => item.stale).length, documents: rows.length, inputRate: cases.length ? statuses.filter((item) => item.inputComplete).length / cases.length : null, evaluationRate: cases.length ? statuses.filter((item) => item.complete).length / cases.length : null };
