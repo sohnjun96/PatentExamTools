@@ -71,7 +71,12 @@ assert.equal(stats.rows.filter((row) => row.caseId === item.id && row.methodId =
 assert.throws(() => applyAction(state, { userId: 'demo-user-2' }, { type: 'saveResult', caseId: item.id, methodId: 'chatgpt', documents: ['A'], publish: true }), /배정받은/);
 assert.throws(() => applyAction(state, { userId: 'demo-user-1' }, { type: 'saveResult', caseId: item.id, methodId: 'chatgpt', documents: [], publish: true }), /한 건 이상/);
 assert.throws(() => applyAction(state, { userId: 'demo-user-1' }, { type: 'saveResult', caseId: item.id, methodId: 'chatgpt', documents: Array.from({length: 8}, (_, i) => `DOC${i}`), publish: true }), /최대 7/);
-assert.throws(() => applyAction(state, { admin: true }, { type: 'loadDemo' }), /운영 자료/);
+// Removed actions must stay unavailable even to administrators and empty workspaces.
+for (const candidate of [createInitialState(), state]) {
+  const before = structuredClone(candidate);
+  for (const actor of [{}, { admin: true }]) assert.throws(() => applyAction(candidate, actor, { type: 'loadDemo' }), error => error.status === 400 && /지원하지 않는 동작/.test(error.message));
+  assert.deepEqual(candidate, before, 'Rejecting the retired demo action must preserve existing records.');
+}
 assert.equal(rankingComplete(state, item, { chatgpt: 1, claude: 1, baseline: 2 }), false);
 assert.equal(rankingComplete(state, item, { chatgpt: 1, claude: 3, baseline: 'excluded' }), false);
 assert.equal(rankingComplete(state, item, { chatgpt: 'incomparable', claude: 'excluded', baseline: 'excluded' }), true);

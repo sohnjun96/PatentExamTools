@@ -105,8 +105,7 @@ export type EvaluationAction =
   | { type: 'cancelCase'; caseId: string }
   | { type: 'saveResult'; caseId: string; methodId: string; documents: string[]; documentDetails?: LiteratureDocument[]; publish: boolean }
   | { type: 'saveResultDraft'; caseId: string; methodId: string; editorState: ResultDraftEditorState }
-  | { type: 'saveEvaluation'; caseId: string; evaluations: { methodId: string; version: number; documents: DocumentEvaluation[] }[]; rankings: Record<string, RankValue>; versions: Record<string, number>; overallComment?: string; finalize?: boolean }
-  | { type: 'loadDemo' };
+  | { type: 'saveEvaluation'; caseId: string; evaluations: { methodId: string; version: number; documents: DocumentEvaluation[] }[]; rankings: Record<string, RankValue>; versions: Record<string, number>; overallComment?: string; finalize?: boolean };
 
 export class EvaluationError extends Error {
   status: number;
@@ -603,11 +602,6 @@ function upsertUser(state: EvaluationState, user: Omit<EvaluationUser, 'id'> & {
 export function applyAction(input: EvaluationState, actor: EvaluationActor, action: EvaluationAction, now = new Date()): EvaluationState {
   const state = structuredClone(normalizeEvaluationState(input));
   switch (action.type) {
-    case 'loadDemo': {
-      requireAdmin(actor);
-      if (state.cases.length || state.users.length || state.groups.some(group => group.deletedAt || !defaultGroups().some(initial => initial.id === group.id && initial.name === group.name))) fail('운영 자료가 있는 상태에는 가상 자료를 추가할 수 없습니다.');
-      return { ...createDemoState(listedOperationMonths(state.months)[0]?.id ?? DEFAULT_OPERATION_MONTHS[0]), notice: state.notice ?? null, ...(state.standardSearchPrompt ? { standardSearchPrompt: state.standardSearchPrompt } : {}) };
-    }
     case 'saveNotice': {
       requireAdmin(actor);
       if (typeof action.markdown !== 'string' || action.markdown.length > NOTICE_MAX_LENGTH) fail('공지사항은 20,000자 이내의 텍스트로 입력해 주세요.');

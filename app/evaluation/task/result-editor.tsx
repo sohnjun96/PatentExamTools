@@ -7,7 +7,7 @@ import LiteratureReader from './literature-reader';
 import './result-editor.css';
 
 export type { ResultDraftEditorState } from '@/app/lib/evaluation';
-type Props = { initialDocuments: LiteratureDocument[]; initialBulkInput?: string; disabled: boolean; dirty: (value: boolean) => void; onSave: (documents: LiteratureDocument[], publish: boolean) => Promise<boolean>; onAutoSave?: (snapshot: ResultDraftEditorState) => Promise<boolean>; deadline?: string; published?: boolean };
+type Props = { initialDocuments: LiteratureDocument[]; initialBulkInput?: string; disabled: boolean; dirty: (value: boolean) => void; onSave: (documents: LiteratureDocument[], publish: boolean) => Promise<boolean>; onAutoSave?: (snapshot: ResultDraftEditorState) => Promise<boolean>; onDraftChange?: (snapshot: ResultDraftEditorState) => void; deadline?: string; published?: boolean };
 type Row = { id: number; document: LiteratureDocument; previousKinds?: Partial<Record<LiteratureDocument['kind'], LiteratureDocument>> };
 type AutoSaveStatus = 'idle' | 'waiting' | 'saving' | 'saved' | 'error';
 const autoSaveLabels: Record<AutoSaveStatus, string> = {
@@ -20,7 +20,7 @@ const fields: { key: keyof LiteratureDocument; label: string; wide?: boolean }[]
 ];
 const message = (error: unknown) => error instanceof Error ? error.message : '입력한 문헌 정보를 확인해 주세요.';
 
-export default function LiteratureEditor({ initialDocuments, initialBulkInput = '', disabled, dirty, onSave, onAutoSave }: Props) {
+export default function LiteratureEditor({ initialDocuments, initialBulkInput = '', disabled, dirty, onSave, onAutoSave, onDraftChange }: Props) {
   const editorId = useId();
   const nextId = useRef(initialDocuments.length);
   const saving = useRef(false);
@@ -29,7 +29,7 @@ export default function LiteratureEditor({ initialDocuments, initialBulkInput = 
   const rowsRef = useRef(rows);
   const [bulkInput, setBulkInput] = useState(initialBulkInput);
   const latestDraft = useRef<ResultDraftEditorState>({ documents: initialDocuments.map(document => ({ ...document })), bulkInput: initialBulkInput });
-  const callbacks = useRef({ onSave, onAutoSave, dirty });
+  const callbacks = useRef({ onSave, onAutoSave, onDraftChange, dirty });
   const mounted = useRef(true);
   const lifecycle = useRef(0);
   const disabledRef = useRef(disabled);
@@ -55,7 +55,7 @@ export default function LiteratureEditor({ initialDocuments, initialBulkInput = 
     try { imported = parseLiteratureImport(bulkInput); normalizeLiteratureDocuments([...rows.map(row => row.document), ...imported], true); }
     catch (cause) { importError = message(cause); }
   }
-  useEffect(() => { callbacks.current = { onSave, onAutoSave, dirty }; }, [onSave, onAutoSave, dirty]);
+  useEffect(() => { callbacks.current = { onSave, onAutoSave, onDraftChange, dirty }; }, [onSave, onAutoSave, onDraftChange, dirty]);
   useEffect(() => {
     mounted.current = true;
     lifecycle.current += 1;
@@ -122,6 +122,8 @@ export default function LiteratureEditor({ initialDocuments, initialBulkInput = 
   function mark(nextRows = rowsRef.current, nextBulkInput = latestDraft.current.bulkInput) {
     rowsRef.current = nextRows;
     latestDraft.current = { documents: nextRows.map(row => ({ ...row.document })), bulkInput: nextBulkInput };
+    // Recovery must see edits immediately, even while autosave is waiting or blocked.
+    callbacks.current.onDraftChange?.({ documents: latestDraft.current.documents.map(document => ({ ...document })), bulkInput: nextBulkInput });
     editVersion.current += 1;
     autoFailed.current = false;
     autoReady.current = false;
@@ -214,6 +216,7 @@ export default function LiteratureEditor({ initialDocuments, initialBulkInput = 
         const next = documents.map((document, index) => ({ ...rowsRef.current[index], id: rowsRef.current[index]?.id ?? nextId.current++, document }));
         rowsRef.current = next; setRows(next); setBulkInput('');
         latestDraft.current = { documents: documents.map(document => ({ ...document })), bulkInput: '' };
+        callbacks.current.onDraftChange?.({ documents: latestDraft.current.documents.map(document => ({ ...document })), bulkInput: '' });
         savedVersion.current = editVersion.current;
         autoFailed.current = false; setAutoStatus('saved'); callbacks.current.dirty(false);
       }

@@ -144,8 +144,6 @@
 .adm-inline-tabs button { min-height:44px; padding:9px 12px; border:1px solid var(--ev-line); border-radius:6px; color:var(--krds-color-light-gray-70); background:#fff; font:inherit; font-size:15px; }
 .adm-inline-tabs button.is-selected { border-color:var(--krds-color-light-primary-50); color:var(--krds-color-light-primary-70); background:var(--krds-color-light-primary-5); font-weight:700; }
 .adm-inset { padding:20px 24px; }
-.adm-demo { margin:0; }
-.adm-demo p { margin:8px 0 16px; }
 .adm-personnel-intro { padding:20px 24px; border:1px solid var(--ev-line); border-radius:12px; background:#fff; font-size:17px; line-height:1.7; }
 .adm-steps-nav { display:flex; flex-wrap:wrap; gap:8px; }
 .adm .adm-steps-nav a { display:inline-flex; align-items:center; min-height:44px; padding:10px 16px; border:1px solid var(--ev-line); border-radius:8px; background:#fff; font-size:16px; font-weight:500; text-decoration:none; }

@@ -8,7 +8,7 @@ import * as rules from '../app/lib/evaluation.ts';
 const require = createRequire(import.meta.url);
 let values = [], effectRecords = new Map(), effectQueue = [], timers = new Map();
 let hookIndex = 0, nextTimer = 0, now = 0, epoch = 0, needsRender = false, mounted = false;
-let props, tree = [], autosaves = [], publications = [], dirtyChanges = [];
+let props, tree = [], autosaves = [], publications = [], dirtyChanges = [], draftChanges = [];
 const schedule = (callback, delay = 0) => { const id = ++nextTimer; timers.set(id, { at: now + Number(delay), callback }); return id; };
 const cancel = id => { timers.delete(id); };
 const sameDeps = (a, b) => a && b && a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
@@ -70,11 +70,12 @@ function unmount() {
 }
 function reset(overrides = {}) {
   unmount(); epoch++; values = []; effectQueue = []; timers = new Map(); now = 0; nextTimer = 0;
-  autosaves = []; publications = []; dirtyChanges = []; needsRender = false; mounted = true;
+  autosaves = []; publications = []; dirtyChanges = []; draftChanges = []; needsRender = false; mounted = true;
   props = {
     initialDocuments: copy(initial), disabled: false, dirty: value => dirtyChanges.push(value),
     onSave: async (documents, publish) => { publications.push({ documents: copy(documents), publish }); return true; },
-    onAutoSave: async snapshot => { autosaves.push(copy(snapshot)); return true; }, ...overrides,
+    onAutoSave: async snapshot => { autosaves.push(copy(snapshot)); return true; },
+    onDraftChange: snapshot => { draftChanges.push(copy(snapshot)); }, ...overrides,
   };
   return render();
 }
@@ -119,6 +120,8 @@ await advance(5000);
 assert.equal(autosaves.length, 0, 'Opening or restoring an unchanged editor must not write a draft.');
 assert.equal(button('임시저장'), undefined, 'Autosave-enabled editors must not require a separate temporary-save action.');
 edit('-report', '첫 번째 입력');
+assert.equal(draftChanges.at(-1).documents[0].reportMarkdown, '첫 번째 입력', 'Recovery must receive the current edit synchronously, before autosave debounce.');
+assert.equal(autosaves.length, 0);
 await advance(400);
 edit('-report', '연속 입력의 마지막 내용');
 await advance(799);
@@ -151,6 +154,8 @@ assert.equal(autosaves.length, 1);
 assert.equal(field('-report').props.disabled, false, 'An in-flight autosave must allow continued typing.');
 edit('-report', '요청 A 도중 작성한 최신 B');
 edit('-bulk', '적용 전 JSON B');
+assert.equal(draftChanges.at(-1).documents[0].reportMarkdown, '요청 A 도중 작성한 최신 B');
+assert.equal(draftChanges.at(-1).bulkInput, '적용 전 JSON B', 'Recovery snapshots include raw JSON entered while an earlier save is in flight.');
 await advance(800);
 assert.equal(autosaves.length, 1, 'Concurrent edits must wait behind the in-flight write.');
 finishFirst(true);
@@ -173,13 +178,20 @@ assert.equal(autosaves.length, 1);
 assert.equal(dirtyChanges.at(-1), true);
 assert.equal(field('-report').props.value, '네트워크 오류에도 유지할 내용');
 assert(button('자동 저장 다시 시도'));
+const requestCountAtFailure = autosaves.length;
+edit('-report', '저장 실패 후 곧바로 입력한 최신 내용');
+assert.equal(draftChanges.at(-1).documents[0].reportMarkdown, '저장 실패 후 곧바로 입력한 최신 내용');
+assert.equal(autosaves.length, requestCountAtFailure, 'Refreshing the recovery snapshot must not bypass the debounce or send a request.');
+// Return to the failed-save state so the retry-button behavior below remains covered.
+await advance(800);
+assert(button('자동 저장 다시 시도'));
 await advance(5000);
-assert.equal(autosaves.length, 1, 'A failed request must not retry forever without user action.');
+assert.equal(autosaves.length, 2, 'A failed request must not retry forever without user action.');
 failNext = false;
 button('자동 저장 다시 시도').props.onClick();
 await flush();
 await advance(800);
-assert.equal(autosaves.length, 2);
+assert.equal(autosaves.length, 3);
 assert.equal(dirtyChanges.at(-1), false);
 
 reset();
@@ -207,6 +219,7 @@ assert.equal(dirtyChanges.length, dirtyEventsBeforeUnmount, 'A completed request
 reset();
 const deleteDocument = tree.find(node => node.type === 'button' && node.props['aria-label'] === `${initial[0].number} 삭제`);
 deleteDocument.props.onClick(); render();
+assert.deepEqual(draftChanges.at(-1), { documents: [], bulkInput: '' }, 'Deleting the final document updates recovery synchronously.');
 await advance(800);
 assert.deepEqual(autosaves[0], { documents: [], bulkInput: '' }, 'Deleting the last document must also autosave.');
 
@@ -226,7 +239,8 @@ await flush();
 assert.equal(publications.length, 1);
 assert.equal(publications[0].publish, true);
 assert.equal(publications[0].documents[0].reportMarkdown, '공개할 최종 보고서');
+assert.deepEqual(draftChanges.at(-1), { documents: publications[0].documents, bulkInput: '' }, 'After publication, recovery reflects the normalized content now displayed by the editor.');
 await advance(2000);
 assert.equal(autosaves.length, 1, 'A completed publication must not trigger a stale draft write afterward.');
 unmount();
-console.log('Literature autosave passed: virtual-clock debounce, raw draft restoration, sequential saves, newer-edit protection, retry, disabled/unmount cleanup, empty-list save and explicit publication ordering.');
+console.log('Literature autosave passed: virtual-clock debounce, immediate recovery snapshots, raw draft restoration, sequential saves, newer-edit protection, retry, disabled/unmount cleanup, empty-list save and explicit publication ordering.');

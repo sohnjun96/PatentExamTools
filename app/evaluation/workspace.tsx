@@ -136,7 +136,7 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
     if (!sessionReady) return;
     try { sessionStorage.setItem(sessionKey, JSON.stringify({ userId, monthId, view, adminSection })); } catch { /* Storage is optional. */ }
   }, [sessionReady, sessionKey, userId, monthId, view, adminSection]);
-  const load = useCallback(async (selectedUser = userId) => {
+  const load = useCallback(async (selectedUser = userId, resetForms = false) => {
     const requestId = ++loadGeneration.current;
     setLoading(true); setError('');
     try {
@@ -149,7 +149,11 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
         setUserId(''); setView('review'); return;
       }
       if (!response.ok) throw new Error(payload.error || '업무 자료를 불러오지 못했습니다.');
-      setState(payload.state); setStateScopeKey(sessionKey); setRevision(payload.revision); setLoadSerial((value) => value + 1);
+      setState(payload.state); setStateScopeKey(sessionKey); setRevision(payload.revision);
+      // Keep administrator filters and selections while background loads update
+      // their data. Only an explicit discard should recreate the active form.
+      if (!admin || resetForms) setLoadSerial((value) => value + 1);
+      if (resetForms) setDirty(false);
       setConflict(false);
       if (!admin && selectedUser) {
         const selected = payload.state.users.find((candidate) => candidate.id === selectedUser && candidate.active);
@@ -182,7 +186,7 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
   function navigate(action: () => void) { if (busy) return; if (!dirty || window.confirm('저장하지 않은 입력이 있습니다. 입력을 버리고 이동하시겠습니까?')) { setDirty(false); setNotice(''); setError(''); setConflict(false); action(); } }
   function refreshLatest() {
     if (dirty && !window.confirm('현재 입력을 버리고 최신 자료를 불러오시겠습니까? 필요한 입력은 먼저 보관해 주세요.')) return;
-    setDirty(false); setNotice(''); void load();
+    setNotice(''); void load(userId, true);
   }
   function exportInput() {
     const controls = [...document.querySelectorAll('.ev-content input, .ev-content select, .ev-content textarea')] as unknown as Array<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>;

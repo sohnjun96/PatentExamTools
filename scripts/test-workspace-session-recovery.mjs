@@ -15,12 +15,13 @@ const sameDeps = (a, b) => a && b && a.length === b.length && a.every((value, in
 
 // Run the actual component, state transitions, effects and async load callback.
 // Only React's scheduler, browser services and unrelated child views are replaced.
-function workspace({ admin = false, storedUser = '', router }) {
-  const slots = [], effects = [], requests = [], modules = new Map(), listeners = new Map();
+function workspace({ admin = false, bureau = '기획국', storedUser = '', router }) {
+  const slots = [], effects = [], requests = [], modules = new Map(), listeners = new Map(), channels = new Set(), confirmations = [];
   const storage = new Map();
-  const scope = `simsadesk-workspace-${admin ? 'admin' : 'user'}:bureau:기획국`;
+  const scope = `simsadesk-workspace-${admin ? 'admin' : 'user'}:bureau:${bureau}`;
   storage.set(scope, JSON.stringify({ userId: storedUser, monthId: '2026-11', view: 'ai' }));
-  let cursor = 0, changed = true, tree;
+  const props = { bureau, admin };
+  let cursor = 0, changed = true, tree, confirmAnswer = true;
   const hooks = {
     useState(initial) {
       const index = cursor++;
@@ -50,15 +51,20 @@ function workspace({ admin = false, storedUser = '', router }) {
     console, URL, URLSearchParams, Error, TypeError, SyntaxError, structuredClone,
     sessionStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
     window: {
-      confirm: () => true,
+      confirm: message => { confirmations.push(message); return confirmAnswer; },
       addEventListener: (event, callback) => { const values = listeners.get(event) ?? new Set(); values.add(callback); listeners.set(event, values); },
       removeEventListener: (event, callback) => listeners.get(event)?.delete(callback),
     },
     document: { addEventListener() {}, removeEventListener() {} },
-    fetch(input) {
+    BroadcastChannel: class {
+      constructor() { channels.add(this); }
+      close() { channels.delete(this); }
+      postMessage() {}
+    },
+    fetch(input, options) {
       const url = new URL(input, 'https://example.test');
       requests.push(url);
-      return router(url);
+      return router(url, options);
     },
   };
   function load(relative) {
@@ -84,14 +90,17 @@ function workspace({ admin = false, storedUser = '', router }) {
   const ui = load('app/evaluation/workspace.tsx');
   const domain = load('app/lib/evaluation.ts');
   function render() {
-    if (changed) { changed = false; cursor = 0; tree = ui.default({ bureau: '기획국', admin }); }
+    if (changed) { changed = false; cursor = 0; tree = ui.default(props); }
   }
   return {
-    domain, requests,
+    domain, requests, confirmations,
     get tree() { return tree; },
     get selection() { return JSON.parse(storage.get(scope)); },
     get text() { return JSON.stringify(tree); },
     focus() { for (const callback of [...(listeners.get('focus') ?? [])]) callback(); },
+    broadcast(data) { for (const channel of [...channels]) channel.onmessage?.({ data }); },
+    setConfirm(value) { confirmAnswer = value; },
+    setProps(next) { Object.assign(props, next); changed = true; },
     renderBeforeEffects: render,
     async flush() {
       for (let attempt = 0; attempt < 20; attempt++) {
@@ -220,4 +229,109 @@ for (const oldStatus of [200, 403, 500]) {
   assert.deepEqual(app.requests.map(url => url.searchParams.get('userId')), ['', '', 'new-user']);
 }
 
-console.log('Workspace session recovery: removed/inactive selections recover once; valid users, administrator/anonymous 403, server/network errors and late-response races preserved.');
+function adminContent(app) {
+  const node = nodes(app.tree).find(value => value.props && typeof value.props.onNavigate === 'function' && 'section' in value.props);
+  assert(node, 'The administrator content must be mounted.');
+  return node;
+}
+
+// React preserves a component's local filters/selection only while both its type
+// and key stay stable. Exercise the real focus/BroadcastChannel load callbacks.
+for (const section of ['cases', 'overview']) {
+  let app, revision = 5, current;
+  app = workspace({ admin: true, router: async () => reply(200, { revision, state: current ?? publicState(app.domain) }) });
+  await app.flush();
+  adminContent(app).props.onNavigate(section);
+  await app.flush();
+  const before = adminContent(app), requestCount = app.requests.length;
+  app.focus();
+  await app.flush();
+  assert.equal(app.requests.length, requestCount + 1, 'Focus still fetches current operational data.');
+  assert.equal(adminContent(app).key, before.key, 'Identical data must retain administrator query, filters and selected case.');
+  assert.equal(adminContent(app).type, before.type);
+
+  current = publicState(app.domain); current.users[0].name = '다른 창에서 변경한 이름'; revision++;
+  app.broadcast({ type: 'saved', bureau: '기획국' });
+  await app.flush();
+  assert.equal(adminContent(app).props.state.users[0].name, '다른 창에서 변경한 이름', 'Updated data must still reach the existing administrator view.');
+  assert.equal(adminContent(app).key, before.key, 'An unrelated saved change must retain the current administrator view instance.');
+  const afterBroadcast = app.requests.length;
+  app.broadcast({ type: 'saved', bureau: '화학국' });
+  await app.flush();
+  assert.equal(app.requests.length, afterBroadcast, 'Another bureau must not refresh this workspace.');
+
+  adminContent(app).props.selectMonth('2026-12');
+  await app.flush();
+  assert.notEqual(adminContent(app).key, before.key, 'Changing the operating month must retain its separate form boundary.');
+}
+
+// A conflicted form can be discarded deliberately, but failed refreshes must
+// preserve its input and dirty warning until current data actually arrives.
+{
+  let app, getStatus = 200;
+  app = workspace({ admin: true, router: async (_url, options) => options?.method === 'POST'
+    ? reply(409, { error: '다른 화면에서 업무 자료가 변경되었습니다.' })
+    : reply(getStatus, getStatus === 200 ? { revision: 6, state: publicState(app.domain) } : { error: '자료를 불러오지 못했습니다.' }) });
+  await app.flush();
+  adminContent(app).props.onNavigate('cases');
+  await app.flush();
+  const originalKey = adminContent(app).key;
+  adminContent(app).props.dirty(true);
+  await app.flush();
+  const dirtyRequests = app.requests.length;
+  app.focus(); await app.flush();
+  assert.equal(app.requests.length, dirtyRequests, 'Background refresh must not replace unsaved input.');
+  assert.equal(await adminContent(app).props.save({ type: 'saveNotice', markdown: '미저장 입력' }), false);
+  await app.flush();
+  app.setConfirm(false);
+  button(app, '입력 버리고 최신 자료 불러오기').props.onClick();
+  await app.flush();
+  assert.equal(app.requests.length, dirtyRequests + 1, 'Cancelling discard must not load data.');
+  assert.equal(adminContent(app).key, originalKey);
+  assert.equal(adminContent(app).props.hasUnsaved, true);
+
+  app.setConfirm(true); getStatus = 500;
+  button(app, '입력 버리고 최신 자료 불러오기').props.onClick();
+  await app.flush();
+  assert.equal(adminContent(app).key, originalKey, 'A failed reload must leave the current editor intact.');
+  assert.equal(adminContent(app).props.hasUnsaved, true, 'A failed reload must retain the unsaved-input guard.');
+  getStatus = 200;
+  button(app, '입력 버리고 최신 자료 불러오기').props.onClick();
+  await app.flush();
+  assert.notEqual(adminContent(app).key, originalKey, 'Successful explicit discard must recreate the form from current data.');
+  assert.equal(adminContent(app).props.hasUnsaved, false);
+  assert.equal(app.confirmations.length, 3);
+}
+
+// Preserve the existing refresh/reinitialization behavior of the ordinary user
+// selection and AI lists; only administrator background refreshes change here.
+{
+  let app;
+  app = workspace({ storedUser: 'remembered-user', router: async () => reply(200, { revision: 7, state: publicState(app.domain) }) });
+  await app.flush();
+  const content = () => nodes(app.tree).find(value => value.props?.user?.id === 'remembered-user' && value.props.month);
+  const before = content(); assert(before);
+  app.focus(); await app.flush();
+  assert.notEqual(content().key, before.key, 'Ordinary user forms retain their existing data refresh behavior.');
+}
+
+// A bureau switch must not reuse the previous administrator form or briefly
+// render the old bureau's data before the new session/load effects complete.
+{
+  let app;
+  app = workspace({ admin: true, router: async url => {
+    const state = publicState(app.domain); state.users[0].bureau = url.searchParams.get('bureau');
+    return reply(200, { revision: 8, state });
+  } });
+  await app.flush();
+  adminContent(app).props.onNavigate('cases'); await app.flush();
+  const before = adminContent(app);
+  app.setProps({ bureau: '화학국' }); app.renderBeforeEffects();
+  assert(!nodes(app.tree).some(value => value.props?.state === before.props.state), 'Old bureau payload must be hidden before effects run.');
+  await app.flush();
+  assert.equal(adminContent(app).props.bureau, '화학국');
+  assert.equal(adminContent(app).props.state.users[0].bureau, '화학국');
+  assert.notEqual(adminContent(app).key, before.key);
+}
+
+console.log('Workspace session recovery passed: expired-account recovery, late-response races, administrator focus/broadcast filter retention, explicit discard/failure guards and month/bureau isolation.');

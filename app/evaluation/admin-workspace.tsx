@@ -63,7 +63,7 @@ function EditorHeader({ title, children }: { title: string; children?: React.Rea
 function confirmDiscard(changed: boolean) { return !changed || window.confirm('저장하지 않은 입력이 있습니다. 입력을 버리고 이동하시겠습니까?'); }
 
 export default function AdminWorkspace(props: AdminProps) {
-  const { state, month, allMonths, section, onNavigate } = props;
+  const { month, allMonths, section, onNavigate } = props;
   return <div className="adm">
     {section === 'overview' ? month || allMonths ? <Overview {...props} /> : <Empty title="운영월을 등록하세요." actions={<Button onClick={() => onNavigate('month')}>월별 운영</Button>} />
       : section === 'examiners' ? <AccountManager {...props} />
@@ -72,10 +72,6 @@ export default function AdminWorkspace(props: AdminProps) {
       : section === 'notices' ? <NoticeManager {...props} />
       : section === 'prompts' ? <SearchPromptManager {...props} />
       : month || allMonths ? <CaseManager {...props} initialStatus="all" /> : <Empty title="운영월을 등록하세요." actions={<Button onClick={() => onNavigate('month')}>월별 운영</Button>} />}
-    {!['notices', 'prompts', 'month'].includes(section) && !state.users.length && !state.groups.length && !state.cases.length && <section className="adm-demo ev-notice">
-      <strong>가상 자료로 업무 흐름 확인</strong><p>가상 자료: 사용자 10명·그룹 2개·출원 20건</p>
-      <Button disabled={props.busy} onClick={() => { if (window.confirm('가상 검증 자료를 불러오시겠습니까? 실제 출원과 실적이 아닌 예시가 저장됩니다.')) void props.save({ type: 'loadDemo' }, '가상 검증 자료를 불러왔습니다.'); }}>가상 검증 자료 불러오기</Button>
-    </section>}
   </div>;
 }
 
@@ -122,7 +118,7 @@ export function MethodEditor({ method, busy, dirty, save, onClose, saveFeedback 
     event.preventDefault();
     if (busy || !form.name.trim()) return;
     setSubmitFailed(false);
-    if (await save({ type: 'saveMethod', method: form }, method ? form.name + ' AI 종류를 저장했습니다.' : form.name + ' AI 종류를 추가했습니다. 월별 운영에서 비교 대상으로 선택해 주세요.')) {
+    if (await save({ type: 'saveMethod', method: form }, method ? form.name + ' AI 종류를 저장했습니다.' : form.name + ' AI 종류를 추가했습니다. 심사관 관리에서 담당 AI를 배정해 주세요.')) {
       dirty(false); onClose();
     } else setSubmitFailed(true);
   }

@@ -154,8 +154,7 @@ export async function mutateEvaluationState(revision: number, actor: EvaluationA
     if (requestedUser.id && !current.state.users.some((user) => user.id === requestedUser.id)) throw new EvaluationError('선택한 심사국에 해당 사용자가 없습니다.', 404);
     action = { ...action, user: { ...requestedUser, bureau } };
   }
-  let state = withDefaultOperationMonths(applyAction(current.state, actor, action));
-  if (bureau && action.type === 'loadDemo') state = demoForBureau(state, bureau);
+  const state = withDefaultOperationMonths(applyAction(current.state, actor, action));
   const db = await evaluationDatabase();
   const encoded = await encodeReports(state);
   const results = await db.batch([...reportInserts(db, id, encoded.reports), db.prepare(`UPDATE evaluation_workspace SET payload_json = ?, revision = revision + 1,

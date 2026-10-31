@@ -192,7 +192,16 @@ try {
   const chemical = await store.readEvaluationState('화학국');
   assert.equal(chemical.state.users.length, 0);
   assert.equal(chemical.state.cases.length, 0);
-  const scopedDemo = await store.mutateEvaluationState(0, { admin: true }, { type: 'loadDemo' }, '화학국');
+  await assert.rejects(() => store.mutateEvaluationState(chemical.revision, { admin: true }, { type: 'loadDemo' }, '화학국'), error => error.status === 400 && /지원하지 않는 동작/.test(error.message));
+  for (const [query, revision] of [['?bureau=화학국', chemical.revision], ['', mainBefore.revision]]) {
+    const retiredAction = await api.POST(request(query, { revision, actor: { admin: true }, action: { type: 'loadDemo' } }));
+    assert.equal(retiredAction.status, 400, 'The retired demo action must also be rejected through the API.');
+  }
+  assert.deepEqual(await store.readEvaluationState('화학국'), chemical, 'Rejected demo loading must not change records or revision.');
+  // Test fixtures go directly into the isolated D1; the application has no seeding action.
+  const scopedDemo = { revision: 1, state: bureauMigration.demoForBureau(rules.createDemoState('2026-11'), '화학국') };
+  await db.prepare('UPDATE evaluation_workspace SET revision = ?, payload_json = ? WHERE id = ?')
+    .bind(scopedDemo.revision, JSON.stringify(scopedDemo.state), store.evaluationWorkspaceId('화학국')).run();
   assert.equal(scopedDemo.state.users.every((user) => user.bureau === '화학국'), true);
   assert.equal(scopedDemo.state.cases.every((item) => item.bureau === '화학국'), true);
   assert.deepEqual(await store.readEvaluationState(), mainBefore);

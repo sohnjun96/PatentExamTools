@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import AppIcon from '@/app/components/app-icon';
 import TargetPublicationDownload from '@/app/components/target-publication-download';
 import { bureauPath, evaluationApiUrl } from '@/app/lib/bureaus';
-import { isDemoApplicationNumber, isOperationStageOpen, literatureDetailsFor, operationStageBlockReason, resultFor, type EvaluationAction, type EvaluationState } from '@/app/lib/evaluation';
+import { isDemoApplicationNumber, isOperationStageOpen, literatureDetailsFor, operationStageBlockReason, resultFor, type EvaluationAction, type EvaluationState, type ResultDraftEditorState } from '@/app/lib/evaluation';
 import { saveFailureGuidance } from '@/app/lib/workspace-location';
 import { resolveTask, taskContentKey, TASK_UPDATE_CHANNEL, type TaskRequest } from '@/app/lib/task-window';
 import LiteratureEditor from '../literature-editor';
@@ -26,6 +26,7 @@ export default function TaskWorkspace({ request }: { request: TaskRequest }) {
   const generation = useRef(0);
   const contentKey = useRef('');
   const lastAttempt = useRef<EvaluationAction | null>(null);
+  const latestEditorState = useRef<ResultDraftEditorState | null>(null);
   const errorBox = useRef<HTMLDivElement>(null);
   const payloadRef = useRef<Payload | null>(null);
   const conflictActive = useRef(false);
@@ -43,6 +44,7 @@ export default function TaskWorkspace({ request }: { request: TaskRequest }) {
       if (contentKey.current !== nextKey) setFormVersion(value => value + 1);
       contentKey.current = nextKey;
       payloadRef.current = next; conflictActive.current = false;
+      latestEditorState.current = null; lastAttempt.current = null;
       setPayload(next); setConflict(false); dirty.current = false;
     } catch (cause) {
       if (id === generation.current) setError(cause instanceof Error && /[가-힣]/.test(cause.message) ? cause.message : '업무 자료에 연결하지 못했습니다. 다시 불러와 주세요.');
@@ -109,8 +111,11 @@ export default function TaskWorkspace({ request }: { request: TaskRequest }) {
     void load();
   }
   function backup() {
-    if (!lastAttempt.current) return;
-    const url = URL.createObjectURL(new Blob([JSON.stringify({ request, revision: payload?.revision, action: lastAttempt.current }, null, 2)], { type: 'application/json;charset=utf-8' }));
+    const action: EvaluationAction | null = request.kind === 'result' && latestEditorState.current
+      ? { type: 'saveResultDraft', caseId: request.caseId, methodId: request.methodId, editorState: latestEditorState.current }
+      : lastAttempt.current;
+    if (!action) return;
+    const url = URL.createObjectURL(new Blob([JSON.stringify({ request, revision: payload?.revision, action }, null, 2)], { type: 'application/json;charset=utf-8' }));
     const link = document.createElement('a'); link.href = url; link.download = `AI검색업무_입력보관_${request.caseId}.json`; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   const locked = busy || loading;
@@ -123,7 +128,7 @@ export default function TaskWorkspace({ request }: { request: TaskRequest }) {
     {error && <div className="ev-alert tw-feedback" ref={errorBox} tabIndex={-1} role="alert"><p>{error}</p><div className="ev-actions">{lastAttempt.current && <button className="ev-button tiny" type="button" onClick={backup}>입력 보관 파일 저장</button>}{(conflict || !payload) && <button className="ev-button tiny" type="button" disabled={locked} onClick={reload}>최신 자료 다시 불러오기</button>}</div></div>}
     {loading && !payload ? <p className="tw-empty" role="status">업무 자료를 불러오고 있습니다.</p> : !target ? <div className="tw-empty"><h2>이 업무를 열 수 없습니다.</h2><p>담당 계정과 출원 상태를 확인해 주세요.</p><a className="ev-button" href={bureauPath(request.bureau)}>업무 목록으로</a></div> : <>
       {reason && <div className="ev-notice warning tw-feedback" role="status">{reason}</div>}
-      {request.kind === 'result' ? <LiteratureEditor key={formVersion} initialDocuments={result?.draftEditorState?.documents ?? literatureDetailsFor(result, 'draft')} initialBulkInput={result?.draftEditorState?.bulkInput ?? ''} disabled={locked || !isOperationStageOpen(target.month, 'result')} dirty={value => { dirty.current = value; }} onAutoSave={editorState => save({ type: 'saveResultDraft', caseId: target.item.id, methodId: request.methodId, editorState })} onSave={(documentDetails, publish) => save({ type: 'saveResult', caseId: target.item.id, methodId: request.methodId, documents: documentDetails.map(entry => entry.number), documentDetails, publish })} /> : <EvaluationReader key={formVersion} state={payload!.state} month={target.month} item={target.item} busy={locked} dirty={value => { dirty.current = value; }} save={save} />}
+      {request.kind === 'result' ? <LiteratureEditor key={formVersion} initialDocuments={result?.draftEditorState?.documents ?? literatureDetailsFor(result, 'draft')} initialBulkInput={result?.draftEditorState?.bulkInput ?? ''} disabled={locked || !isOperationStageOpen(target.month, 'result')} dirty={value => { dirty.current = value; }} onDraftChange={editorState => { latestEditorState.current = structuredClone(editorState); }} onAutoSave={editorState => save({ type: 'saveResultDraft', caseId: target.item.id, methodId: request.methodId, editorState })} onSave={(documentDetails, publish) => save({ type: 'saveResult', caseId: target.item.id, methodId: request.methodId, documents: documentDetails.map(entry => entry.number), documentDetails, publish })} /> : <EvaluationReader key={formVersion} state={payload!.state} month={target.month} item={target.item} busy={locked} dirty={value => { dirty.current = value; }} save={save} />}
     </>}
   </div>;
 }

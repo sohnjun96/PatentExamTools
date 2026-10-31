@@ -239,7 +239,16 @@ assert(!JSON.stringify(noticeAdminTree).includes('이 운영월은 마감되었�
 hookIndex = 0; hookOverrides = [];
 const noticeAdmin = adminUI.default({ state: domain.createInitialState('2026-10'), month: domain.emptyMonth('2026-10'), bureau: '기획국', section: 'notices', busy: false });
 assert(descendants(noticeAdmin).some(({ element }) => element.type === NoticeManagerStub));
-assert(!JSON.stringify(noticeAdmin).includes('가상 자료로 업무 흐름 확인'), 'Demo loading should not interrupt notice editing.');
+assert(!JSON.stringify(noticeAdmin).includes('가상 자료로 업무 흐름 확인'), 'The retired demo loader must not be rendered.');
+for (const section of adminUI.ADMIN_NAV.map(entry => entry.id)) {
+  for (const groups of [[], domain.createInitialState().groups]) {
+    const state = { ...domain.createInitialState('2026-10'), groups };
+    hookIndex = 0; hookOverrides = [];
+    const page = adminUI.default({ state, month: state.months[0], bureau: '기획국', section, busy: false });
+    assert(!JSON.stringify(page).includes('가상 자료로 업무 흐름 확인'));
+    assert(!descendants(page).some(({ element }) => element.props.className?.includes('adm-demo')), 'No administrator section may expose virtual-data loading, with or without default groups.');
+  }
+}
 const promptAdmin = adminUI.default({ state: domain.createInitialState(), bureau: '기획국', section: 'prompts', busy: false });
 assert(descendants(promptAdmin).some(({ element }) => element.type === SearchPromptManagerStub));
 assert(!JSON.stringify(promptAdmin).includes('운영월을 등록하세요.'), 'Prompt management works without selecting an operating month.');
@@ -430,11 +439,11 @@ for (const editing of ['new', 'claude']) {
   assert.equal(editor.props.method?.id, editing === 'new' ? undefined : editing);
 }
 let closedMethods = 0;
-let savedMethodAction;
+let savedMethodAction, savedMethodMessage;
 const enteredMethod = { name: 'Gemini', kind: 'ai', active: true };
 function methodDialog(extra = {}, failed = false) {
   hookIndex = 0; hookOverrides = [enteredMethod, failed];
-  return adminUI.MethodEditor({ busy: false, dirty() {}, onClose() { closedMethods++; }, save: async action => { savedMethodAction = action; return true; }, ...extra });
+  return adminUI.MethodEditor({ busy: false, dirty() {}, onClose() { closedMethods++; }, save: async (action, message) => { savedMethodAction = action; savedMethodMessage = message; return true; }, ...extra });
 }
 const newMethod = methodDialog();
 const methodShell = newMethod.type(newMethod.props);
@@ -443,6 +452,8 @@ await descendants(newMethod).find(({ element }) => element.type === 'form').elem
 assert.equal(savedMethodAction.type, 'saveMethod');
 assert.equal(savedMethodAction.method.kind, 'ai');
 assert.equal(savedMethodAction.method.name, 'Gemini');
+assert.match(savedMethodMessage, /심사관 관리에서 담당 AI를 배정/);
+assert(!savedMethodMessage.includes('월별 운영'), 'AI registration must point to the current assignment screen.');
 assert.equal(closedMethods, 1);
 const withNewAI = domain.applyAction(emptyState, { admin: true }, savedMethodAction);
 assert(withNewAI.methods.some(method => method.name === 'Gemini' && method.kind === 'ai'));

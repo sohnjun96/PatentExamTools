@@ -43,7 +43,7 @@ function harness(seed = rules.createDemoState('2026-11'), requestPatch = {}) {
   const actor = { userId: request.userId };
   const server = { state: structuredClone(seed), revision: 0, calls: [], beforePost: null };
   const hooks = [], effects = [], listeners = new Map();
-  let hookIndex = 0, tree = [], focusCount = 0, confirmCount = 0;
+  let hookIndex = 0, tree = [], focusCount = 0, confirmCount = 0, backupBlob;
   const react = {
     useState(initial) {
       const index = hookIndex++;
@@ -90,7 +90,7 @@ function harness(seed = rules.createDemoState('2026-11'), requestPatch = {}) {
     '../literature-editor': { __esModule: true, default: LiteratureEditorStub },
     './evaluation-reader': { __esModule: true, default: EmptyStub },
     '../evaluation.css': {}, './task.css': {},
-  }, { window: windowStub, document: { title: '' }, fetch: fetchStub, BroadcastChannel: class { postMessage() {} close() {} } }).default;
+  }, { window: windowStub, document: { title: '', createElement: () => ({ click() {} }) }, URL: { createObjectURL(blob) { backupBlob = blob; return 'blob:input-backup'; }, revokeObjectURL() {} }, fetch: fetchStub, BroadcastChannel: class { postMessage() {} close() {} } }).default;
   const api = {
     server, request,
     render() {
@@ -101,6 +101,7 @@ function harness(seed = rules.createDemoState('2026-11'), requestPatch = {}) {
     async mount() { api.render(); await settle(); api.render(); },
     editor() { return tree.find(node => node.type === LiteratureEditorStub); },
     button(label) { return tree.find(node => node.type === 'button' && text(node.props.children) === label); },
+    async backup() { api.button('입력 보관 파일 저장').props.onClick(); return JSON.parse(await backupBlob.text()); },
     posts() { return server.calls.filter(call => call.method === 'POST'); },
     gets() { return server.calls.filter(call => call.method === 'GET'); },
     unloadBlocked() { let prevented = false; listeners.get('beforeunload')?.({ preventDefault() { prevented = true; }, returnValue: undefined }); return prevented; },
@@ -219,13 +220,36 @@ function harness(seed = rules.createDemoState('2026-11'), requestPatch = {}) {
   assert.deepEqual(rules.resultFor(view.server.state, view.request.caseId, 'chatgpt').draftEditorState, remote);
   view.render(); assert.equal(view.editor().props.disabled, false, 'A conflict leaves the current input editable.');
   const calls = view.server.calls.length;
-  assert.equal(await view.editor().props.onAutoSave(snapshot('later-local')), false);
+  const latest = snapshot('later-local');
+  view.editor().props.onDraftChange(latest);
+  assert.deepEqual((await view.backup()).action.editorState, latest, 'Backup must include changes made after conflict before the autosave debounce runs.');
+  assert.equal(view.server.calls.length, calls, 'Updating the recovery snapshot must not send a request.');
+  assert.equal(await view.editor().props.onAutoSave(latest), false);
   assert.equal(view.server.calls.length, calls, 'Quiet writes stop after a real conflict until reload.');
+  assert.deepEqual((await view.backup()).action.editorState, latest, 'Blocked autosaves must retain the newest recovery snapshot.');
+  assert.deepEqual(rules.resultFor(view.server.state, view.request.caseId, 'chatgpt').draftEditorState, remote, 'Creating a backup must never overwrite the remote draft.');
   view.button('최신 자료 다시 불러오기').props.onClick(); await settle(); view.render();
   assert.equal(view.confirmCount, 1, 'Reloading a dirty form requires the established discard confirmation.');
   assert.deepEqual(view.editor().props.initialDocuments, remote.documents);
   assert.equal(view.editor().props.initialBulkInput, remote.bulkInput);
   assert.equal(await view.editor().props.onAutoSave(snapshot('after-reload')), true, 'Reload explicitly re-enables autosave.');
+  view.dispose();
+}
+
+// Continued edits during a failed request and during its retry delay are included immediately.
+{
+  const view = harness(); await view.mount(); const editor = view.editor(); editor.props.dirty(true);
+  const first = snapshot('first-request'); editor.props.onDraftChange(first);
+  let release;
+  view.server.beforePost = () => new Promise(resolve => { release = resolve; });
+  const pending = editor.props.onAutoSave(first);
+  const duringRequest = snapshot('typed-during-request'); editor.props.onDraftChange(duringRequest);
+  release(jsonResponse(500, { error: '일시적인 저장 오류입니다.' }));
+  assert.equal(await pending, false); view.render();
+  assert.deepEqual((await view.backup()).action.editorState, duringRequest, 'A failed earlier request cannot replace input typed while it was in flight.');
+  const afterFailure = snapshot('typed-before-next-debounce'); view.editor().props.onDraftChange(afterFailure);
+  assert.deepEqual((await view.backup()).action.editorState, afterFailure, 'Even unapplied raw JSON and unfinished fields must be backed up before another network attempt.');
+  assert.equal(view.posts().length, 1);
   view.dispose();
 }
 
@@ -241,4 +265,4 @@ function harness(seed = rules.createDemoState('2026-11'), requestPatch = {}) {
   view.dispose();
 }
 
-console.log('Task workspace autosave passed: raw draft restoration, editable quiet saves, dirty protection, latest revisions, publication after autosave, one bounded rebase, same-result conflict isolation, explicit reload and non-disruptive failures.');
+console.log('Task workspace autosave passed: raw draft restoration, editable quiet saves, dirty protection, latest revisions, publication after autosave, bounded rebase, conflict isolation, immediate latest-input backups during debounce/in-flight failures, explicit reload and non-disruptive failures.');

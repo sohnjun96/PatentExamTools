@@ -18,7 +18,8 @@ assert.deepEqual(saved.notice, { markdown, updatedAt: now.toISOString() });
 assert.equal(legacy.notice, undefined, 'Saving must not mutate the input.');
 assert.deepEqual(rules.visibleState(saved, {}).notice, saved.notice, 'Notice is public before selecting an account.');
 assert.equal(rules.visibleState(saved, {}).cases.length, 0);
-assert.deepEqual(rules.applyAction(saved, { admin: true }, { type: 'loadDemo' }).notice, saved.notice, 'Loading demo data must preserve the announcement.');
+assert.throws(() => rules.applyAction(saved, { admin: true }, { type: 'loadDemo' }), error => error.status === 400);
+assert.deepEqual(saved.notice, { markdown, updatedAt: now.toISOString() }, 'The removed demo action must leave the existing announcement intact.');
 for (const actor of [{}, { admin: false }, { userId: 'examiner' }]) {
   assert.throws(() => rules.applyAction(saved, actor, { type: 'saveNotice', markdown: '금지' }), error => error.status === 403);
   assert.throws(() => rules.applyAction(saved, actor, { type: 'saveNotice', markdown: '' }), error => error.status === 403);
@@ -114,7 +115,7 @@ try {
   assert.equal((await store.readEvaluationState('기획국')).state.notice, null);
   assert.equal((await store.readEvaluationState('융합국')).state.notice.markdown, '융합국 새 공지');
   assert.deepEqual((await store.readEvaluationState()).state.notice, saved.notice, 'Bureau edits must leave the shared workspace unchanged.');
-  console.log('Notices: admin validation, legacy compatibility, public visibility, clearing, demo preservation, D1 persistence/reload, six-bureau isolation, CAS conflicts and API scope verified.');
+  console.log('Notices: admin validation, legacy compatibility, public visibility, clearing, retired-action rejection, D1 persistence/reload, six-bureau isolation, CAS conflicts and API scope verified.');
 } finally {
   await mf.dispose();
 }
