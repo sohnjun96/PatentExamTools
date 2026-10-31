@@ -3,27 +3,21 @@
 import AppIcon from '@/app/components/app-icon';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  aiMethods, canInputResult, caseMethods, caseStatus, getStatistics, rankingIsCurrent, rankingComplete,
-  resultFor, validEvaluation, literatureDetailsFor, OVERALL_COMMENT_MAX_LENGTH, isOperationStageOpen, operationStageBlockReason, isDemoApplicationNumber,
-  type DocumentEvaluation, type EvaluationAction, type EvaluationCase, type EvaluationState,
+  aiMethods, canInputResult, caseMethods, caseStatus, getStatistics, rankingIsCurrent,
+  resultFor, isOperationStageOpen, operationStageBlockReason, isDemoApplicationNumber,
+  type EvaluationAction, type EvaluationCase, type EvaluationState,
   type EvaluationUser, type OperationMonth, type OperationStage, type RankValue, type SelectionRow,
 } from '@/app/lib/evaluation';
-import PdfDownloadButton from '@/app/components/pdf-download';
 import TargetPublicationDownload from '@/app/components/target-publication-download';
 import TargetPublicationArchive from '@/app/components/target-publication-archive';
-import AccessibleDialog from '@/app/components/accessible-dialog';
 import BureauNotice from '@/app/components/bureau-notice';
 import OperationSchedule from '@/app/components/operation-schedule';
-import LiteratureLink from '@/app/components/literature-link';
-import LiteratureDetails from '@/app/components/literature-details';
-import LiteratureEditor from './literature-editor';
-import { literatureLink } from '@/app/lib/literature-link';
 import { currentGroups, personnelOf, listedOperationMonths, preferredOperationMonth, operationMonthStatus, OPERATION_MONTH_STATUS_LABELS } from '@/app/lib/evaluation';
 import AdminWorkspace, { ADMIN_NAV, readAdminSection, type AdminSection } from './admin-workspace';
 import { exportWorkbook } from '@/app/lib/export-workbook';
 import { readWorkspaceLocation, saveFailureGuidance, viewForRoles } from '@/app/lib/workspace-location';
-import { rankOptionsFor, rankingGuidance } from '@/app/lib/evaluation-guidance';
 import { BUREAUS, bureauPath, evaluationApiUrl, type Bureau } from '@/app/lib/bureaus';
+import { taskWindowUrl, openTaskWindow, TASK_UPDATE_CHANNEL } from '@/app/lib/task-window';
 import './evaluation.css';
 
 type ActionHandler = (action: EvaluationAction, message?: string) => Promise<boolean>;
@@ -83,26 +77,17 @@ function BureauEntryLinks() {
   </section>;
 }
 
-export function AITaskCard({ item, methodName, selected, complete, demo, onSelect }: {
-  item: EvaluationCase; methodName: string; selected: boolean; complete: boolean; demo: boolean; onSelect: () => void;
+export function AITaskCard({ item, methodName, selected = false, complete, demo, href }: {
+  item: EvaluationCase; methodName: string; selected?: boolean; complete: boolean; demo: boolean; href: string;
 }) {
   const synthetic = demo && isDemoApplicationNumber(item.applicationNumber);
   return <div className={`ev-case-task ${selected ? 'active' : ''}`}>
-    <button type="button" className={`ev-case ${selected ? 'active' : ''}`}
-      aria-label={`${item.applicationNumber} ${methodName} 결과 입력 선택`} aria-haspopup="dialog" onClick={onSelect}>
-      <strong>{numberLabel(item.applicationNumber)}</strong>
-      <span className="ev-muted">{item.examinerName} · {item.groupName}</span>
+    <a className={`ev-case ${selected ? 'active' : ''}`} href={href} target="_blank" rel="noopener noreferrer" onClick={openTaskWindow} aria-label={`${item.applicationNumber} ${methodName} 결과 입력, 새 창`}>
+      <strong>{numberLabel(item.applicationNumber)}</strong><span className="ev-muted">{item.examinerName} · {item.groupName}</span>
       <div className="ev-case-status"><Badge>{methodName}</Badge><Badge color={complete ? 'green' : ''}>{complete ? '입력 완료' : '대기 중'}</Badge></div>
-    </button>
-    <div className="ev-case-pdf"><TargetPublicationDownload applicationNumber={item.applicationNumber} disabled={synthetic} context="list" />
-      {synthetic && <span className="ev-case-pdf-note">가상 출원번호는 PDF를 받을 수 없습니다.</span>}
-    </div>
+    </a>
+    <div className="ev-case-pdf"><TargetPublicationDownload applicationNumber={item.applicationNumber} disabled={synthetic} context="list" />{synthetic && <span className="ev-case-pdf-note">가상 출원번호는 PDF를 받을 수 없습니다.</span>}</div>
   </div>;
-}
-function CaseResource({ item, demo, ai = false }: { item: EvaluationCase; demo: boolean; ai?: boolean }) {
-  const synthetic = demo && isDemoApplicationNumber(item.applicationNumber);
-  if (ai) return <div className="ev-ai-result-context"><p className="ev-muted">{item.examinerName} · {item.groupName} · {item.cpc || 'CPC 미입력'}</p><div className="ev-actions"><TargetPublicationDownload applicationNumber={item.applicationNumber} disabled={synthetic} context="detail" showContext={false} /><a className="krds-btn medium ev-button" href={`/patent?applicationNumber=${encodeURIComponent(item.applicationNumber)}`} target="_blank" rel="noopener noreferrer" aria-label={`${item.applicationNumber} 사건 상세, 새 창`}>사건 상세 <span className="ev-new-window">새 창</span></a></div>{synthetic && <p className="ev-case-pdf-note">가상 출원번호 · PDF 다운로드 불가</p>}</div>;
-  return <div className="ev-resource"><div><strong>출원 원문</strong><p>대상 출원 {numberLabel(item.applicationNumber)}</p>{synthetic && <p>가상 출원번호 · PDF 다운로드 불가</p>}</div><div className="ev-actions"><PdfDownloadButton applicationNumber={item.applicationNumber} label="공개 전문 PDF" disabled={synthetic} /><PdfDownloadButton applicationNumber={item.applicationNumber} kind="registration" label="등록 전문 PDF" disabled={synthetic} /><a className="krds-btn medium ev-button" href={`/patent?applicationNumber=${encodeURIComponent(item.applicationNumber)}`} target="_blank" rel="noopener noreferrer" aria-label={`${item.applicationNumber} 사건 상세, 새 창`}>사건 상세 <span className="ev-new-window">새 창</span></a></div></div>;
 }
 
 export default function EvaluationWorkspace({ admin = false, bureau }: { admin?: boolean; bureau?: Bureau }) {
@@ -162,6 +147,14 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
     finally { if (requestId === loadGeneration.current) setLoading(false); }
   }, [admin, bureau, userId, sessionKey]);
   useEffect(() => { if (sessionReady) void load(); }, [load, sessionReady]);
+  useEffect(() => {
+    if (!sessionReady) return;
+    const refresh = () => { if (!dirty && !busy) void load(); };
+    const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(TASK_UPDATE_CHANNEL) : null;
+    if (channel) channel.onmessage = event => { if (event.data?.type === 'saved' && event.data.bureau === (bureau || null)) refresh(); };
+    window.addEventListener('focus', refresh);
+    return () => { channel?.close(); window.removeEventListener('focus', refresh); };
+  }, [sessionReady, bureau, dirty, busy, load]);
   useEffect(() => {
     const leave = (event: BeforeUnloadEvent) => { if (dirty) { event.preventDefault(); event.returnValue = ''; } };
     window.addEventListener('beforeunload', leave);
@@ -273,71 +266,27 @@ export default function EvaluationWorkspace({ admin = false, bureau }: { admin?:
 }
 
 function ReviewWorkspace(props: Shared & { user: EvaluationUser; notify: (text: string) => void; saveFeedback?: React.ReactNode }) {
-  const { state, month, user, save, busy, dirty, notify, bureau, saveFeedback } = props;
-  const [selectedId, setSelectedId] = useState('');
+  const { state, month, user, save, busy, dirty, notify, bureau } = props;
   const [unsaved, setUnsaved] = useState(false);
   const [editingSelection, setEditingSelection] = useState(false);
-  const [saveFailed, setSaveFailed] = useState(false);
-  const caseListHeading = useRef<HTMLDivElement>(null);
-  const submitting = useRef(false);
-  const feedback = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (saveFailed && !busy) feedback.current?.focus(); }, [saveFailed, busy]);
-  const cases = state.cases.filter((item) => item.monthId === month.id && item.examinerId === user.id && item.status === 'confirmed');
-  const selected = cases.find((item) => item.id === selectedId);
+  const cases = state.cases.filter(item => item.monthId === month.id && item.examinerId === user.id && item.status === 'confirmed');
   const confirmed = month.confirmedUserIds.includes(user.id);
   const mark = (value: boolean) => { setUnsaved(value); dirty(value); };
-  function closeEditor() {
-    if (busy || submitting.current) return;
-    if (unsaved && !window.confirm('저장하지 않은 평가가 있습니다. 입력을 버리고 닫으시겠습니까?')) return;
-    mark(false); setSelectedId(''); setSaveFailed(false);
-  }
-  async function saveEditor(action: EvaluationAction, message?: string) {
-    if (busy || submitting.current) return false;
-    submitting.current = true; setSaveFailed(false);
-    try {
-      const ok = await save(action, message);
-      if (ok) { mark(false); setSelectedId(''); }
-      else setSaveFailed(true);
-      return ok;
-    } finally { submitting.current = false; }
-  }
-  async function downloadOwnWork() {
-    const result = await exportPersonal(state, month.id, cases, bureau);
-    if (result) notify(result);
-  }
+  async function downloadOwnWork() { const result = await exportPersonal(state, month.id, cases, bureau); if (result) notify(result); }
   if (!user.roles.includes('examiner')) return <Panel title="내 심사 업무"><Empty title="심사관 역할이 배정되지 않았습니다.">왼쪽의 AI 담당 업무에서 배정받은 검색 결과를 입력하세요.</Empty></Panel>;
-  if (!personnelOf(state).memberships.some((entry) => entry.userId === user.id) && !cases.length) return <Panel title="소속 그룹"><Empty title="소속 그룹이 배정되지 않았습니다.">관리자에게 그룹 배정을 요청하세요.</Empty></Panel>;
+  if (!personnelOf(state).memberships.some(entry => entry.userId === user.id) && !cases.length) return <Panel title="소속 그룹"><Empty title="소속 그룹이 배정되지 않았습니다.">관리자에게 그룹 배정을 요청하세요.</Empty></Panel>;
   if (!confirmed && !cases.length) return <SelectionEditor {...props} />;
   if (editingSelection) return <SelectionEditor {...props} dirty={mark} onCancel={() => {
     if (!unsaved || window.confirm('저장하지 않은 선정 목록이 있습니다. 입력을 버리고 목록으로 돌아가시겠습니까?')) { mark(false); setEditingSelection(false); }
   }} autoSave={save} save={async (action, message) => { const ok = await save(action, message); if (ok) { mark(false); setEditingSelection(false); } return ok; }} />;
-  const editSelection = isOperationStageOpen(month, 'selection') && <button type="button" className="krds-btn medium ev-button" disabled={busy} onClick={() => {
-    if (!unsaved || window.confirm('저장하지 않은 평가가 있습니다. 입력을 버리고 제출 목록을 수정하시겠습니까?')) { mark(false); setEditingSelection(true); }
-  }}>제출 목록 수정</button>;
+  const editSelection = isOperationStageOpen(month, 'selection') && <button type="button" className="krds-btn medium ev-button" disabled={busy} onClick={() => { mark(false); setEditingSelection(true); }}>제출 목록 수정</button>;
   if (!isOperationStageOpen(month, 'evaluation')) return <Panel title="제출한 출원 목록" action={<div className="ev-actions"><Badge>{cases.length}건</Badge>{editSelection}</div>}>
-    {cases.length ? <div className="ev-table-scroll"><table className="ev-table">
-      <caption className="sr-only">선택한 운영월에 내가 제출한 출원 목록</caption>
-      <thead><tr><th scope="col">출원번호</th><th scope="col">CPC</th><th scope="col">AI 검색 결과</th></tr></thead>
-      <tbody>{cases.map(item => <tr key={item.id}><td>{numberLabel(item.applicationNumber)}</td><td>{item.cpc || '—'}</td><td><Badge color={caseStatus(state, item).inputComplete ? 'green' : ''}>{caseStatus(state, item).inputComplete ? '입력 완료' : '입력 대기'}</Badge></td></tr>)}</tbody>
-    </table></div> : <Empty title="제출한 출원이 없습니다." />}
+    {cases.length ? <div className="ev-table-scroll"><table className="ev-table"><caption className="sr-only">선택한 운영월에 내가 제출한 출원 목록</caption><thead><tr><th scope="col">출원번호</th><th scope="col">CPC</th><th scope="col">AI 검색 결과</th></tr></thead><tbody>{cases.map(item => <tr key={item.id}><td>{numberLabel(item.applicationNumber)}</td><td>{item.cpc || '—'}</td><td><Badge color={caseStatus(state, item).inputComplete ? 'green' : ''}>{caseStatus(state, item).inputComplete ? '입력 완료' : '입력 대기'}</Badge></td></tr>)}</tbody></table></div> : <Empty title="제출한 출원이 없습니다." />}
     <div className="ev-panel-body ev-actions end"><button type="button" className="krds-btn medium ev-button" onClick={downloadOwnWork}>내 업무 자료 엑셀 저장</button></div>
   </Panel>;
   return <>
     <div className="ev-actions end" style={{ marginBottom: 15 }}>{editSelection}<button type="button" className="krds-btn medium ev-button" onClick={downloadOwnWork}>내 업무 자료 엑셀 저장</button></div>
-    <section className="ev-panel ev-review-case-list">
-      <div ref={caseListHeading} tabIndex={-1} className="ev-case-list-head">내 평가 대상 건 <span className="ev-count">{cases.length}</span></div>
-      <ul className="ev-review-case-items">{cases.map((item) => <li key={item.id}><button type="button" className="ev-review-case" aria-haspopup="dialog" disabled={busy} onClick={() => {
-        if (!busy && (!unsaved || window.confirm('저장하지 않은 평가가 있습니다. 다른 출원으로 이동하시겠습니까?'))) { mark(false); setSaveFailed(false); setSelectedId(item.id); }
-      }}><strong>{numberLabel(item.applicationNumber)}</strong><span className="ev-muted ev-review-case-cpc">{item.cpc || 'CPC 미입력'}</span><span className="ev-case-status"><Status state={state} item={item} /></span><span className="ev-review-case-action">평가 입력 <AppIcon name="arrow-right" /></span></button></li>)}</ul>
-      {!cases.length && <Empty title="선정 확정한 출원이 없습니다." />}
-    </section>
-    {selected && <AccessibleDialog labelledBy="ev-evaluation-dialog-title" className="ev-evaluation-dialog" onClose={closeEditor} fallbackFocusRef={caseListHeading}>
-      <header><div><h2 id="ev-evaluation-dialog-title">AI 검색 결과 평가</h2><p>{numberLabel(selected.applicationNumber)} · {selected.cpc || 'CPC 미입력'}</p></div><button type="button" className="krds-btn medium ev-button" disabled={busy} onClick={closeEditor} aria-label="평가 입력 닫기">닫기</button></header>
-      <div className="ev-evaluation-dialog-body" aria-busy={busy}>
-        {saveFailed && <div ref={feedback} tabIndex={-1} className="ev-evaluation-feedback">{saveFeedback || <div className="ev-alert" role="alert">저장하지 못했습니다. 입력 내용은 유지되어 있습니다. 잠시 후 다시 시도해 주세요.</div>}</div>}
-        <EvaluationEditor key={selected.id} state={state} month={month} save={saveEditor} busy={busy} dirty={mark} item={selected} />
-      </div>
-    </AccessibleDialog>}
+    <section className="ev-panel ev-review-case-list"><div className="ev-case-list-head">내 평가 대상 건 <span className="ev-count">{cases.length}</span></div><ul className="ev-review-case-items">{cases.map(item => <li key={item.id}><a className="ev-review-case" href={taskWindowUrl({ kind: 'evaluation', userId: user.id, caseId: item.id, monthId: month.id, methodId: '', bureau })} target="_blank" rel="noopener noreferrer" onClick={openTaskWindow} aria-label={`${numberLabel(item.applicationNumber)} 평가 입력, 새 창`}><strong>{numberLabel(item.applicationNumber)}</strong><span className="ev-muted ev-review-case-cpc">{item.cpc || 'CPC 미입력'}</span><span className="ev-case-status"><Status state={state} item={item} /></span><span className="ev-review-case-action">평가 입력<AppIcon name="arrow-right-up" size={18} /></span></a></li>)}</ul>{!cases.length && <Empty title="선정 확정한 출원이 없습니다." />}</section>
   </>;
 }
 
@@ -402,100 +351,16 @@ function SelectionEditor({ state, month, user, save, busy, dirty, onCancel, auto
   }}>{submitted ? '수정 사항 저장' : '선정 확정'}</button></div></div></Panel>;
 }
 
-function EvaluationEditor({ state, month, item, save, busy, dirty }: Shared & { item: EvaluationCase }) {
-  const methods = caseMethods(state, item);
-  const ai = methods.filter((method) => method.kind === 'ai');
-  const [documents, setDocuments] = useState<Record<string, DocumentEvaluation[]>>(() => Object.fromEntries(ai.map((method) => { const current = validEvaluation(state, item.id, method.id); return [method.id, (resultFor(state, item.id, method.id)?.publishedDocuments || []).map((number) => current?.documents.find((document) => normalized(document.number) === normalized(number)) || { number, score: null, cited: null, note: '' })]; })));
-  const [ranks, setRanks] = useState<Record<string, RankValue>>(() => { const ranking = state.rankings.find((value) => value.caseId === item.id); return rankingIsCurrent(state, item, ranking) ? Object.fromEntries(methods.map((method) => [method.id, ranking?.values[method.id] ?? null])) : {}; });
-  const [overallComment, setOverallComment] = useState(() => state.rankings.find((entry) => entry.caseId === item.id)?.overallComment ?? '');
-  const versions = Object.fromEntries(ai.map((method) => [method.id, resultFor(state, item.id, method.id)?.publishedVersion || 0]));
-  const remainingDocuments = Object.values(documents).flat().filter((document) => document.score === null || document.cited === null).length;
-  const rankReady = rankingComplete(state, item, ranks);
-  const rankableMethods = methods.map((method) => ({ id: method.id, available: method.kind === 'baseline' ? ai.length > 0 : versions[method.id] > 0 }));
-  const rankGuide = rankingGuidance(rankableMethods, ranks);
-  const publishedDocumentCount = Object.values(documents).flat().length;
-  const evaluationSaveMessage = [
-    '평가를 저장했습니다.',
-    remainingDocuments ? `점수·인용여부가 남은 문헌 ${remainingDocuments}건을 확인하세요.` : '',
-    !rankReady ? '품질 순위 안내에 따라 남은 순위를 선택해 주세요.' : '',
-    publishedDocumentCount > 0 && !remainingDocuments && rankReady ? '이 출원의 평가가 완료되었습니다.' : '',
-  ].filter(Boolean).join(' ');
-  function update(methodId: string, index: number, patch: Partial<DocumentEvaluation>) { setDocuments((previous) => ({ ...previous, [methodId]: previous[methodId].map((document, i) => i === index ? { ...document, ...patch } : document) })); dirty(true); }
-  const status = caseStatus(state, item); const disabled = !isOperationStageOpen(month, 'evaluation') || busy;
-  return <><StageNotice month={month} stage="evaluation" />{status.stale && <div className="ev-notice warning">평가 후 AI 검색 결과가 변경되었습니다. 바뀐 방식의 문헌 평가와 품질 순위를 다시 확인해 저장하세요.</div>}<Panel title="AI 문헌별 평가" description={<>미선택은 실제 0점·X와 다릅니다. 일부 항목만 입력한 상태도 저장할 수 있습니다.<br />점수 기준 : 3점(평균적인 선행기술조사 보고서 수준)</>}><div className="ev-table-scroll" style={{ minHeight: 240 }}><table className="ev-table ev-document-evaluations"><caption className="sr-only">AI 문헌별 평가</caption><colgroup><col style={{ width: 100 }} /><col style={{ width: '42%' }} /><col style={{ width: 120 }} /><col style={{ width: 120 }} /><col style={{ width: 180 }} /></colgroup><thead><tr><th scope="col">조사 방식</th><th scope="col">문헌</th><th scope="col">점수</th><th scope="col">인용여부</th><th scope="col">비고</th></tr></thead><tbody>{ai.flatMap((method) => (documents[method.id] || []).map((document, index) => <tr key={`${method.id}:${document.number}`}><td>{method.name}</td><td className="ev-doc ev-literature"><LiteratureLink reference={document.number} url={literatureDetailsFor(resultFor(state, item.id, method.id)).find((entry) => normalized(entry.number) === normalized(document.number))?.url} /><LiteratureDetails document={literatureDetailsFor(resultFor(state, item.id, method.id)).find((entry) => normalized(entry.number) === normalized(document.number))} /></td><td><select className="krds-form-select" aria-label={`${method.name} ${document.number} 점수`} value={document.score ?? ''} disabled={disabled} onChange={(event) => update(method.id, index, { score: event.target.value === '' ? null : Number(event.target.value) })}><option value="">미선택</option>{[0, 1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value}점</option>)}</select></td><td><select className="krds-form-select" aria-label={`${method.name} ${document.number} 인용여부`} value={document.cited ?? ''} disabled={disabled} onChange={(event) => update(method.id, index, { cited: event.target.value === '' ? null : event.target.value as 'O' | 'X' })}><option value="">미선택</option><option value="O">O</option><option value="X">X</option></select></td><td><input className="krds-input" style={{ minWidth: 150 }} aria-label={`${method.name} ${document.number} 비고`} placeholder="선택 입력" value={document.note} maxLength={4000} disabled={disabled} onChange={(event) => update(method.id, index, { note: event.target.value })} /></td></tr>))}{!Object.values(documents).some((values) => values.length) && <tr><td colSpan={5}><Empty title="공개된 AI 검색 결과를 기다리고 있습니다.">AI 담당자가 입력 완료하면 여기에 문헌이 표시됩니다.</Empty></td></tr>}</tbody></table></div><div className="ev-kpi-note">{ai.map((method) => <span key={method.id}>{method.name} {versions[method.id] ? `${documents[method.id]?.length || 0}문헌` : '대기 중'}</span>)}</div></Panel><Panel title="조사 방식별 품질 순위" description="이 출원에 공개된 AI 검색 결과와 선행기술조사 보고서를 비교해 순위를 매깁니다."><div className="ev-panel-body ev-ranking-guide"><ul>{rankGuide.map((line) => <li key={line}>{line}</li>)}</ul><p role="status">{remainingDocuments ? `점수·인용여부 미선택 ${remainingDocuments}문헌` : publishedDocumentCount ? '공개된 문헌의 평가 입력 완료' : '공개된 AI 문헌 없음'} · {rankReady ? '품질 순위 입력 완료' : '품질 순위 확인 필요'}</p></div><div className="ev-table-scroll"><table className="ev-table"><caption className="sr-only">조사 방식별 품질 순위</caption><thead><tr><th scope="col">조사 방식</th><th scope="col">입력 상태</th><th scope="col">품질 순위</th></tr></thead><tbody>{methods.map((method) => { const available = method.kind === 'baseline' ? ai.length > 0 : versions[method.id] > 0; const options = rankOptionsFor(method.id, rankableMethods, ranks); const currentOption = options.find((option) => option.value === ranks[method.id]); return <tr key={method.id}><td>{method.name}</td><td>{method.kind === 'baseline' ? <Badge>순위 비교 전용</Badge> : <Badge color={available ? 'green' : ''}>{available ? '입력 완료' : '대기 중'}</Badge>}</td><td><select className="krds-form-select" aria-label={`${method.name} 품질 순위`} aria-invalid={Boolean(currentOption?.disabled)} value={ranks[method.id] ?? ''} disabled={disabled || !available} onChange={(event) => { const value = event.target.value; setRanks((previous) => ({ ...previous, [method.id]: value === '' ? null : /^[123]$/.test(value) ? Number(value) as 1 | 2 | 3 : value as RankValue })); dirty(true); }}><option value="">{available ? '미선택' : '대기 중'}</option>{options.map((option) => <option key={String(option.value)} value={option.value} disabled={option.disabled}>{option.label}</option>)}</select></td></tr>; })}</tbody></table></div></Panel><Panel title="총평" description="선택 입력입니다. 비워 두어도 평가를 저장할 수 있습니다."><div className="ev-panel-body"><label className="sr-only" htmlFor={`overall-comment-${item.id}`}>총평</label><textarea id={`overall-comment-${item.id}`} className="krds-input" rows={5} value={overallComment} maxLength={OVERALL_COMMENT_MAX_LENGTH} disabled={disabled} aria-describedby={`overall-comment-count-${item.id}`} placeholder="검색 결과의 유용성이나 조사 방식에 대한 의견을 자유롭게 입력하세요." onChange={(event) => { setOverallComment(event.target.value); dirty(true); }} /><p id={`overall-comment-count-${item.id}`} className="ev-muted" style={{ marginTop: 8, textAlign: 'right' }}>{overallComment.length.toLocaleString('ko-KR')} / {OVERALL_COMMENT_MAX_LENGTH.toLocaleString('ko-KR')}자</p></div></Panel><div className="ev-actions end"><span className="ev-muted">{month.evaluationDeadline ? `평가 기한 ${month.evaluationDeadline}` : '평가 기한 제한 없음'}</span><button className="krds-btn medium ev-button primary" disabled={disabled} onClick={() => void save({ type: 'saveEvaluation', caseId: item.id, evaluations: ai.filter((method) => versions[method.id] > 0).map((method) => ({ methodId: method.id, version: versions[method.id], documents: documents[method.id] || [] })), rankings: ranks, versions, overallComment }, evaluationSaveMessage)}>{busy ? '저장 중…' : '평가 저장'}</button></div></>;
-}
-
-function AIWorkspace({ state, month, user, save, busy, dirty, notify, bureau, saveFeedback }: Shared & { user: EvaluationUser; notify: (text: string) => void; saveFeedback?: React.ReactNode }) {
-  const assignments = personnelOf(state).assignments.filter((assignment) => assignment.userId === user.id && aiMethods(state, month.id).some((method) => method.id === assignment.methodId));
-  const tasks = state.cases.filter((item) => item.monthId === month.id && item.status === 'confirmed').flatMap((item) => assignments.filter((assignment) => assignment.groupId === item.groupId && canInputResult(state, { userId: user.id }, item, assignment.methodId)).map((assignment) => ({ item, methodId: assignment.methodId, key: `${item.id}:${assignment.methodId}` })));
-  const [selectedKey, setSelectedKey] = useState(''); const [unsaved, setUnsaved] = useState(false); const [filter, setFilter] = useRememberedSelection(workspaceSessionKey(`simsadesk-ai-filter:${user.id}:${month.id}`, bureau));
-  const visible = filter ? tasks.filter((task) => !resultFor(state, task.item.id, task.methodId)?.publishedVersion) : tasks;
-  const selected = tasks.find((task) => task.key === selectedKey);
-  const complete = tasks.filter((task) => resultFor(state, task.item.id, task.methodId)?.publishedVersion).length;
+function AIWorkspace({ state, month, user, busy, notify, bureau }: Shared & { user: EvaluationUser; notify: (text: string) => void; saveFeedback?: React.ReactNode }) {
+  const assignments = personnelOf(state).assignments.filter(assignment => assignment.userId === user.id && aiMethods(state, month.id).some(method => method.id === assignment.methodId));
+  const tasks = state.cases.filter(item => item.monthId === month.id && item.status === 'confirmed').flatMap(item => assignments.filter(assignment => assignment.groupId === item.groupId && canInputResult(state, { userId: user.id }, item, assignment.methodId)).map(assignment => ({ item, methodId: assignment.methodId, key: `${item.id}:${assignment.methodId}` })));
+  const [filter, setFilter] = useRememberedSelection(workspaceSessionKey(`simsadesk-ai-filter:${user.id}:${month.id}`, bureau));
+  const visible = filter ? tasks.filter(task => !resultFor(state, task.item.id, task.methodId)?.publishedVersion) : tasks;
+  const complete = tasks.filter(task => resultFor(state, task.item.id, task.methodId)?.publishedVersion).length;
   const downloadableApplications = tasks.filter(task => !state.isDemo || !isDemoApplicationNumber(task.item.applicationNumber)).map(task => task.item.applicationNumber);
-  const [saveFailed, setSaveFailed] = useState(false);
-  const taskListHeading = useRef<HTMLDivElement>(null);
-  const submitting = useRef(false);
-  const feedback = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (saveFailed && !busy) feedback.current?.focus(); }, [saveFailed, busy]);
-  function mark(value: boolean) { setUnsaved(value); dirty(value); }
-  function closeEditor() {
-    if (busy || submitting.current) return;
-    if (unsaved && !window.confirm('저장하지 않은 검색 결과가 있습니다. 입력을 버리고 닫으시겠습니까?')) return;
-    mark(false); setSelectedKey(''); setSaveFailed(false);
-  }
-  async function saveEditor(action: EvaluationAction, message?: string) {
-    if (busy || submitting.current) return false;
-    submitting.current = true; setSaveFailed(false);
-    try {
-      const ok = await save(action, message);
-      if (ok) { mark(false); setSelectedKey(''); }
-      else setSaveFailed(true);
-      return ok;
-    } finally { submitting.current = false; }
-  }
-  return <><div className="ev-filter ev-ai-toolbar"><select className="krds-form-select" aria-label="AI 업무 진행 상태" value={filter} onChange={(event) => { if (!unsaved || window.confirm('저장하지 않은 검색 결과가 있습니다. 필터를 바꾸시겠습니까?')) { mark(false); setFilter(event.target.value); } }}><option value="">전체 입력 업무</option><option value="pending">입력 대기만 보기</option></select><span className="ev-muted ev-ai-toolbar-hint" title="선정 확정된 담당 그룹 출원만 표시됩니다.">선정 확정된 담당 그룹 출원만 표시됩니다.</span><button className="krds-btn medium ev-button" style={{ marginLeft: 'auto' }} onClick={async () => { const items = [...new Map(tasks.map((task) => [task.item.id, task.item])).values()]; const result = await exportPersonal(state, month.id, items, bureau); if (result) notify(result); }}>담당 업무 자료 엑셀 저장</button><TargetPublicationArchive applicationNumbers={downloadableApplications} monthId={month.id} bureau={bureau} disabled={busy} /></div><div className="ev-ai-workspace-layout"><section className="ev-panel ev-case-list ev-ai-task-list"><div ref={taskListHeading} tabIndex={-1} className="ev-case-list-head">의뢰된 업무 목록 <span className="ev-count" aria-label={`입력 완료 ${complete}건 / 배정 업무 ${tasks.length}건`}>{complete}/{tasks.length}</span></div><div className="ev-case-list-items">{visible.map((task) => <AITaskCard key={task.key} item={task.item} methodName={state.methods.find((method) => method.id === task.methodId)?.name || 'AI'} selected={selected?.key === task.key} complete={Boolean(resultFor(state, task.item.id, task.methodId)?.publishedVersion)} demo={state.isDemo} onSelect={() => { if (!busy && (!unsaved || window.confirm('저장하지 않은 검색 결과가 있습니다. 다른 업무로 이동하시겠습니까?'))) { mark(false); setSaveFailed(false); setSelectedKey(task.key); } }} />)}</div>{!visible.length && <Empty title={filter ? '입력 대기 중인 업무가 없습니다.' : '배정된 입력 업무가 없습니다.'}>{filter && <button className="krds-btn medium ev-button" onClick={() => setFilter('')}>전체 입력 업무 보기</button>}</Empty>}</section></div>{selected && <AccessibleDialog labelledBy="ev-ai-result-dialog-title" className="ev-ai-result-dialog" onClose={closeEditor} fallbackFocusRef={taskListHeading}>
-    <header><div><h2 id="ev-ai-result-dialog-title">AI 검색 결과 입력</h2><p>{numberLabel(selected.item.applicationNumber)} · {state.methods.find(method => method.id === selected.methodId)?.name || 'AI'}</p></div><button type="button" className="krds-btn medium ev-button" disabled={busy} onClick={closeEditor} aria-label="AI 검색 결과 입력 닫기">닫기</button></header>
-    <div className="ev-ai-result-dialog-body" aria-busy={busy}>
-      {saveFailed && <div ref={feedback} tabIndex={-1} className="ev-ai-result-feedback">{saveFeedback || <div className="ev-alert" role="alert">저장하지 못했습니다. 입력 내용은 유지되어 있습니다. 잠시 후 다시 시도해 주세요.</div>}</div>}
-      <AIResultEditor key={selected.key} state={state} month={month} item={selected.item} methodId={selected.methodId} save={saveEditor} busy={busy} dirty={mark} />
-    </div>
-  </AccessibleDialog>}</>;
+  return <><div className="ev-filter ev-ai-toolbar"><select className="krds-form-select" aria-label="AI 업무 진행 상태" value={filter} onChange={event => setFilter(event.target.value)}><option value="">전체 입력 업무</option><option value="pending">입력 대기만 보기</option></select><span className="ev-muted ev-ai-toolbar-hint">선정 확정된 담당 그룹 출원만 표시됩니다.</span><button className="krds-btn medium ev-button" style={{ marginLeft: 'auto' }} onClick={async () => { const items = [...new Map(tasks.map(task => [task.item.id, task.item])).values()]; const result = await exportPersonal(state, month.id, items, bureau); if (result) notify(result); }}>담당 업무 자료 엑셀 저장</button><TargetPublicationArchive applicationNumbers={downloadableApplications} monthId={month.id} bureau={bureau} disabled={busy} /></div><div className="ev-ai-workspace-layout"><section className="ev-panel ev-case-list ev-ai-task-list"><div className="ev-case-list-head">의뢰된 업무 목록 <span className="ev-count" aria-label={`입력 완료 ${complete}건 / 배정 업무 ${tasks.length}건`}>{complete}/{tasks.length}</span></div><div className="ev-case-list-items">{visible.map(task => <AITaskCard key={task.key} item={task.item} methodName={state.methods.find(method => method.id === task.methodId)?.name || 'AI'} complete={Boolean(resultFor(state, task.item.id, task.methodId)?.publishedVersion)} demo={state.isDemo} href={taskWindowUrl({ kind: 'result', userId: user.id, caseId: task.item.id, monthId: month.id, methodId: task.methodId, bureau })} />)}</div>{!visible.length && <Empty title={filter ? '입력 대기 중인 업무가 없습니다.' : '배정된 입력 업무가 없습니다.'}>{filter && <button className="krds-btn medium ev-button" onClick={() => setFilter('')}>전체 입력 업무 보기</button>}</Empty>}</section></div></>;
 }
 
-function AIResultEditor({ state, month, item, methodId, save, busy, dirty }: Shared & { item: EvaluationCase; methodId: string }) {
-  const result = resultFor(state, item.id, methodId);
-  const method = state.methods.find((candidate) => candidate.id === methodId);
-  const published = literatureDetailsFor(result);
-  const patentDocuments = published.filter((document) => document.kind === 'patent' || document.kind === 'legacy' && literatureLink(document.number).kind === 'patent');
-  const disabled = !isOperationStageOpen(month, 'result') || busy;
-  return <>
-    <CaseResource item={item} demo={state.isDemo} ai />
-    <StageNotice month={month} stage="result" />
-    <Panel title="선행기술 문헌" description="자동 입력으로 여러 문헌을 등록하거나 문헌별로 직접 입력하세요. 최대 7문헌까지 URL과 마크다운 보고서를 함께 저장합니다.">
-      <div className="ev-panel-body"><LiteratureEditor initialDocuments={literatureDetailsFor(result, 'draft')} disabled={disabled} dirty={dirty} deadline={month.resultDeadline} published={Boolean(result?.publishedVersion)}
-        onSave={(documentDetails, publish) => save({ type: 'saveResult', caseId: item.id, methodId, documents: documentDetails.map((document) => document.number), documentDetails, publish }, publish
-          ? `${method?.name} 검색 결과 ${documentDetails.length}문헌과 URL·보고서를 담당 심사관에게 공개했습니다.`
-          : `${method?.name} 검색 결과 ${documentDetails.length}문헌을 임시저장했습니다.${result?.publishedVersion ? ' 심사관에게는 이전 공개 결과가 계속 보입니다.' : ' 입력 완료하면 심사관에게 공개됩니다.'}`)} />
-      </div>
-    </Panel>
-    <Panel title="심사관에게 공개된 결과" description={result?.publishedBy ? `실제 등록자 ${result.publishedBy.name} · ${result.publishedAt ? new Date(result.publishedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : ''}` : '입력 완료한 결과만 심사관에게 공개됩니다.'}>
-      {published.length ? <>
-        <div className="ev-table-scroll"><table className="ev-table ev-published-literature"><caption className="sr-only">심사관에게 공개된 AI 검색 문헌</caption><colgroup><col style={{ width: 64 }} /><col /><col style={{ width: 140 }} /></colgroup>
-          <thead><tr><th scope="col">순서</th><th scope="col">문헌·URL·보고서</th><th scope="col">원문 확인</th></tr></thead>
-          <tbody>{published.map((document, index) => <tr key={document.number}>
-            <td>{index + 1}</td><td className="ev-doc ev-literature">{document.number}<LiteratureDetails document={document} /></td>
-            <td><LiteratureLink reference={document.number} url={document.url} className="krds-btn medium ev-button tiny">문헌 확인</LiteratureLink></td>
-          </tr>)}</tbody>
-        </table></div>
-        <div className="ev-kpi-note">수정 초안은 다시 입력 완료하기 전까지 기존 공개 결과를 바꾸지 않습니다.
-          {patentDocuments.length > 0 && <a className="krds-btn medium ev-button" href={`/documents?numbers=${encodeURIComponent(patentDocuments.map((document) => document.number).join('\n'))}`} target="_blank" rel="noopener noreferrer" aria-label="검색 문헌 PDF 모으기, 새 창">특허 문헌 PDF 모으기 <span className="ev-new-window">새 창</span></a>}
-          {patentDocuments.length < published.length && <span>비특허문헌 원문은 문헌 확인 링크에서 확인해 주세요.</span>}
-        </div>
-      </> : <Empty title="아직 공개한 결과가 없습니다.">한 문헌 이상 입력한 뒤 ‘AI 검색 결과 입력 완료’를 누르세요.</Empty>}
-    </Panel>
-  </>;
-}
 async function exportPersonal(state: EvaluationState, monthId: string, cases: EvaluationCase[], bureau?: Bureau) {
   const ids = new Set(cases.map((item) => item.id)); const stats = getStatistics(state, monthId); const rows = stats.rows.filter((row) => ids.has(row.caseId));
   return exportWorkbook(`AI 선행기술 검색 포털_${bureau ? `${bureau}_` : ''}업무자료_${monthId}.xlsx`, [

@@ -210,19 +210,6 @@
 .ev-ai-task-list .ev-case .ev-muted { grid-area:details; margin:0; }
 .ev-ai-task-list .ev-case-status { grid-area:status; margin:0; }
 .ev-ai-task-list .ev-case-pdf { min-width:0; padding:16px 20px; }
-.ev :is(.ev-ai-result-dialog,.ev-evaluation-dialog) { display:flex; flex-direction:column; width:min(1080px,100%); max-width:100%; max-height:calc(100dvh - 48px); }
-:is(.ev-ai-result-dialog,.ev-evaluation-dialog) > header { flex-shrink:0; align-items:center; }
-:is(.ev-ai-result-dialog,.ev-evaluation-dialog) > header h2 { font-family:inherit; font-size:22px; }
-:is(.ev-ai-result-dialog,.ev-evaluation-dialog) > header p { margin-top:4px; color:var(--ev-muted); font-size:15px; }
-:is(.ev-ai-result-dialog,.ev-evaluation-dialog) > header > .ev-button { flex-shrink:0; width:auto; height:auto; min-height:48px; padding:10px 16px; border:1px solid var(--krds-color-light-gray-60); border-radius:8px; background:white; font-size:16px; }
-.ev-ai-result-dialog-body,.ev-evaluation-dialog-body { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:24px; }
-.ev-ai-result-feedback,.ev-evaluation-feedback { margin-bottom:20px; }
-@media(max-width:640px) {
-  .ev :is(.ev-ai-result-dialog,.ev-evaluation-dialog) { max-height:calc(100dvh - 24px); }
-  :is(.ev-ai-result-dialog,.ev-evaluation-dialog) > header { gap:12px; padding:16px; }
-  :is(.ev-ai-result-dialog,.ev-evaluation-dialog) > header h2 { font-size:20px; }
-  .ev-ai-result-dialog-body,.ev-evaluation-dialog-body { padding:16px; }
-}
 @media(max-width:760px) {
   .ev-ai-task-list .ev-case-task { grid-template-columns:minmax(0,1fr); }
   .ev-ai-task-list .ev-case-pdf { padding-top:0; }
@@ -239,6 +226,8 @@
 .ev-review-case strong { overflow-wrap:anywhere; font-size:16px; }
 .ev-review-case .ev-case-status { margin:0; }
 .ev-review-case-action { color:var(--krds-color-light-primary-60); white-space:nowrap; }
+.ev-review-case,.ev-case-task a.ev-case { color:inherit; text-decoration:none; }
+.ev-review-case-action { display:inline-flex; align-items:center; gap:6px; }
 @media(max-width:760px) {
   .ev-review-case { grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"number action" "cpc status"; gap:10px 16px; }
   .ev-review-case strong { grid-area:number; }

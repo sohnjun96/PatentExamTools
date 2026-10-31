@@ -1,0 +1,11 @@
+.lit-editor { min-width:0; }
+.lit-editor .lit-code { font-family:Consolas,monospace; font-size:14px; line-height:1.7; }
+.lit-editor fieldset.lit-document { display:grid; gap:18px; min-width:0; margin:0; padding:18px; border:0; }
+.lit-editor .lit-error { color:var(--krds-color-light-danger-70,#8a231f); font-size:15px; line-height:1.7; overflow-wrap:anywhere; }
+.lit-field-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-top:12px; }
+.lit-field-wide { grid-column:1/-1; }
+.lit-editor label { min-width:0; }
+.lit-editor input,.lit-editor select,.lit-editor textarea { width:100%; }
+.lit-editor summary { min-height:44px; padding:10px 0; cursor:pointer; color:var(--krds-color-light-primary-70); font-size:14px; }
+.lit-editor summary:focus-visible { outline:3px solid var(--krds-color-light-primary-60); outline-offset:3px; }
+@media(max-width:640px) { .lit-field-grid { grid-template-columns:1fr; } .lit-editor fieldset.lit-document { padding:16px; } }

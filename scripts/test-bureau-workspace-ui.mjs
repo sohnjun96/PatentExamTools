@@ -37,6 +37,8 @@ function loadModule(relative, append = '') {
   const localRequire = (id) => {
     if (id === 'react') return hooks;
     if (id === 'react/jsx-runtime') return require(id);
+    if (id.endsWith('/task-window')) return loadModule('app/lib/task-window.ts');
+    if (id === './literature-reader') return loadModule('app/evaluation/task/literature-reader.tsx');
     if (id.endsWith('/app-icon')) return loadModule('app/components/app-icon.tsx');
     if (id.endsWith('/pdf-download')) return PdfStub;
     if (id.endsWith('/target-publication-download')) return TargetStub;
@@ -65,7 +67,8 @@ function loadModule(relative, append = '') {
   vm.runInNewContext(outputText, { module: moduleRecord, exports: moduleRecord.exports, require: localRequire, URL, URLSearchParams, console, structuredClone, crypto: webcrypto, window: { confirm(message) { confirmations.push(message); return allowDiscard; } } }, { filename });
   return moduleRecord.exports;
 }
-const ui = loadModule('app/evaluation/workspace.tsx', '\nexport { CaseResource as TestCaseResource, EvaluationEditor as TestEvaluationEditor, AIResultEditor as TestAIResultEditor, AIWorkspace as TestAIWorkspace, SelectionEditor as TestSelectionEditor, StageNotice as TestStageNotice, ReviewWorkspace as TestReviewWorkspace, exportPersonal as TestExportPersonal };');
+const ui = loadModule('app/evaluation/workspace.tsx', '\nexport { AIWorkspace as TestAIWorkspace, SelectionEditor as TestSelectionEditor, StageNotice as TestStageNotice, ReviewWorkspace as TestReviewWorkspace, exportPersonal as TestExportPersonal };');
+ui.TestEvaluationEditor = loadModule('app/evaluation/task/evaluation-reader.tsx').default;
 const adminUI = loadModule('app/evaluation/admin-workspace.tsx', '\nexport { AccountManager as TestAccountManager, MethodManager as TestMethodManager };');
 const domain = loadModule('app/lib/evaluation.ts');
 const { BUREAUS } = loadModule('app/lib/bureaus.ts');
@@ -264,10 +267,10 @@ assert.equal(descendants(noSchedule).filter(({ element }) => element.props.child
 hookIndex = 0; hookOverrides = [];
 const item = { id: 'case-2', applicationNumber: '10-2020-0093844', examinerName: '담당 심사관', groupName: '1그룹' };
 let selections = 0;
-const card = ui.AITaskCard({ item, methodName: '국별 추가 AI', selected: false, complete: false, demo: false, onSelect: () => selections++ });
+const card = ui.AITaskCard({ item, methodName: '국별 추가 AI', selected: false, complete: false, demo: false, href: '/evaluation/task?kind=result' });
 const cardNodes = descendants(card);
 const pdf = cardNodes.find(({ element }) => element.type === TargetStub);
-const selection = cardNodes.find(({ element }) => element.type === 'button');
+const selection = cardNodes.find(({ element }) => element.type === 'a');
 assert(pdf && selection, 'Every task row must expose selection and PDF controls.');
 assert.equal(card.props.onClick, undefined, 'The row wrapper must not intercept PDF clicks.');
 assert(!pdf.ancestors.some(element => element.type === 'button'), 'PDF controls must not be nested inside the selection button.');
@@ -279,51 +282,29 @@ assert.equal(pdf.element.props.kind, undefined);
 TargetStub(pdf.element.props).props.onClick();
 assert.equal(downloads, 1, 'An unselected real case can download its own PDF.');
 assert.equal(selections, 0, 'Downloading a PDF must not change the selected task or its editor.');
-selection.element.props.onClick();
-assert.equal(selections, 1);
+assert.equal(selection.element.props.target, '_blank');
+assert.equal(selection.element.props.href, '/evaluation/task?kind=result');
 const fakeItem = { ...item, applicationNumber: '10-2024-9000000' };
-const demoCard = ui.AITaskCard({ item: fakeItem, methodName: 'AI', selected: false, complete: true, demo: true, onSelect: () => selections++ });
+const demoCard = ui.AITaskCard({ item: fakeItem, methodName: 'AI', selected: false, complete: true, demo: true, href: '/evaluation/task?kind=result' });
 const demoPdf = descendants(demoCard).find(({ element }) => element.type === TargetStub);
 assert.equal(demoPdf.element.props.disabled, true);
 TargetStub(demoPdf.element.props).props.onClick();
 assert.equal(downloads, 1, 'A fictional case must not request a real PDF.');
-const realSampleCard = ui.AITaskCard({ item, methodName: 'AI', selected: false, complete: false, demo: true, onSelect: () => selections++ });
+const realSampleCard = ui.AITaskCard({ item, methodName: 'AI', selected: false, complete: false, demo: true, href: '/evaluation/task?kind=result' });
 const realSampleNodes = descendants(realSampleCard);
 const realSamplePdf = realSampleNodes.find(({ element }) => element.type === TargetStub).element;
 assert.equal(realSamplePdf.props.disabled, false, 'A real application in a sample workspace must allow PDF downloads.');
 assert(!JSON.stringify(realSampleCard).includes('가상 출원번호는 PDF'), 'Real samples must not display the fictional-number warning.');
 TargetStub(realSamplePdf.props).props.onClick();
 assert.equal(downloads, 2);
-assert.equal(selections, 1, 'A sample PDF download must not change task selection.');
-for (const ai of [false, true]) {
-  for (const [applicationNumber, disabled] of [[item.applicationNumber, false], ['10-2024-9000019', true], ['1020249000000', true]]) {
-    const resource = ui.TestCaseResource({ item: { ...item, applicationNumber }, demo: true, ai });
-    const controls = descendants(resource).filter(({ element }) => element.type === PdfStub || element.type === TargetStub);
-    assert(controls.length > 0);
-    assert(controls.every(({ element }) => element.props.disabled === disabled), 'Detail downloads must distinguish real samples and generated numbers.');
-    assert.equal(JSON.stringify(resource).includes('가상 출원번호 · PDF 다운로드 불가'), disabled);
-  }
-}
-const detailResource = ui.TestCaseResource({ item, demo: false });
-const detailPdfControls = descendants(detailResource).filter(({ element }) => element.type === PdfStub);
-assert.equal(detailPdfControls.length, 2);
-assert(detailPdfControls.every(({ element }) => element.props.quickDownload === undefined), 'Detailed PDF controls must retain the existing save-location choice.');
-
-const aiDetail = ui.TestCaseResource({ item, demo: false, ai: true });
-const aiDetailNodes = descendants(aiDetail);
-assert.equal(aiDetailNodes.filter(({ element }) => element.type === TargetStub).length, 1);
-assert.equal(aiDetailNodes.filter(({ element }) => element.type === PdfStub).length, 0, 'AI detail must not offer a registered-patent substitute.');
-const aiTarget = aiDetailNodes.find(({ element }) => element.type === TargetStub).element;
-assert.equal(aiTarget.props.applicationNumber, item.applicationNumber);
-assert.equal(aiTarget.props.context, 'detail');
-
+assert.equal(selections, 0, 'A sample PDF download must not change task selection.');
 // Bulk targets come from all assigned work, even when the visible list only shows pending work.
 const archiveState = domain.createDemoState('2026-10'); archiveState.isDemo = false;
 const archiveUser = archiveState.users.find(user => user.id === 'demo-user-1');
 const ownAssignments = archiveState.personnel.assignments.filter(entry => entry.userId === archiveUser.id && archiveState.months[0].methodIds.includes(entry.methodId));
 const expectedTargets = archiveState.cases.filter(entry => entry.status === 'confirmed' && entry.monthId === '2026-10').flatMap(entry => ownAssignments.filter(assignment => assignment.groupId === entry.groupId).map(() => entry.applicationNumber));
 for (const filter of ['', 'pending']) {
-  hookIndex = 0; hookOverrides = ['', false, filter];
+  hookIndex = 0; hookOverrides = [{key:ui.workspaceSessionKey(`simsadesk-ai-filter:${archiveUser.id}:2026-10`, '기획국'),value:filter}];
   const tree = ui.TestAIWorkspace({ state: archiveState, month: archiveState.months[0], user: archiveUser, bureau: '기획국', busy: false, dirty() {}, save: async () => true, notify() {} });
   const archive = descendants(tree).find(({ element }) => element.type === TargetArchiveStub).element;
   assert.equal(JSON.stringify(archive.props.applicationNumbers), JSON.stringify(expectedTargets));
@@ -347,45 +328,10 @@ for (const [state, expected] of [[mixedSamples, [item.applicationNumber]], [{ ..
 for (const number of ['10-2024-9000000', '1020249000019', '10 2024 9000010']) assert.equal(domain.isDemoApplicationNumber(number), true);
 for (const number of [item.applicationNumber, '10-2024-9000020', '10-2023-9000000']) assert.equal(domain.isDemoApplicationNumber(number), false);
 
-// AI tasks open their own dialog; completed pending tasks must not switch to another case mid-save.
-const taskKey = `${archiveState.cases[0].id}:chatgpt`;
-function renderAITaskDialog({ selectedKey = '', unsaved = false, failed = false, filter = '', ...props } = {}) {
-  hookIndex = 0;
-  hookOverrides = [selectedKey, unsaved, { key: ui.workspaceSessionKey(`simsadesk-ai-filter:${archiveUser.id}:2026-10`, '기획국'), value: filter }, failed];
-  return ui.TestAIWorkspace({ state: archiveState, month: archiveState.months[0], user: archiveUser, bureau: '기획국', busy: false, dirty() {}, save: async () => true, notify() {}, ...props });
-}
-const dialogNode = tree => descendants(tree).find(({ element }) => element.props.labelledBy === 'ev-ai-result-dialog-title')?.element;
-const dialogEditor = tree => descendants(dialogNode(tree)).find(({ element }) => element.props.item && element.props.methodId && element.props.save).element;
-const taskList = renderAITaskDialog();
-assert.equal(dialogNode(taskList), undefined, 'The list must not open an editor automatically.');
-const firstTask = descendants(taskList).find(({ element }) => element.type === ui.AITaskCard).element;
-firstTask.props.onSelect();
-assert(hookWrites.some(write => write.index === 0 && write.value === taskKey), 'Choosing a row must open that task.');
-const modalTree = renderAITaskDialog({ selectedKey: taskKey, filter: 'pending' });
-assert(dialogNode(modalTree));
-assert.equal(dialogEditor(modalTree).props.item.id, archiveState.cases[0].id, 'Filtering a published task must not substitute another case in its open editor.');
-assert.equal(dialogEditor(modalTree).props.methodId, 'chatgpt');
-allowDiscard = false;
-const dirtyModal = renderAITaskDialog({ selectedKey: taskKey, unsaved: true });
-const writesBeforeClose = hookWrites.length;
-dialogNode(dirtyModal).props.onClose();
-assert.equal(hookWrites.length, writesBeforeClose, 'Declining discard must preserve the open form.');
-allowDiscard = true;
-dialogNode(dirtyModal).props.onClose();
-assert(hookWrites.slice(writesBeforeClose).some(write => write.index === 0 && write.value === ''));
-let finishModalSave;
-const pendingModal = renderAITaskDialog({ selectedKey: taskKey, unsaved: true, save: () => new Promise(resolve => { finishModalSave = resolve; }) });
-const pendingSave = dialogEditor(pendingModal).props.save({ type: 'saveResult', caseId: archiveState.cases[0].id, methodId: 'chatgpt', documents: ['Modal literature'], publish: true });
-const writesBeforeBusyClose = hookWrites.length;
-dialogNode(pendingModal).props.onClose();
-assert.equal(hookWrites.length, writesBeforeBusyClose, 'Closing must be blocked immediately while a save is in flight.');
-finishModalSave(false); assert.equal(await pendingSave, false);
-assert(!hookWrites.slice(writesBeforeBusyClose).some(write => write.index === 0 && write.value === ''), 'Failed saves must leave the form open.');
-const successfulModal = renderAITaskDialog({ selectedKey: taskKey, unsaved: true });
-const writesBeforeSuccess = hookWrites.length;
-assert.equal(await dialogEditor(successfulModal).props.save({ type: 'saveResult', caseId: archiveState.cases[0].id, methodId: 'chatgpt', documents: ['Modal literature'], publish: false }), true);
-assert(hookWrites.slice(writesBeforeSuccess).some(write => write.index === 0 && write.value === ''), 'Successful saves must return to the task list.');
-assert(JSON.stringify(renderAITaskDialog({ selectedKey: taskKey, failed: true, saveFeedback: '검증용 저장 오류' })).includes('검증용 저장 오류'), 'Errors must also appear inside the dialog.');
+// Task cards carry explicit identity into a standalone window.
+hookIndex=0;hookOverrides=[];
+const taskList=ui.TestAIWorkspace({state:archiveState,month:archiveState.months[0],user:archiveUser,bureau:'기획국',busy:false,dirty(){},save:async()=>true,notify(){}});
+for(const {element} of descendants(taskList).filter(({element})=>element.type===ui.AITaskCard)){const url=new URL(element.props.href,'http://localhost');assert.equal(url.pathname,'/evaluation/task');assert.equal(url.searchParams.get('userId'),archiveUser.id);assert.equal(url.searchParams.get('caseId'),element.props.item.id);assert.equal(url.searchParams.get('bureau'),'기획국');}
 
 assert.deepEqual(Array.from(adminUI.ADMIN_NAV, entry => entry.id), ['overview', 'examiners', 'ai', 'month', 'cases', 'notices']);
 assert.equal(adminUI.readAdminSection(null, '전기국', 'settings'), 'examiners');
@@ -619,123 +565,47 @@ for(const patch of [{busy:true},{hasUnsaved:true}]) {
 }
 const mixedReferences = ['KR1020200000000A', 'Attention Is All You Need', '10.48550/arXiv.1706.03762', 'https://arxiv.org/abs/1706.03762'];
 const mixedState = domain.applyAction(demo, { userId: 'demo-user-1' }, { type: 'saveResult', caseId: demo.cases[0].id, methodId: 'chatgpt', documents: mixedReferences, publish: true });
-const mixedProps = { state: mixedState, item: mixedState.cases[0], month: mixedState.months[0], methodId: 'chatgpt', busy: false, dirty() {}, save: async () => true };
-hookIndex = 0; hookOverrides = [];
-const evaluationTree = ui.TestEvaluationEditor(mixedProps);
-const evaluationLinks = descendants(evaluationTree).filter(({ element }) => element.type?.name === 'LiteratureLink');
-const evaluationPanels = descendants(evaluationTree).filter(({ element }) => ['AI 문헌별 평가', '조사 방식별 품질 순위', '총평'].includes(element.props.title));
-assert.deepEqual(Array.from(evaluationPanels, ({ element }) => element.props.title), ['AI 문헌별 평가', '조사 방식별 품질 순위', '총평']);
-const commentField = tree => descendants(tree).find(({ element }) => element.type === 'textarea' && element.props.id?.startsWith('overall-comment-')).element;
-assert.equal(commentField(evaluationTree).props.value, '', 'Legacy records must start with an empty optional comment.');
-assert.equal(commentField(evaluationTree).props.required, undefined);
-const deliveredOnlyState = structuredClone(mixedState);
-deliveredOnlyState.months[0].methodIds = [];
-deliveredOnlyState.results = deliveredOnlyState.results.filter(result => result.caseId !== mixedProps.item.id || result.methodId !== 'claude');
-hookIndex = 0; hookOverrides = [];
-const deliveredOnlyTree = ui.TestEvaluationEditor({ ...mixedProps, state: deliveredOnlyState });
-const comparisonLabels = descendants(deliveredOnlyTree).filter(({ element }) => element.type === 'select' && /품질 순위$/.test(element.props['aria-label'] || '')).map(({ element }) => element.props['aria-label']);
-assert.deepEqual(comparisonLabels, ['ChatGPT 품질 순위', '선행기술조사 품질 순위'], 'Only delivered AI results and the report belong in the comparison form.');
-assert.equal(commentField(evaluationTree).props.maxLength, domain.OVERALL_COMMENT_MAX_LENGTH);
-const restoredCommentState = structuredClone(mixedState);
-restoredCommentState.rankings.find(entry => entry.caseId === mixedProps.item.id).overallComment = '이전에 저장한 총평\n검색 결과 검토';
-const commentDirty = [];
-hookIndex = 0; hookOverrides = [];
-const restoredCommentTree = ui.TestEvaluationEditor({ ...mixedProps, state: restoredCommentState, dirty: value => commentDirty.push(value) });
-assert.equal(commentField(restoredCommentTree).props.value, '이전에 저장한 총평\n검색 결과 검토', 'Restore comments even when AI result versions changed.');
-commentField(restoredCommentTree).props.onChange({ target: { value: '수정한 총평' } });
-assert.equal(commentDirty.at(-1), true, 'Comment changes must trigger the existing unsaved-input protection.');
+const mixedProps = { state: mixedState, item: mixedState.cases[0], month: mixedState.months[0], busy: false, dirty() {}, save: async () => true };
+const commentField = tree => descendants(tree).find(({ element }) => element.type === 'textarea' && element.props['aria-label'] === '총평').element;
+hookIndex=0; hookOverrides=[];
+const evaluationTree=ui.TestEvaluationEditor(mixedProps);
+assert.equal(commentField(evaluationTree).props.value,'');
+assert.equal(commentField(evaluationTree).props.maxLength,domain.OVERALL_COMMENT_MAX_LENGTH);
+assert(!descendants(evaluationTree).some(({element})=>element.type==='table'),'Reports and evaluations use independent panes.');
+const deliveredOnlyState=structuredClone(mixedState); deliveredOnlyState.months[0].methodIds=[];
+deliveredOnlyState.results=deliveredOnlyState.results.filter(result=>result.caseId!==mixedProps.item.id||result.methodId!=='claude');
+hookIndex=0;hookOverrides=[];
+assert.deepEqual(descendants(ui.TestEvaluationEditor({...mixedProps,state:deliveredOnlyState})).filter(({element})=>element.type==='select').map(({element})=>element.props['aria-label']),['ChatGPT 품질 순위','선행기술조사 품질 순위']);
 let savedCommentAction;
-hookIndex = 0; hookOverrides = []; hookOverrides[2] = '작성 중인 총평'; hookWrites.length = 0;
-const commentSaveTree = ui.TestEvaluationEditor({ ...mixedProps, save: async action => { savedCommentAction = action; return false; } });
-descendants(commentSaveTree).find(({ element }) => element.type === 'button' && element.props.children === '평가 저장').element.props.onClick();
-assert.equal(savedCommentAction.overallComment, '작성 중인 총평');
-assert.equal(savedCommentAction.type, 'saveEvaluation');
-assert(!hookWrites.some(write => write.index === 2), 'A failed save must not reset the comment input.');
-for (const blocked of [{ busy: true }, { month: { ...mixedProps.month, closed: true } }]) {
-  hookIndex = 0; hookOverrides = [];
-  assert.equal(commentField(ui.TestEvaluationEditor({ ...mixedProps, ...blocked })).props.disabled, true);
-}
-for (const reference of mixedReferences) {
-  const linkNode = evaluationLinks.find(({ element }) => element.props.reference === reference);
-  assert(linkNode, 'Every mixed document must expose a literature link in the evaluation table.');
-  const anchor = linkNode.element.type(linkNode.element.props);
-  assert.equal(anchor.type, 'a');
-  assert.equal(anchor.props.target, '_blank');
-  assert.equal(anchor.props.rel, 'noopener noreferrer');
-  assert.equal(anchor.props.children[0], reference, 'Visible references must retain their original stored text.');
-  const destination = new URL(anchor.props.href);
-  if (reference.startsWith('KR10')) {
-    assert.equal(destination.hostname, 'patents.google.com');
-    assert.equal(destination.searchParams.get('q'), 'KR20200000000A');
-  } else if (reference === 'Attention Is All You Need') {
-    assert.equal(destination.hostname, 'scholar.google.com');
-    assert.equal(destination.searchParams.get('q'), reference);
-  } else if (reference.startsWith('10.')) {
-    assert.equal(destination.hostname, 'doi.org');
-  } else assert.equal(destination.href, reference);
-}
-hookIndex = 0; hookOverrides = [];
-const aiResultsTree = ui.TestAIResultEditor(mixedProps);
-const publishedLinks = descendants(aiResultsTree).filter(({ element }) => element.type?.name === 'LiteratureLink');
-assert.deepEqual(Array.from(publishedLinks, ({ element }) => element.props.reference), mixedReferences, 'AI and examiner views must share the same links.');
-const mixedPdfLink = descendants(aiResultsTree).find(({ element }) => element.type === 'a' && element.props.href?.startsWith('/documents?numbers='));
-assert.equal(new URL(mixedPdfLink.element.props.href, 'https://local.test').searchParams.get('numbers'), mixedReferences[0], 'Paper titles, DOI and URLs must not be sent to the patent PDF downloader.');
-const paperOnly = domain.applyAction(mixedState, { userId: 'demo-user-1' }, { type: 'saveResult', caseId: demo.cases[0].id, methodId: 'chatgpt', documents: mixedReferences.slice(1), publish: true });
-hookIndex = 0; hookOverrides = [];
-const paperOnlyTree = ui.TestAIResultEditor({ ...mixedProps, state: paperOnly });
-assert(!descendants(paperOnlyTree).some(({ element }) => element.type === 'a' && element.props.href?.startsWith('/documents?numbers=')), 'Paper-only results must not offer patent PDF collection.');
-const structuredDocuments = domain.normalizeLiteratureDocuments([
-  { kind: 'patent', number: 'KR20100001234A', url: 'https://example.test/published-patent', reportMarkdown: '## 공개 특허 보고서\n\n구성 대비 내용.' },
-  { kind: 'non-patent', authors: 'Lee, S.', title: 'A structured reference', publication: 'Research Journal', publicationPlace: 'Seoul', publisher: 'Research Press', publicationDate: '2020-06', volume: 'Vol. 1', issue: 'No. 3', pages: 'pp. 12–16', acquiredDate: '2026-10-30', dateNote: '발행일 미상', url: 'https://example.test/published-paper', reportMarkdown: '## 공개 논문 보고서\n\n관련 구성과 근거.' },
+hookIndex=0;hookOverrides=[];hookOverrides[2]='작성한 총평';
+const commentSaveTree=ui.TestEvaluationEditor({...mixedProps,save:async action=>{savedCommentAction=action;return false;}});
+await descendants(commentSaveTree).find(({element})=>element.type==='button'&&Array.isArray(element.props.children)&&element.props.children.includes('평가 저장')).element.props.onClick();
+await new Promise(resolve=>setImmediate(resolve));
+assert.equal(savedCommentAction.overallComment,'작성한 총평');
+for(const blocked of [{busy:true},{month:{...mixedProps.month,closed:true}}]){hookIndex=0;hookOverrides=[];assert.equal(commentField(ui.TestEvaluationEditor({...mixedProps,...blocked})).props.disabled,true);}
+const structuredDocuments=domain.normalizeLiteratureDocuments([
+ {kind:'patent',number:'KR20100001234A',url:'https://example.test/published-patent',reportMarkdown:'## 공개 특허 보고서\n\n구성 대비 내용.'},
+ {kind:'non-patent',authors:'Lee, S.',title:'A structured reference',publication:'Research Journal',publicationPlace:'Seoul',publisher:'Research Press',publicationDate:'2020-06',volume:'Vol. 1',issue:'No. 3',pages:'pp. 12–16',acquiredDate:'2026-10-30',dateNote:'발행일 미상',url:'https://example.test/published-paper',reportMarkdown:'## 공개 논문 보고서\n\n관련 구성과 근거.'}
 ]);
-let structuredState = domain.applyAction(demo, { userId: 'demo-user-1' }, { type: 'saveResult', caseId: demo.cases[0].id, methodId: 'chatgpt', documents: structuredDocuments.map(document => document.number), documentDetails: structuredDocuments, publish: true });
-const privateDraftDocuments = structuredDocuments.map(document => ({ ...document, url: 'https://example.test/private-draft', reportMarkdown: '심사관에게 보이면 안 되는 수정 초안' }));
-structuredState = domain.applyAction(structuredState, { userId: 'demo-user-1' }, { type: 'saveResult', caseId: demo.cases[0].id, methodId: 'chatgpt', documents: privateDraftDocuments.map(document => document.number), documentDetails: privateDraftDocuments, publish: false });
-const structuredProps = { ...mixedProps, state: structuredState };
-hookIndex = 0; hookOverrides = [];
-const structuredEvaluation = ui.TestEvaluationEditor(structuredProps);
-const structuredEvaluationNodes = descendants(structuredEvaluation);
-for (const document of structuredDocuments) {
-  const link = structuredEvaluationNodes.find(({ element }) => element.type?.name === 'LiteratureLink' && element.props.reference === document.number).element;
-  assert.equal(link.props.url, document.url, 'Examiner links must use the published source URL.');
-  assert.equal(link.type(link.props).props.href, document.url);
-  const detail = structuredEvaluationNodes.find(({ element }) => element.type?.name === 'LiteratureDetails' && element.props.document.number === document.number).element;
-  assert.deepEqual(JSON.parse(JSON.stringify(detail.props.document)), JSON.parse(JSON.stringify(document)), 'Examiner details must receive the published bibliography and report.');
-  const expandedDetails = descendants(detail.type(detail.props));
-  assert.equal(expandedDetails.find(({ element }) => element.type === NoticeMarkdownStub).element.props.markdown, document.reportMarkdown);
+let structuredState=domain.applyAction(demo,{userId:'demo-user-1'},{type:'saveResult',caseId:demo.cases[0].id,methodId:'chatgpt',documents:structuredDocuments.map(d=>d.number),documentDetails:structuredDocuments,publish:true});
+const privateDraftDocuments=structuredDocuments.map(d=>({...d,url:'https://example.test/private-draft',reportMarkdown:'심사관에게 보이면 안 되는 수정 초안'}));
+structuredState=domain.applyAction(structuredState,{userId:'demo-user-1'},{type:'saveResult',caseId:demo.cases[0].id,methodId:'chatgpt',documents:privateDraftDocuments.map(d=>d.number),documentDetails:privateDraftDocuments,publish:false});
+const structuredProps={...mixedProps,state:structuredState};
+for(let index=0;index<structuredDocuments.length;index++){
+ hookIndex=0;hookOverrides=[];hookOverrides[4]=index;
+ const tree=ui.TestEvaluationEditor(structuredProps);
+ const reader=descendants(tree).find(({element})=>element.type?.name==='LiteratureReader').element;
+ assert.deepEqual(JSON.parse(JSON.stringify(reader.props.document)),JSON.parse(JSON.stringify(structuredDocuments[index])));
+ const expanded=descendants(reader.type(reader.props));
+ assert.equal(expanded.find(({element})=>element.type===NoticeMarkdownStub).element.props.markdown,structuredDocuments[index].reportMarkdown);
+ assert(!JSON.stringify(tree).includes('심사관에게 보이면 안 되는 수정 초안'));
 }
-assert(!JSON.stringify(structuredEvaluation).includes('심사관에게 보이면 안 되는 수정 초안'));
-let savedStructuredAction;
-hookIndex = 0; hookOverrides = [];
-const structuredAI = ui.TestAIResultEditor({ ...structuredProps, save: async action => { savedStructuredAction = action; return true; } });
-const structuredAINodes = descendants(structuredAI);
-const structuredInputEditor = structuredAINodes.find(({ element }) => element.type?.name === 'LiteratureEditor').element;
-assert.deepEqual(JSON.parse(JSON.stringify(structuredInputEditor.props.initialDocuments)), JSON.parse(JSON.stringify(privateDraftDocuments)), 'AI editors must restore the private draft separately from publication.');
-for (const document of structuredDocuments) {
-  const detail = structuredAINodes.find(({ element }) => element.type?.name === 'LiteratureDetails' && element.props.document.number === document.number).element;
-  assert.deepEqual(JSON.parse(JSON.stringify(detail.props.document)), JSON.parse(JSON.stringify(document)), 'The AI publication preview must keep showing the published report.');
-}
-await structuredInputEditor.props.onSave(privateDraftDocuments, false);
-assert.equal(savedStructuredAction.type, 'saveResult');
-assert.equal(savedStructuredAction.publish, false);
-assert.deepEqual(savedStructuredAction.documentDetails, privateDraftDocuments);
-assert.equal(JSON.stringify(savedStructuredAction.documents), JSON.stringify(privateDraftDocuments.map(document => document.number)));
-await structuredInputEditor.props.onSave(privateDraftDocuments, true);
-assert.equal(savedStructuredAction.publish, true);
-await ui.TestExportPersonal(structuredState, structuredProps.month.id, [structuredProps.item], '기획국');
-const exportedLiterature = exportedWorkbook.sheets.find(sheet => sheet.name === '선행기술 목록');
-const literatureHeader = exportedLiterature.rows[0];
-for (const document of structuredDocuments) {
-  const row = exportedLiterature.rows.find(entry => entry[literatureHeader.indexOf('문헌번호·서지정보')] === document.number);
-  assert(row);
-  assert.equal(row[literatureHeader.indexOf('URL')], document.url, 'Exports must use published source URLs.');
-  assert.equal(row[literatureHeader.indexOf('보고서 (마크다운)')], document.reportMarkdown);
-  if (document.kind === 'non-patent') {
-    assert.equal(row[literatureHeader.indexOf('논문명·문서명')], document.title);
-    assert.equal(row[literatureHeader.indexOf('발행장소')], document.publicationPlace);
-    assert.equal(row[literatureHeader.indexOf('페이지')], document.pages);
-  }
-}
+assert.deepEqual(JSON.parse(JSON.stringify(domain.literatureDetailsFor(domain.resultFor(structuredState,demo.cases[0].id,'chatgpt'),'draft'))),JSON.parse(JSON.stringify(privateDraftDocuments)));
+await ui.TestExportPersonal(structuredState,structuredProps.month.id,[structuredProps.item],'기획국');
+const exportedLiterature=exportedWorkbook.sheets.find(sheet=>sheet.name==='선행기술 목록');
+const literatureHeader=exportedLiterature.rows[0];
+for(const document of structuredDocuments){const row=exportedLiterature.rows.find(entry=>entry[literatureHeader.indexOf('문헌번호·서지정보')]===document.number);assert(row);assert.equal(row[literatureHeader.indexOf('URL')],document.url);assert.equal(row[literatureHeader.indexOf('보고서 (마크다운)')],document.reportMarkdown);}
+
 assert.equal(adminUI.filterTargetCases(demo, '2026-10', { status: 'complete' }).length, 20);
 assert.equal(adminUI.filterTargetCases(demo, '2026-11').length, 0);
 assert.equal(adminUI.filterTargetCases(demo, '2026-10', { query: demo.cases[0].applicationNumber.replace(/\D/g, '') }).length, 1);
@@ -803,14 +673,13 @@ for (const status of ['pending', 'stopped', 'closed']) {
   const controlledMonth = { ...demo.months[0], stages: { selection: status, result: status, evaluation: status } };
   for (const [stage, render] of [
     ['selection', () => ui.TestSelectionEditor({ state: demo, month: controlledMonth, user: demo.users[1], busy: false, dirty() {}, save: async () => true })],
-    ['result', () => ui.TestAIResultEditor({ state: demo, month: controlledMonth, item: demo.cases[0], methodId: 'chatgpt', busy: false, dirty() {}, save: async () => true })],
     ['evaluation', () => ui.TestEvaluationEditor({ state: demo, month: controlledMonth, item: demo.cases[0], busy: false, dirty() {}, save: async () => true })],
   ]) {
     hookIndex = 0; hookOverrides = [];
     const editor = render();
     const nestedEditor = descendants(editor).find(({ element }) => element.type?.name === 'LiteratureEditor');
     const inputTree = nestedEditor ? nestedEditor.element.type(nestedEditor.element.props) : editor;
-    const inputs = descendants(inputTree).filter(({ element }) => ['input', 'select', 'textarea', 'button'].includes(element.type)
+    const inputs = descendants(inputTree).filter(({ element }) => ['input', 'select', 'textarea'].includes(element.type)
       && !element.props.readOnly && element.props.children !== '포맷팅 프롬프트 복사');
     assert(inputs.length > 0); assert(inputs.every(({ element }) => element.props.disabled));
     assert(ui.TestStageNotice({ month: controlledMonth, stage }).props.children.includes('단계가'));
@@ -824,7 +693,7 @@ reviewState.months.push(domain.emptyMonth('2026-11'));
 reviewState.cases.push({ ...submitted[0], id: 'other-month-case', monthId: '2026-11', applicationNumber: '10-2020-0000001' }, { ...submitted[0], id: 'draft-case', status: 'draft', applicationNumber: '10-2020-0000002' }, { ...submitted[0], id: 'cancelled-case', status: 'cancelled', applicationNumber: '10-2020-0000003' });
 reviewState.results = reviewState.results.filter(result => result.caseId !== submitted[0].id);
 function renderReview(month, { selectedId = '', unsaved = false, failed = false, ...props } = {}) {
-  hookIndex = 0; hookOverrides = [selectedId, unsaved, false, failed];
+  hookIndex = 0; hookOverrides = [unsaved, false];
   return ui.TestReviewWorkspace({ state: reviewState, month, user: reviewUser, bureau: '기획국', busy: false, dirty() {}, save: async () => true, notify() {}, ...props });
 }
 for (const month of [
@@ -850,43 +719,10 @@ for (const month of [reviewState.months[0], { ...reviewState.months[0], stages: 
   assert(!nodes.some(({ element }) => element.props.className === 'ev-stats'), 'Remove the four aggregate evaluation cards.');
   const rows = nodes.filter(({ element }) => element.props.className === 'ev-review-case');
   assert.equal(rows.length, submitted.length, 'Only this examiner’s confirmed cases in the selected month belong in the list.');
-  hookWrites.length = 0;
-  rows.at(-1).element.props.onClick();
-  assert(hookWrites.some(write => write.index === 0 && write.value === submitted.at(-1).id));
-  const selectedTree = renderReview(month, { selectedId: submitted.at(-1).id });
-  const selectedEditor = descendants(selectedTree).find(({ element }) => element.type === ui.TestEvaluationEditor).element;
-  assert.equal(selectedEditor.props.item, submitted.at(-1), 'Open the chosen case without substituting the first case.');
+  const link=rows.at(-1).element;
+  assert.equal(link.type,'a');assert.equal(link.props.target,'_blank');
+  assert.equal(new URL(link.props.href,'http://localhost').searchParams.get('caseId'),submitted.at(-1).id);
 }
-const reviewDialog = tree => descendants(tree).find(({ element }) => element.props.labelledBy === 'ev-evaluation-dialog-title')?.element;
-const reviewEditor = tree => descendants(reviewDialog(tree)).find(({ element }) => element.type === ui.TestEvaluationEditor).element;
-const activeReviewMonth = { ...reviewState.months[0], stages: { evaluation: 'running' } };
-assert.equal(reviewDialog(renderReview(activeReviewMonth, { selectedId: 'other-month-case' })), undefined);
-const dirtyReview = renderReview(activeReviewMonth, { selectedId: submitted[0].id, unsaved: true });
-allowDiscard = false;
-hookWrites.length = 0;
-reviewDialog(dirtyReview).props.onClose();
-assert.equal(hookWrites.length, 0, 'Declining discard preserves the evaluation form and dirty state.');
-allowDiscard = true;
-reviewDialog(dirtyReview).props.onClose();
-assert(hookWrites.some(write => write.index === 0 && write.value === ''));
-assert(reviewDialog(dirtyReview).props.fallbackFocusRef, 'Return keyboard focus to the list if its trigger disappears.');
-let finishReviewSave; let reviewSaveRequests = 0;
-const savingReview = renderReview(activeReviewMonth, { selectedId: submitted[0].id, unsaved: true, save: () => { reviewSaveRequests++; return new Promise(resolve => { finishReviewSave = resolve; }); } });
-const evaluationAction = { type: 'saveEvaluation', caseId: submitted[0].id, evaluations: [], rankings: {}, versions: {} };
-const savingReviewRequest = reviewEditor(savingReview).props.save(evaluationAction);
-hookWrites.length = 0;
-reviewDialog(savingReview).props.onClose();
-assert.equal(hookWrites.length, 0, 'Block closing the evaluation immediately while its save is pending.');
-assert.equal(await reviewEditor(savingReview).props.save(evaluationAction), false);
-assert.equal(reviewSaveRequests, 1, 'Avoid duplicate evaluation requests while saving.');
-finishReviewSave(false); assert.equal(await savingReviewRequest, false);
-assert(!hookWrites.some(write => write.index === 0 && write.value === ''), 'A failed save must preserve the selected case and its form.');
-assert(hookWrites.some(write => write.index === 3 && write.value === true));
-assert(JSON.stringify(renderReview(activeReviewMonth, { selectedId: submitted[0].id, failed: true, saveFeedback: '평가 저장 오류' })).includes('평가 저장 오류'), 'Show actionable errors inside the evaluation dialog.');
-const savedReview = renderReview(activeReviewMonth, { selectedId: submitted[0].id, unsaved: true });
-hookWrites.length = 0;
-assert.equal(await reviewEditor(savedReview).props.save(evaluationAction), true);
-assert(hookWrites.some(write => write.index === 0 && write.value === ''), 'A successful save returns to the evaluation list.');
 const noSubmissions = { ...reviewState, cases: reviewState.cases.filter(item => item.examinerId !== reviewUser.id) };
 hookIndex = 0; hookOverrides = [];
 const emptyReview = ui.TestReviewWorkspace({ state: noSubmissions, month: { ...reviewState.months[0], stages: { evaluation: 'stopped' } }, user: reviewUser, busy: false, dirty() {}, save: async () => true, notify() {} });
@@ -898,12 +734,12 @@ const editableSubmittedMonth = { ...reviewState.months[0], stages: { selection: 
 const submittedReview = renderReview(editableSubmittedMonth);
 const editSubmitted = descendants(submittedReview.props.action).find(({ element }) => element.props.children === '제출 목록 수정').element;
 editSubmitted.props.onClick();
-assert(hookWrites.some(write => write.index === 2 && write.value === true));
+assert(hookWrites.some(write => write.index === 1 && write.value === true));
 for (const status of ['stopped', 'closed']) {
   const lockedReview = renderReview({ ...editableSubmittedMonth, stages: { selection: status, evaluation: 'stopped' } });
   assert(!descendants(lockedReview.props.action).some(({ element }) => element.props.children === '제출 목록 수정'));
 }
-hookIndex = 0; hookOverrides = ['', false, true];
+hookIndex = 0; hookOverrides = [false, true];
 const revisingReview = ui.TestReviewWorkspace({ state: reviewState, month: editableSubmittedMonth, user: reviewUser, busy: false, dirty() {}, save: async () => true, notify() {} });
 assert.equal(revisingReview.type, ui.TestSelectionEditor);
 let revisedAction;
@@ -1021,7 +857,7 @@ assert(numberFields(automaticBusyForm).every(field => field.props.disabled));
 assert.equal(numberAdd(automaticBusyForm).props.disabled, true);
 hookWrites.length = 0;
 await revisingReview.props.autoSave({ type: 'saveSelection', monthId: '2026-10', rows: submitted, confirm: true });
-assert(!hookWrites.some(write => write.index === 2 && write.value === false), 'Automatic saves must keep the submitted-list editing screen open.');
+assert(!hookWrites.some(write => write.index === 1 && write.value === false), 'Automatic saves must keep the submitted-list editing screen open.');
 await adminUI.exportAdminStatistics(demo, '2026-10', 'group-a', '', '전기국');
 assert(exportedWorkbook.filename.includes('전기국'));
 assert.deepEqual(Array.from(exportedWorkbook.sheets, sheet => sheet.name), ['그룹별 통계','계정별 현황','출원별 현황','조사 방식별 통계','AI 검색 결과 평가','조회 기준']);

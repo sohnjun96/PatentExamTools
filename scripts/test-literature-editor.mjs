@@ -21,14 +21,16 @@ const hooks = {
     return values[index];
   },
 };
-function MarkdownStub() { return null; }
-const source = await readFile(new URL('../app/evaluation/literature-editor.tsx', import.meta.url), 'utf8');
+function ReaderStub() { return null; }
+function AppIconStub() { return null; }
+const source = await readFile(new URL('../app/evaluation/task/result-editor.tsx', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
 const moduleRecord = { exports: {} };
 vm.runInThisContext(`(function(require, module, exports) { ${compiled}\n})`)(id => {
   if (id === 'react') return hooks;
   if (id === '@/app/lib/evaluation') return rules;
-  if (id === '@/app/components/notice-markdown') return { __esModule: true, default: MarkdownStub };
+  if (id === './literature-reader') return { __esModule: true, default: ReaderStub };
+  if (id === '@/app/components/app-icon') return { __esModule: true, default: AppIconStub };
   if (id.endsWith('.css')) return {};
   return require(id);
 }, moduleRecord, moduleRecord.exports);
@@ -52,10 +54,11 @@ function nodes(element, result = []) {
   return result;
 }
 function render() { hookIndex = 0; return nodes(LiteratureEditor(props)); }
-const button = (tree, label) => tree.find(node => node.type === 'button' && node.props.children === label);
+const text = value => Array.isArray(value) ? value.map(text).join('') : typeof value === 'string' || typeof value === 'number' ? String(value) : value?.props ? text(value.props.children) : '';
+const button = (tree, label) => tree.find(node => node.type === 'button' && text(node.props.children) === label);
 const input = (tree, suffix) => tree.find(node => ['input', 'textarea', 'select'].includes(node.type) && node.props.id?.endsWith(suffix));
 const bulk = tree => input(tree, '-bulk');
-const applyImport = tree => tree.find(node => node.type === 'button' && Array.isArray(node.props.children) && node.props.children.includes('목록에 추가'));
+const applyImport = tree => tree.find(node => node.type === 'button' && text(node.props.children).startsWith('기존 목록에'));
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
 reset();
@@ -63,7 +66,7 @@ let tree = render();
 assert.equal(input(tree, '-number').props.value, initial[0].number);
 assert.equal(input(tree, '-url').props.value, initial[0].url);
 assert.equal(input(tree, '-report').props.value, initial[0].reportMarkdown);
-assert.equal(tree.find(node => node.type === MarkdownStub).props.markdown, initial[0].reportMarkdown, 'Report preview must receive the current Markdown.');
+assert.equal(tree.find(node => node.type === ReaderStub).props.document.reportMarkdown, initial[0].reportMarkdown, 'Report preview must receive the current Markdown.');
 const report = '## 관련성\n\n**선행기술**: 검색 단계와 관련됨.';
 const imported = { kind: 'non-patent', authors: 'Lee, S.', title: 'A retrieval study', publication: 'Retrieval Journal', publicationPlace: 'Seoul', publisher: 'Research Press', publicationDate: '2020-06', volume: 'Vol. 1', issue: 'No. 3', pages: 'pp. 12–16', acquiredDate: '2026-10-30', dateNote: '발행일 미상', url: 'https://example.test/paper', reportMarkdown: report };
 bulk(tree).props.onChange({ target: { value: JSON.stringify({ documents: [imported] }) } });
@@ -75,14 +78,14 @@ button(tree, '임시저장').props.onClick();
 await settle();
 assert.equal(actions.length, 0, 'Pending bulk text must not be silently dropped by save.');
 tree = render();
-assert(tree.some(node => node.props.role === 'alert' && String(node.props.children).includes('적용하지 않은')));
+assert(tree.some(node => node.props.role === 'alert' && String(node.props.children).includes('목록에 추가')));
 applyImport(tree).props.onClick();
 tree = render();
 assert.equal(bulk(tree).props.value, '');
 for (const field of ['authors', 'title', 'publication', 'publicationPlace', 'publisher', 'publicationDate', 'volume', 'issue', 'pages', 'acquiredDate', 'dateNote']) {
   assert.equal(input(tree, `-${field}`).props.value, imported[field], `Bulk import must populate editable ${field}.`);
 }
-assert.equal(tree.filter(node => node.type === MarkdownStub).at(-1).props.markdown, report);
+assert.equal(tree.filter(node => node.type === ReaderStub).at(-1).props.document.reportMarkdown, report);
 button(tree, '임시저장').props.onClick();
 await settle();
 assert.equal(actions.length, 1);
@@ -92,7 +95,7 @@ assert.deepEqual(actions[0].documents[0], initial[0]);
 assert.equal(actions[0].documents[1].title, imported.title);
 assert.equal(actions[0].documents[1].reportMarkdown, report);
 tree = render();
-button(tree, 'AI 검색 결과 입력 완료').props.onClick();
+button(tree, '입력 완료').props.onClick();
 await settle();
 assert.equal(actions.at(-1).publish, true);
 assert.equal(actions.at(-1).documents[1].url, imported.url);
@@ -105,15 +108,15 @@ tree = render();
 assert.equal(applyImport(tree).props.disabled, true);
 assert(tree.some(node => node.props.role === 'alert'));
 assert.equal(input(tree, '-title').props.value, imported.title);
-assert.equal(input(tree, '-report').props.value, initial[0].reportMarkdown);
-button(tree, '붙여 넣은 내용 비우기').props.onClick();
+assert.equal(input(tree, '-report').props.value, report);
+button(tree, '입력란 비우기').props.onClick();
 tree = render();
 bulk(tree).props.onChange({ target: { value: JSON.stringify({ documents: [{ kind: 'patent', number: initial[0].number }] }) } });
 tree = render();
 applyImport(tree).props.onClick();
 tree = render();
 assert(tree.some(node => node.props.role === 'alert' && String(node.props.children).includes('중복')));
-assert.equal(tree.filter(node => node.type === 'fieldset').length, 2, 'Duplicate imports must not partially mutate the list.');
+assert.equal(tree.filter(node => node.props.className === 'tw-editable-doc').length, 2, 'Duplicate imports must not partially mutate the list.');
 
 // Switching kinds must never submit invisible bibliography fields for a patent,
 // and temporarily switching back must restore the user's authored bibliography.
@@ -162,11 +165,34 @@ tree = render();
 assert.equal(input(tree, '-report').props.value, '## 저장 실패 후에도 유지할 보고서');
 props.disabled = true;
 tree = render();
-for (const node of tree.filter(node => ['input', 'select', 'textarea', 'button'].includes(node.type) && !node.props.readOnly && node.props.children !== '포맷팅 프롬프트 복사')) {
+for (const node of tree.filter(node => ['input', 'select', 'textarea'].includes(node.type) && !node.props.readOnly)) {
   assert.equal(node.props.disabled, true, 'Closed or busy editors must block all mutations.');
 }
 const rowCount = tree.filter(node => node.type === 'fieldset').length;
-button(tree, '+ 비특허문헌 추가').props.onClick();
+button(tree, '한 문헌 추가').props.onClick();
 assert.equal(render().filter(node => node.type === 'fieldset').length, rowCount);
 
-console.log('Literature editor passed: JSON preview and append, editable citation fields, URL/Markdown preservation, unapplied text protection, draft/publication actions, atomic duplicate rejection, kind switching and bibliography recovery, failed-save recovery and blocked controls.');
+// Mixing bulk and single entry must preserve all the other records, including deleting the last row.
+reset();
+tree=render();
+button(tree,'한 문헌 추가').props.onClick();tree=render();
+input(tree,'-number').props.onChange({target:{value:'US20200123456A1'}});
+input(tree,'-report').props.onChange({target:{value:'## 직접 입력한 보고서'}});tree=render();
+tree.find(node=>node.type==='button'&&node.props['aria-label']===initial[0].number+' 삭제').props.onClick();tree=render();
+assert.equal(input(tree,'-number').props.value,'US20200123456A1','Deleting an earlier record must preserve the selected row.');
+button(tree,'임시저장').props.onClick();await settle();assert.equal(actions[0].documents.length,1);assert.equal(actions[0].documents[0].reportMarkdown,'## 직접 입력한 보고서');
+tree=render();tree.find(node=>node.type==='button'&&node.props['aria-label']==='US20200123456A1 삭제').props.onClick();tree=render();
+assert.equal(tree.filter(node=>node.props.className==='tw-editable-doc').length,0);assert.equal(button(tree,'입력 완료').props.disabled,true);
+// Clearing unconsumed bulk text must not erase the dirty state of deleted documents.
+tree.find(node=>node.type==='textarea'&&node.props.id.endsWith('-bulk')).props.onChange({target:{value:'pending import'}});
+tree=render();button(tree,'입력란 비우기').props.onClick();
+assert.equal(dirty.at(-1),true,'Unsaved document deletions still need close protection after clearing bulk text.');
+tree=render();
+button(tree,'한 문헌 추가').props.onClick();tree=render();assert(input(tree,'-number'));
+
+// A synchronous ref lock prevents duplicate saves and edits from pre-render event handlers.
+reset();let finish;let requests=0;props.onSave=()=>{requests++;return new Promise(resolve=>{finish=resolve;});};
+tree=render();button(tree,'임시저장').props.onClick();button(tree,'임시저장').props.onClick();button(tree,'한 문헌 추가').props.onClick();
+assert.equal(requests,1);assert.equal(render().filter(node=>node.props.className==='tw-editable-doc').length,1);finish(false);await settle();
+assert.equal(input(render(),'-number').props.value,initial[0].number);
+console.log('Literature editor passed: bulk/single editing, append/delete/empty-list recovery, Markdown preservation, atomic validation, bibliography recovery, save failure and duplicate-request protection.');
