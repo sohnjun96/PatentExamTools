@@ -97,7 +97,6 @@ export default function EvaluationReader({ state, month, item, busy, dirty, save
         <button type="button" className="ev-button tw-next" disabled={pending || selectedPosition < 0 || selectedPosition === ordered.length - 1} onClick={() => { const next = ordered[selectedPosition + 1]; if (next) { setMethodId(next.methodId); setIndex(next.index); } }}>다음 문헌<AppIcon name="arrow-right" /></button>
       </aside>}
     </div> : <div className="tw-empty">공개된 AI 검색 결과를 기다리고 있습니다.</div>}
-    <section className="tw-case-feedback"><h2><label htmlFor={`tw-comment-${item.id}`}><strong>{item.applicationNumber}</strong> 건 관련 피드백(선택)</label></h2><textarea id={`tw-comment-${item.id}`} aria-label={`${item.applicationNumber} 건 관련 피드백(선택)`} rows={4} maxLength={OVERALL_COMMENT_MAX_LENGTH} value={comment} disabled={disabled} onChange={event => { if (!disabled && !saving.current) { setComment(event.target.value); mark(); } }} /></section>
     <footer className="tw-rank-dock" ref={dock} aria-labelledby={rankTitleId}>
       <div className="tw-rank-dock-head"><h2 id={rankTitleId}><strong>{item.applicationNumber}</strong> 건에 대한 조사 방식별 검색 품질 순위</h2><div className="tw-rank-dock-actions"><span className={`tw-rank-progress${ranksReady ? '' : ' is-incomplete'}`} role="status">순위 선택 {rankCount}/{rankTotal}<strong>{ranksReady ? '선택 완료' : '미완료 · 확인 필요'}</strong></span><button type="button" className="ev-button primary" disabled={disabled} onClick={() => void submit()}>{pending || busy ? '저장 중…' : saved ? ranksReady ? '저장됨' : '중간 저장됨' : '평가 저장'}<AppIcon name="clipboard-list" /></button></div></div>
       <div className="tw-rank-grid">{methods.map(method => {
@@ -111,6 +110,7 @@ export default function EvaluationReader({ state, month, item, busy, dirty, save
         })}</div></div>;
       })}</div>
       <p className={`tw-rank-help${rankAttention && !ranksReady ? ' is-warning' : ''}`} role={rankAttention && !ranksReady ? 'status' : undefined}>{rankAttention && !ranksReady ? '검색 품질 순위가 미완료입니다. 입력한 평가만 중간 저장됩니다. ' : ''}{rankingGuidance(rankable, ranks)[0]}</p>
+      <section className="tw-case-feedback"><h2><label htmlFor={`tw-comment-${item.id}`}><strong>{item.applicationNumber}</strong> 건 관련 피드백(선택)</label></h2><textarea id={`tw-comment-${item.id}`} aria-label={`${item.applicationNumber} 건 관련 피드백(선택)`} rows={2} maxLength={OVERALL_COMMENT_MAX_LENGTH} value={comment} disabled={disabled} onChange={event => { if (!disabled && !saving.current) { setComment(event.target.value); mark(); } }} /></section>
     </footer>
   </div>;
 }
