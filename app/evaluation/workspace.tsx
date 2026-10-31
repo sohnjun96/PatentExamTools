@@ -62,7 +62,7 @@ function useRememberedSelection(key: string) {
 
 function Badge({ children, color = '' }: { children: React.ReactNode; color?: string }) { return <span className={`ev-badge ${color}`}>{children}</span>; }
 function Empty({ title, children }: { title: string; children?: React.ReactNode }) { return <div className="ev-empty"><div className="ev-empty-icon"><AppIcon name="clipboard-list" size={28} /></div><h3>{title}</h3>{children}</div>; }
-function Status({ state, item }: { state: EvaluationState; item: EvaluationCase }) { const status = caseStatus(state, item); return <Badge color={status.complete ? 'green' : status.stale ? 'orange' : ''}>{status.evaluationStatus}</Badge>; }
+function Status({ state, item }: { state: EvaluationState; item: EvaluationCase }) { const status = caseStatus(state, item); return <Badge color={status.complete ? 'blue' : status.stale ? 'orange' : ''}>{status.evaluationStatus}</Badge>; }
 function Panel({ title, description, action, children }: { title: string; description?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) { return <section className="ev-panel"><div className="ev-panel-head"><div><h2>{title}</h2>{description && <p>{description}</p>}</div>{action}</div>{children}</section>; }
 function StageNotice({ month, stage }: { month: OperationMonth; stage: OperationStage }) {
   const reason = operationStageBlockReason(month, stage);
