@@ -749,6 +749,29 @@ assert.equal(literatureRow.props.children[0].props.children.props.children, lite
 const cpcCellContent = literatureRow.props.children[1].props.children.props.children;
 assert.equal(Array.isArray(cpcCellContent) ? cpcCellContent[0] : cpcCellContent, literatureCase.cpc || 'CPC 미입력');
 assert.equal(literatureRow.props.children[4].props.children.props.target, '_blank');
+// An undelivered assigned AI must not add an input-waiting badge to a finished comparison.
+const partialDelivery = structuredClone(demo);
+const partialCase = partialDelivery.cases.find(item => item.examinerId === reviewUser.id);
+partialDelivery.results = partialDelivery.results.filter(result => result.caseId !== partialCase.id || result.methodId === 'claude');
+partialDelivery.evaluations = partialDelivery.evaluations.filter(evaluation => evaluation.caseId !== partialCase.id || evaluation.methodId === 'claude');
+const partialRanking = partialDelivery.rankings.find(ranking => ranking.caseId === partialCase.id);
+partialRanking.versions = { claude: 1 }; partialRanking.values = { claude: 1, baseline: 2 }; partialRanking.finalized = true;
+assert.equal(domain.caseStatus(partialDelivery, partialCase).inputComplete, false);
+assert.equal(domain.caseStatus(partialDelivery, partialCase).complete, true);
+const draftComparison = structuredClone(partialDelivery);
+draftComparison.rankings.find(ranking => ranking.caseId === partialCase.id).finalized = false;
+const staleComparison = structuredClone(partialDelivery);
+staleComparison.results.find(result => result.caseId === partialCase.id).publishedVersion++;
+const unreviewedComparison = structuredClone(partialDelivery);
+unreviewedComparison.evaluations = unreviewedComparison.evaluations.filter(evaluation => evaluation.caseId !== partialCase.id);
+unreviewedComparison.rankings = unreviewedComparison.rankings.filter(ranking => ranking.caseId !== partialCase.id);
+for (const [state, expected] of [[partialDelivery, '평가 완료'], [draftComparison, '평가 중'], [staleComparison, '재확인 필요'], [unreviewedComparison, '미평가']]) {
+  const list = renderReview(state.months[0], { state });
+  const row = descendants(list).find(({ element }) => element.type === 'tbody').element.props.children.find(row => row.key === partialCase.id);
+  const status = descendants(row.props.children[3]).find(({ element }) => typeof element.type === 'function').element;
+  const badges = descendants(status.type(status.props)).filter(({ element }) => element.type?.name === 'Badge');
+  assert.deepEqual(badges.map(({ element }) => element.props.children), [expected], 'The evaluation status cell shows one evaluation badge, independently of undelivered AI assignments.');
+}
 const pendingLiteratureState = structuredClone(literatureState);
 pendingLiteratureState.results.filter(result => result.caseId === literatureCase.id).forEach(result => { result.publishedVersion = 0; result.publishedDocuments = []; });
 const pendingLiterature = renderReview(pendingLiteratureState.months[0], { state: pendingLiteratureState });
