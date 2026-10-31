@@ -677,7 +677,8 @@ for (const status of ['pending', 'stopped', 'closed']) {
     ['selection', () => ui.TestSelectionEditor({ state: demo, month: controlledMonth, user: demo.users[1], busy: false, dirty() {}, save: async () => true })],
     ['evaluation', () => ui.TestEvaluationEditor({ state: demo, month: controlledMonth, item: demo.cases[0], busy: false, dirty() {}, save: async () => true })],
   ]) {
-    hookIndex = 0; hookOverrides = [];
+    hookIndex = 0; hookOverrides = stage === 'selection' ? [undefined, { index: null, numberParts: ['10', '2026', '1'], cpc: '', hasPriorArtReport: false }, '', ''] : [];
+    if (stage === 'selection') delete hookOverrides[0];
     const editor = render();
     const nestedEditor = descendants(editor).find(({ element }) => element.type?.name === 'LiteratureEditor');
     const inputTree = nestedEditor ? nestedEditor.element.type(nestedEditor.element.props) : editor;
@@ -774,27 +775,110 @@ let revisedAction;
 hookIndex = 0; hookOverrides = [];
 const revisedForm = ui.TestSelectionEditor({ ...revisingReview.props, save: async action => { revisedAction = action; return true; } });
 assert.equal(revisedForm.props.title, '제출한 출원 목록 수정');
-assert.equal(descendants(revisedForm).filter(({ element }) => /^출원번호 \d+$/.test(element.props['aria-label'] || '')).length, submitted.length);
+assert.equal(descendants(revisedForm).filter(({ element }) => element.type === 'button' && element.props.children === '수정').length, submitted.length);
+assert(!descendants(revisedForm).some(({ element }) => element.type === 'input'), 'Submitted rows stay read-only until their edit button is selected.');
 assert(!descendants(revisedForm).some(({ element }) => element.props.children === '임시저장'), 'Submitted edits must not silently turn published tasks into drafts.');
 descendants(revisedForm).find(({ element }) => element.props.children === '수정 사항 저장').element.props.onClick();
+await Promise.resolve(); await Promise.resolve();
 assert.equal(revisedAction.confirm, true);
 assert.equal(revisedAction.rows.length, submitted.length);
 hookIndex = 0; hookOverrides = [[]];
 const withdrawnForm = ui.TestSelectionEditor({ ...revisingReview.props, save: async () => true });
 assert.equal(descendants(withdrawnForm).find(({ element }) => element.props.children === '수정 사항 저장').element.props.disabled, false);
 
-// Segmented application numbers advance at 2/4 digits and pad serials on addition.
-function selectionNumberForm(parts, { initialRows = [], pasteValue = '', cpcValue = ' G06N 20/00 ', autoSaveStatus = '', reportValue = false, ...props } = {}) {
-  hookIndex = 0; hookOverrides = [initialRows, parts, cpcValue, pasteValue, '', autoSaveStatus, reportValue];
-  if (parts === undefined) delete hookOverrides[1];
+// Selection is a read-only table with one segmented editor opened by an explicit action.
+function selectionForm({ initialRows = [], editor = null, localError = '', autoSaveStatus = '', ...props } = {}) {
+  hookIndex = 0; hookOverrides = [initialRows, editor, localError, autoSaveStatus];
   return ui.TestSelectionEditor({ state: domain.createInitialState('2026-11'), month: { ...domain.emptyMonth('2026-11'), stages: { selection: 'running' } }, user: reviewUser, busy: false, dirty() {}, save: async () => true, ...props });
 }
+function selectionNumberForm(numberParts = ['10', '', ''], { editIndex = null, cpcValue = ' G06N 20/00 ', reportValue = false, ...props } = {}) {
+  return selectionForm({ ...props, editor: { index: editIndex, numberParts, cpc: cpcValue, hasPriorArtReport: reportValue } });
+}
+const selectionText = value => value == null || value === false ? '' : Array.isArray(value) ? value.map(selectionText).join('') : typeof value === 'object' ? selectionText(value.props?.children) : String(value);
+const selectionNodes = tree => [...descendants(tree), ...descendants(tree.props.action)];
+const selectionButtons = (tree, text) => selectionNodes(tree).filter(({ element }) => element.type === 'button' && selectionText(element.props.children) === text).map(({ element }) => element);
+const selectionButton = (tree, text) => { const button = selectionButtons(tree, text)[0]; assert(button, 'Missing selection button: ' + text); return button; };
 const numberFields = tree => descendants(tree).filter(({ element }) => element.props.maxLength && element.props.inputMode === 'numeric').map(({ element }) => element);
-const numberAdd = tree => descendants(tree).find(({ element }) => element.props.children === '선정 목록에 추가').element;
+const numberAdd = tree => selectionButton(tree, '추가');
+const reportToggle = form => descendants(form).find(({ element }) => element.type?.name === 'ReportPresenceToggle')?.element;
+function writtenSelectionState(index, previous) {
+  return hookWrites.filter(write => write.index === index).reduce((value, write) => typeof write.value === 'function' ? write.value(value) : write.value, previous);
+}
+// Preserve hook state and refs across selected renders, as React does during a failed-save retry.
+function selectionSession({ initialRows = [], editor = null, localError = '', autoSaveStatus = '', ...props } = {}) {
+  const values = [initialRows, editor, localError, autoSaveStatus];
+  const refs = [];
+  let writes = []; let effects = [];
+  return {
+    render(extra = {}) {
+      for (const write of writes) values[write.index] = typeof write.value === 'function' ? write.value(values[write.index]) : write.value;
+      writes = []; hookWrites.length = 0;
+      const originalUseRef = hooks.useRef; let refIndex = 0;
+      hooks.useRef = initial => refs[refIndex++] ||= { current: initial };
+      let tree; const firstEffect = hookEffects.length;
+      try { tree = selectionForm({ ...props, ...extra, initialRows: values[0], editor: values[1], localError: values[2], autoSaveStatus: values[3] }); }
+      finally { hooks.useRef = originalUseRef; }
+      effects = hookEffects.slice(firstEffect);
+      return tree;
+    },
+    capture() { writes.push(...hookWrites); hookWrites.length = 0; },
+    runEffects() { for (const effect of effects) effect(); },
+    values,
+  };
+}
+const existingSelectionRows = [
+  { applicationNumber: '10-2025-0000001', cpc: 'G06F', hasPriorArtReport: true },
+  { applicationNumber: '20-2026-0000012', cpc: '', hasPriorArtReport: false },
+  { applicationNumber: '10 2026 0000052', cpc: 'G06Q' },
+];
+const restingSelection = selectionForm({ initialRows: existingSelectionRows });
+assert.equal(numberFields(restingSelection).length, 0);
+assert(!descendants(restingSelection).some(({ element }) => ['input', 'textarea', 'details'].includes(element.type)), 'The default selection screen must contain the table, without the detached entry or bulk-paste form.');
+assert.equal(selectionButtons(restingSelection, '수정').length, existingSelectionRows.length);
+assert.equal(selectionButtons(restingSelection, '삭제').length, existingSelectionRows.length);
+assert.deepEqual(Array.from(descendants(restingSelection).filter(({ element }) => element.type === 'th' && element.props.scope === 'col').slice(0, 3), ({ element }) => selectionText(element.props.children)), ['출원번호', 'CPC', '선행기술조사 보고서']);
+for (const label of ['있음', '없음', '미기록']) assert(selectionText(restingSelection).includes(label));
+const beginDirty = [];
+const beginNew = selectionForm({ initialRows: existingSelectionRows, dirty: value => beginDirty.push(value) });
+hookWrites.length = 0;
+selectionButton(beginNew, '출원 추가').props.onClick({ currentTarget: null });
+const newEditor = writtenSelectionState(1, null);
+assert.equal(newEditor.index, null);
+assert.deepEqual(Array.from(newEditor.numberParts), ['10', '', '']);
+assert.equal(newEditor.cpc, '');
+assert.equal(newEditor.hasPriorArtReport, false);
+assert.equal(beginDirty.at(-1), true, 'Opening an editor must protect navigation.');
+for (const [index, row] of existingSelectionRows.entries()) {
+  const form = selectionForm({ initialRows: existingSelectionRows });
+  hookWrites.length = 0;
+  selectionButtons(form, '수정')[index].props.onClick({ currentTarget: null });
+  const editor = writtenSelectionState(1, null);
+  assert.equal(editor.index, index);
+  assert.deepEqual(Array.from(editor.numberParts), row.applicationNumber.replace(/\s/g, '-').split('-'));
+  assert.equal(editor.cpc, row.cpc);
+  assert.equal(editor.hasPriorArtReport, row.hasPriorArtReport, 'Opening a legacy row must preserve unknown report presence.');
+  assert(!hookWrites.some(write => write.index === 0), 'Entering edit mode must not modify the selected list.');
+}
+for (const editIndex of [null, 0]) {
+  const cancelDirty = []; let cancelRequests = 0;
+  const cancelForm = selectionNumberForm(['10', '2026', '123'], { editIndex, initialRows: existingSelectionRows, dirty: value => cancelDirty.push(value), autoSave: async () => { cancelRequests++; return true; } });
+  hookWrites.length = 0;
+  selectionButton(cancelForm, '취소').props.onClick();
+  assert.equal(writtenSelectionState(1, { index: editIndex }), null);
+  assert(!hookWrites.some(write => write.index === 0));
+  assert.equal(cancelRequests, 0, 'Cancelling a new or edited row must not write a selection.');
+  assert.equal(cancelDirty.at(-1), false);
+}
+const editingSelection = selectionNumberForm(['10', '2026', '1'], { editIndex: 0, initialRows: existingSelectionRows });
+for (const text of ['출원 추가', '임시저장', '선정 확정', '수정', '삭제']) for (const button of selectionButtons(editingSelection, text)) assert.equal(button.props.disabled, true, 'Other list actions are blocked while an editor is open: ' + text);
+const editingSubmitted = selectionNumberForm(['10', '2026', '1'], { editIndex: 0, initialRows: existingSelectionRows, month: { ...domain.emptyMonth('2026-11'), confirmedUserIds: [reviewUser.id], stages: { selection: 'running' } } });
+assert.equal(selectionButton(editingSubmitted, '수정 사항 저장').props.disabled, true);
+
+// Segmented application numbers retain numeric filtering, focus movement, paste and serial padding.
 const blankNumber = selectionNumberForm();
 const blankParts = numberFields(blankNumber);
 assert.deepEqual(blankParts.map(field => field.props.maxLength), [2, 4, 7]);
-assert.equal(blankParts[0].props.value, '10', 'The application type defaults to patent 10.');
+assert.equal(blankParts[0].props.value, '10');
 assert.equal(numberAdd(blankNumber).props.disabled, true);
 let focusedYear = 0; let focusedSerial = 0;
 blankParts[1].props.ref({ focus() { focusedYear++; } });
@@ -807,62 +891,87 @@ blankParts[1].props.onChange({ target: { value: '2026' } });
 assert.equal(focusedSerial, 1);
 hookWrites.length = 0;
 blankParts[2].props.onChange({ target: { value: '12a345678' } });
-assert.equal(hookWrites.find(write => write.index === 1).value(['', '', ''])[2], '1234567', 'Keep digits only and limit the serial to seven digits.');
+assert.equal(writtenSelectionState(1, { index: null, numberParts: ['10', '', ''], cpc: '', hasPriorArtReport: false }).numberParts[2], '1234567');
 for (const [serial, expected] of [['1', '0000001'], ['0', '0000000'], ['123', '0000123'], ['000123', '0000123'], ['1234567', '1234567']]) {
-  const form = selectionNumberForm(['10', '2026', serial]);
+  let addedAction;
+  const form = selectionNumberForm(['10', '2026', serial], { autoSave: async action => { addedAction = action; return true; } });
   hookWrites.length = 0;
   await numberAdd(form).props.onClick();
-  const added = hookWrites.find(write => write.index === 0).value;
-  assert.equal(added[0].applicationNumber, '10-2026-' + expected);
-  assert.equal(added[0].cpc, 'G06N 20/00');
-  assert(hookWrites.some(write => write.index === 1 && JSON.stringify(write.value) === '["10","",""]'));
+  assert.equal(addedAction.rows[0].applicationNumber, '10-2026-' + expected);
+  assert.equal(addedAction.rows[0].cpc, 'G06N 20/00');
+  assert.equal(writtenSelectionState(1, {}), null, 'An added row must close its editor.');
 }
-for (const parts of [['1', '2026', '1'], ['10', '202', '1'], ['10', '2026', '']]) assert.equal(numberAdd(selectionNumberForm(parts)).props.disabled, true);
+for (const parts of [['1', '2026', '1'], ['10', '202', '1'], ['10', '2026', '']]) {
+  assert.equal(numberAdd(selectionNumberForm(parts)).props.disabled, true);
+  assert.equal(selectionButton(selectionNumberForm(parts, { editIndex: 0, initialRows: existingSelectionRows }), '저장').props.disabled, true);
+}
 const invalidPrefix = selectionNumberForm(['30', '2026', '1']);
 hookWrites.length = 0;
-numberAdd(invalidPrefix).props.onClick();
+await numberAdd(invalidPrefix).props.onClick();
 assert(!hookWrites.some(write => write.index === 0), 'Do not append unsupported application types.');
 for (const text of ['10-2026-123', '1020260000123']) {
   const form = selectionNumberForm(); let prevented = false;
   hookWrites.length = 0;
   numberFields(form)[0].props.onPaste({ clipboardData: { getData: () => text }, preventDefault() { prevented = true; } });
   assert(prevented);
-  assert.equal(JSON.stringify(hookWrites.find(write => write.index === 1).value), text.includes('-') ? '["10","2026","123"]' : '["10","2026","0000123"]');
+  const pastedEditor = writtenSelectionState(1, {});
+  assert.deepEqual(Array.from(pastedEditor.numberParts), text.includes('-') ? ['10', '2026', '123'] : ['10', '2026', '0000123']);
 }
-let selectionSaves = 0;
-const unfinishedNumber = selectionNumberForm(['10', '202', ''], { save: async () => { selectionSaves++; return true; } });
-descendants(unfinishedNumber).find(({ element }) => element.props.children === '임시저장').element.props.onClick();
-assert.equal(selectionSaves, 0, 'Do not silently omit a partially entered number when saving the list.');
-const untouchedNumber = selectionNumberForm(undefined, { save: async () => { selectionSaves++; return true; } });
-await descendants(untouchedNumber).find(({ element }) => element.props.children === '임시저장').element.props.onClick();
-assert.equal(selectionSaves, 1, 'The prefilled 10 alone must not block saving an existing selection list.');
 const backspaceForm = selectionNumberForm(['10', '', '']); let focusedPrefix = false;
 const backspaceParts = numberFields(backspaceForm);
 backspaceParts[0].props.ref({ focus() { focusedPrefix = true; } });
 backspaceParts[1].props.onKeyDown({ key: 'Backspace', preventDefault() {} });
 assert(focusedPrefix);
+let selectionSaves = 0;
+const unfinishedNumber = selectionNumberForm(['10', '202', ''], { save: async () => { selectionSaves++; return true; } });
+selectionButton(unfinishedNumber, '임시저장').props.onClick();
+selectionButton(unfinishedNumber, '선정 확정').props.onClick();
+assert.equal(selectionSaves, 0, 'A pending row editor must not be silently omitted from a final save.');
+const untouchedNumber = selectionForm({ save: async () => { selectionSaves++; return true; } });
+await selectionButton(untouchedNumber, '임시저장').props.onClick();
+await Promise.resolve(); await Promise.resolve();
+assert.equal(selectionSaves, 1);
 
-// Adding a row persists the whole list without publishing a first-time draft.
-const existingSelectionRows = [{ applicationNumber: '10-2025-0000001', cpc: 'G06F' }];
+// Every completed row operation persists the entire list and retains its publication state.
 for (const alreadySubmitted of [false, true]) {
-  const persistedActions = []; const selectionDirty = [];
   const month = { ...domain.emptyMonth('2026-11'), confirmedUserIds: alreadySubmitted ? [reviewUser.id] : [], stages: { selection: 'running' } };
-  const form = selectionNumberForm(['10', '2026', '123'], { initialRows: existingSelectionRows, month, dirty: value => selectionDirty.push(value), autoSave: async action => { persistedActions.push(action); return true; }, save: async () => { throw new Error('An automatic add must not call the final-save callback.'); } });
-  assert(!JSON.stringify(form).includes('수정 사항을 저장하면 AI 담당자에게 변경된 목록이 반영됩니다.'), 'Remove the large selection guidance box.');
-  await numberAdd(form).props.onClick();
-  assert.equal(persistedActions.length, 1);
-  assert.equal(persistedActions[0].type, 'saveSelection');
-  assert.equal(persistedActions[0].confirm, alreadySubmitted, 'Keep existing publication state instead of confirming a new draft or downgrading a submitted list.');
-  assert.equal(persistedActions[0].rows[0], existingSelectionRows[0]);
-  assert.equal(persistedActions[0].rows[1].applicationNumber, '10-2026-0000123');
-  assert.equal(selectionDirty.at(-1), false);
+  for (const operation of ['add', 'edit', 'delete']) {
+    const persistedActions = []; const selectionDirty = [];
+    const options = { initialRows: existingSelectionRows, month, dirty: value => selectionDirty.push(value), autoSave: async action => { persistedActions.push(action); return true; }, save: async () => { throw new Error('A row operation must not call the final-save callback.'); } };
+    const form = operation === 'delete' ? selectionForm(options) : selectionNumberForm(['10', '2026', '123'], { ...options, editIndex: operation === 'edit' ? 0 : null, reportValue: false });
+    hookWrites.length = 0;
+    await (operation === 'delete' ? selectionButtons(form, '삭제')[0] : selectionButton(form, operation === 'edit' ? '저장' : '추가')).props.onClick();
+    await Promise.resolve(); await Promise.resolve();
+    assert.equal(persistedActions.length, 1, 'Autosave once after a completed row ' + operation);
+    const action = persistedActions[0];
+    assert.equal(action.type, 'saveSelection');
+    assert.equal(action.confirm, alreadySubmitted, 'Keep a new selection private and keep a submitted list published.');
+    assert.equal(action.rows.length, existingSelectionRows.length + (operation === 'add' ? 1 : operation === 'delete' ? -1 : 0));
+    if (operation === 'delete') assert.equal(action.rows[0], existingSelectionRows[1]);
+    else {
+      const changed = action.rows[operation === 'edit' ? 0 : action.rows.length - 1];
+      assert.equal(changed.applicationNumber, '10-2026-0000123');
+      assert.equal(changed.cpc, 'G06N 20/00');
+      assert.equal(changed.hasPriorArtReport, false);
+      assert.equal(action.rows[1], existingSelectionRows[1], 'Other rows must be preserved.');
+    }
+    assert.equal(selectionDirty.at(-1), false);
+  }
 }
-const bulkActions = [];
-const bulkSelectionForm = selectionNumberForm(undefined, { pasteValue: '10-2026-0000002\tG06N\n10-2026-0000003', cpcValue: '', autoSave: async action => { bulkActions.push(action); return true; } });
-await descendants(bulkSelectionForm).find(({ element }) => element.props.children === '목록에 추가').element.props.onClick();
-assert.equal(bulkActions.length, 1);
-assert.equal(bulkActions[0].rows.length, 2);
-assert.equal(bulkActions[0].rows[0].cpc, 'G06N');
+for (const editIndex of [null, 1]) {
+  let duplicateRequests = 0;
+  const duplicateForm = selectionNumberForm(['10', '2026', '52'], { editIndex, initialRows: existingSelectionRows, autoSave: async () => { duplicateRequests++; return true; } });
+  hookWrites.length = 0;
+  await selectionButton(duplicateForm, editIndex === null ? '추가' : '저장').props.onClick();
+  assert.equal(duplicateRequests, 0, 'Formatted duplicate application numbers must be rejected before autosave.');
+  assert(!hookWrites.some(write => write.index === 0), 'A duplicate must not replace the local list.');
+  assert(hookWrites.some(write => write.index === 2 && write.value), 'A duplicate must show a local error.');
+}
+let sameNumberAction;
+const sameNumberForm = selectionNumberForm(['10', '2025', '1'], { editIndex: 0, initialRows: existingSelectionRows, autoSave: async action => { sameNumberAction = action; return true; } });
+await selectionButton(sameNumberForm, '저장').props.onClick();
+assert.equal(sameNumberAction.rows.length, existingSelectionRows.length, 'Editing a row without changing its own number is valid.');
+
 const ReportPresenceToggle = loadModule('app/components/report-presence-toggle.tsx').default;
 for (const value of [undefined, false, true]) {
   const changes = [];
@@ -889,59 +998,82 @@ const noReportReview = ui.TestEvaluationEditor({ state: noReportReviewState, mon
 assert(!descendants(noReportReview).some(({ element }) => /^선행기술조사 (?:품질 순위|[123]위)/.test(element.props['aria-label'] || '')), 'A missing prior-art report must not appear in examiner ranking controls.');
 assert(descendants(noReportReview).some(({ element }) => element.props['aria-label'] === 'ChatGPT 품질 순위'));
 assert(descendants(noReportReview).some(({ element }) => element.props['aria-label'] === '클로드 품질 순위'));
-const reportToggle = (form, label = '선행기술조사 보고서 유무') => descendants(form).find(({ element }) => element.type?.name === 'ReportPresenceToggle' && (element.props.label || '선행기술조사 보고서 유무') === label)?.element;
-for (const flag of [false, true]) {
-  const reportActions = [];
-  const reportForm = selectionNumberForm(['10', '2026', '51'], { reportValue: flag, autoSave: async action => { reportActions.push(action); return true; } });
+for (const flag of [undefined, false, true]) {
+  let reportAction;
+  const reportForm = selectionForm({ editor: { index: null, numberParts: ['10', '2026', '51'], cpc: '', hasPriorArtReport: flag }, autoSave: async action => { reportAction = action; return true; } });
   assert.equal(reportToggle(reportForm).props.value, flag);
   hookWrites.length = 0;
-  reportToggle(reportForm).props.onChange(!flag);
-  assert(hookWrites.some(write => write.index === 6 && write.value === !flag), 'The new-entry toggle must update the report value used for the next added row.');
+  reportToggle(reportForm).props.onChange(flag !== true);
+  assert.equal(writtenSelectionState(1, {}).hasPriorArtReport, flag !== true);
   await numberAdd(reportForm).props.onClick();
-  assert.equal(reportActions.length, 1);
-  assert.equal(reportActions[0].rows[0].hasPriorArtReport, flag, 'Adding a selection must autosave the chosen report availability.');
-  assert.equal(reportActions[0].confirm, false);
+  assert.equal(reportAction.rows[0].hasPriorArtReport, flag, 'A completed row must preserve the chosen or legacy report value.');
 }
-const flaggedBulkActions = [];
-const flaggedBulkForm = selectionNumberForm(undefined, { reportValue: true, pasteValue: '10-2026-0000011\tG06N\t있음\n10-2026-0000012\tG06F\t없음\n10-2026-0000013\tG06Q\n10-2026-0000014\t\t없음', cpcValue: '', autoSave: async action => { flaggedBulkActions.push(action); return true; } });
-await descendants(flaggedBulkForm).find(({ element }) => element.props.children === '목록에 추가').element.props.onClick();
-assert.deepEqual(Array.from(flaggedBulkActions[0].rows, row => row.hasPriorArtReport), [true, false, true, false], 'Bulk availability values override the current default; omitted values use the selected default.');
-assert.deepEqual(Array.from(flaggedBulkActions[0].rows, row => row.cpc), ['G06N', 'G06F', 'G06Q', ''], 'An omitted CPC column must not consume the availability field.');
-const invalidReportBulkActions = [];
-const invalidReportBulkForm = selectionNumberForm(undefined, { reportValue: true, pasteValue: '10-2026-0000015\t\t미정', cpcValue: '', autoSave: async action => { invalidReportBulkActions.push(action); return true; } });
-hookWrites.length = 0;
-await descendants(invalidReportBulkForm).find(({ element }) => element.props.children === '목록에 추가').element.props.onClick();
-assert.equal(invalidReportBulkActions.length, 0, 'An invalid third-column report value must not autosave when CPC is empty.');
-assert(hookWrites.some(write => write.index === 4 && write.value === '보고서 유무는 있음 또는 없음으로 입력해 주세요.'), 'Invalid report availability must show the localized input error.');
-assert(!hookWrites.some(write => write.index === 0), 'Invalid bulk input must leave the selection list intact.');
-const reportRestoreState = domain.createDemoState('2026-11');
-const reportRestoreUser = reportRestoreState.users[0];
-const reportRestoreCases = reportRestoreState.cases.filter(item => item.examinerId === reportRestoreUser.id);
-reportRestoreCases[0].hasPriorArtReport = true;
-reportRestoreCases[1].hasPriorArtReport = false;
-reportRestoreState.cases.push({ ...reportRestoreCases[0], id: 'legacy-report-presence', applicationNumber: '10-2026-0000052', hasPriorArtReport: undefined });
-hookIndex = 0; hookOverrides = [];
-const restoredReportForm = ui.TestSelectionEditor({ state: reportRestoreState, month: reportRestoreState.months[0], user: reportRestoreUser, busy: false, dirty() {}, save: async () => true });
-assert.deepEqual([1, 2, 3].map(index => reportToggle(restoredReportForm, `선정 목록 ${index} 선행기술조사 보고서 유무`).props.value), [true, false, undefined], 'Stored true/false and legacy unknown values must restore separately.');
-const existingReportRows = reportRestoreCases.map(({ applicationNumber, cpc, hasPriorArtReport }) => ({ applicationNumber, cpc, hasPriorArtReport }));
-const reportRowDirty = [];
-const changingReportForm = selectionNumberForm(undefined, { initialRows: existingReportRows, month: reportRestoreState.months[0], dirty: value => reportRowDirty.push(value) });
-hookWrites.length = 0;
-await reportToggle(changingReportForm, '선정 목록 1 선행기술조사 보고서 유무').props.onChange(false);
-const rowChange = hookWrites.find(write => write.index === 0).value;
-const changedReportRows = typeof rowChange === 'function' ? rowChange(existingReportRows) : rowChange;
-assert.equal(changedReportRows[0].hasPriorArtReport, false);
-assert.equal(changedReportRows[1].hasPriorArtReport, false);
-assert.equal(reportRowDirty.at(-1), true);
-let changedReportAction;
-const savingReportForm = selectionNumberForm(undefined, { initialRows: changedReportRows, cpcValue: '', month: reportRestoreState.months[0], save: async action => { changedReportAction = action; return true; } });
-descendants(savingReportForm).find(({ element }) => element.props.children === '수정 사항 저장').element.props.onClick();
-assert.equal(changedReportAction.confirm, true);
-assert.equal(changedReportAction.rows[0].hasPriorArtReport, false, 'Saving an edited submitted row must retain the toggled value.');
-for (const blocked of [{ busy: true }, { autoSaveStatus: 'saving' }, { month: { ...reportRestoreState.months[0], stages: { selection: 'closed' } } }]) {
-  const form = selectionNumberForm(undefined, { initialRows: existingReportRows, month: reportRestoreState.months[0], ...blocked });
+let legacyReportAction;
+const legacyEditor = { index: 2, numberParts: ['10', '2026', '52'], cpc: 'G06Q', hasPriorArtReport: undefined };
+const legacyReportForm = selectionForm({ initialRows: existingSelectionRows, editor: legacyEditor, autoSave: async action => { legacyReportAction = action; return true; } });
+await selectionButton(legacyReportForm, '저장').props.onClick();
+assert.equal(legacyReportAction.rows[2].hasPriorArtReport, undefined, 'Saving other fields must not turn a legacy unknown report value into false.');
+
+for (const blocked of [{ busy: true }, { autoSaveStatus: 'saving' }, { month: { ...domain.emptyMonth('2026-11'), stages: { selection: 'closed' } } }]) {
+  const form = selectionNumberForm(['10', '2026', '7'], { initialRows: existingSelectionRows, ...blocked });
+  assert(numberFields(form).every(field => field.props.disabled));
   assert.equal(reportToggle(form).props.disabled, true);
-  assert.equal(reportToggle(form, '선정 목록 1 선행기술조사 보고서 유무').props.disabled, true);
+  assert.equal(numberAdd(form).props.disabled, true);
+  assert.equal(selectionButton(form, '취소').props.disabled, true);
+  const list = selectionForm({ initialRows: existingSelectionRows, ...blocked });
+  for (const text of ['출원 추가', '수정', '삭제']) assert(selectionButtons(list, text).every(button => button.props.disabled));
+}
+
+// Restore focus to the newly mounted action after an inline row replaces its original DOM.
+for (const source of ['add', 'edit']) {
+  const session = selectionSession({ initialRows: existingSelectionRows, autoSave: async () => true });
+  let form = session.render(); let oldButtonFocus = 0; let restoredFocus = 0; let editorFocus = 0;
+  const trigger = source === 'add' ? selectionButton(form, '출원 추가') : selectionButtons(form, '수정')[0];
+  const mountRef = (button, element) => typeof button.props.ref === 'function' ? button.props.ref(element) : button.props.ref.current = element;
+  mountRef(trigger, { focus() { oldButtonFocus++; } });
+  trigger.props.onClick();
+  if (source === 'edit') mountRef(trigger, null);
+  session.capture(); form = session.render();
+  numberFields(form)[1].props.ref({ focus() { editorFocus++; } });
+  session.runEffects();
+  assert.equal(editorFocus, 1, 'Opening a row must focus its year field.');
+  await selectionButton(form, source === 'add' ? '취소' : '저장').props.onClick();
+  session.capture(); form = session.render();
+  const restoredButton = source === 'add' ? selectionButton(form, '출원 추가') : selectionButtons(form, '수정')[0];
+  mountRef(restoredButton, { focus() { restoredFocus++; } });
+  session.runEffects();
+  assert.equal(restoredFocus, 1, 'Closing an editor must focus the current action button.');
+  assert.equal(oldButtonFocus, 0, 'Do not focus an action DOM node that was replaced by the editor.');
+}
+
+// A failed automatic save retains changed rows for manual retry and keeps navigation protected.
+for (const operation of ['add', 'edit', 'delete']) {
+  const dirtyValues = []; const manualActions = [];
+  const session = selectionSession({
+    initialRows: existingSelectionRows,
+    editor: operation === 'delete' ? null : { index: operation === 'edit' ? 0 : null, numberParts: ['10', '2026', '7'], cpc: 'G06N', hasPriorArtReport: false },
+    dirty: value => dirtyValues.push(value),
+    autoSave: async () => false,
+    save: async action => { manualActions.push(action); return true; },
+  });
+  let form = session.render();
+  await (operation === 'delete' ? selectionButtons(form, '삭제')[0] : selectionButton(form, operation === 'edit' ? '저장' : '추가')).props.onClick();
+  await Promise.resolve(); await Promise.resolve();
+  session.capture(); form = session.render();
+  const expectedCount = existingSelectionRows.length + (operation === 'add' ? 1 : operation === 'delete' ? -1 : 0);
+  assert.equal(session.values[0].length, expectedCount);
+  assert.equal(session.values[1], null);
+  assert.equal(dirtyValues.at(-1), true);
+  assert(descendants(form).some(({ element }) => element.props.role === 'alert'), 'Failed saves need a visible retry message.');
+  selectionButton(form, '출원 추가').props.onClick({ currentTarget: null });
+  session.capture(); form = session.render();
+  selectionButton(form, '취소').props.onClick();
+  session.capture(); form = session.render();
+  assert.equal(dirtyValues.at(-1), true, 'Cancelling another editor must retain the unsaved failed-save protection.');
+  await selectionButton(form, '임시저장').props.onClick();
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(manualActions.length, 1);
+  assert.equal(manualActions[0].rows, session.values[0], 'The retry must use the retained local list.');
 }
 let finishAutomaticSave; let automaticRequests = 0;
 const pendingAutomaticForm = selectionNumberForm(['10', '2026', '7'], { autoSave: () => { automaticRequests++; return new Promise(resolve => { finishAutomaticSave = resolve; }); } });
@@ -949,20 +1081,13 @@ hookWrites.length = 0;
 const automaticRequest = numberAdd(pendingAutomaticForm).props.onClick();
 const writesBeforeSecondAdd = hookWrites.length;
 await numberAdd(pendingAutomaticForm).props.onClick();
+selectionButton(pendingAutomaticForm, '임시저장').props.onClick();
+selectionButton(pendingAutomaticForm, '선정 확정').props.onClick();
 assert.equal(automaticRequests, 1);
-assert.equal(hookWrites.length, writesBeforeSecondAdd, 'Ignore a second add before the first automatic save finishes.');
-descendants(pendingAutomaticForm).find(({ element }) => element.props.children === '임시저장').element.props.onClick();
-assert.equal(hookWrites.length, writesBeforeSecondAdd, 'Do not send a parallel manual save.');
+assert.equal(hookWrites.length, writesBeforeSecondAdd, 'Block repeated row actions and parallel final saves while the first request is pending.');
 finishAutomaticSave(false); await automaticRequest;
-assert.equal(hookWrites.find(write => write.index === 0).value.at(-1).applicationNumber, '10-2026-0000007', 'Retain the added row after a failed save.');
-assert(hookWrites.some(write => write.index === 4 && String(write.value).includes('자동 저장하지 못했습니다.')));
-const extraInputDirty = [];
-const otherPendingInput = selectionNumberForm(['10', '2026', '8'], { pasteValue: '10-2026-0000009', dirty: value => extraInputDirty.push(value) });
-await numberAdd(otherPendingInput).props.onClick();
-assert.equal(extraInputDirty.at(-1), true, 'Unsaved bulk input must still protect navigation after a single-row automatic save.');
-const automaticBusyForm = selectionNumberForm(['10', '2026', '7'], { autoSaveStatus: 'saving' });
-assert(numberFields(automaticBusyForm).every(field => field.props.disabled));
-assert.equal(numberAdd(automaticBusyForm).props.disabled, true);
+assert.equal(writtenSelectionState(0, []).at(-1).applicationNumber, '10-2026-0000007');
+assert(hookWrites.some(write => write.index === 2 && String(write.value).includes('자동 저장하지 못했습니다.')));
 hookWrites.length = 0;
 await revisingReview.props.autoSave({ type: 'saveSelection', monthId: '2026-10', rows: submitted, confirm: true });
 assert(!hookWrites.some(write => write.index === 1 && write.value === false), 'Automatic saves must keep the submitted-list editing screen open.');

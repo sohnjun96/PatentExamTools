@@ -170,17 +170,19 @@
 .ev-progress { height:8px; margin-top:16px; overflow:hidden; border-radius:8px; background:var(--krds-color-light-gray-10); }
 .ev-progress span { display:block; height:100%; border-radius:8px; background:var(--ev-teal); }
 .ev-form-stack { display:grid; gap:20px; }
-.ev-selection-input { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end; }
-.ev-selection-input > .ev-application-number { flex:0 1 272px; max-width:100%; }
-.ev-selection-input > .ev-selection-cpc { flex:0 1 144px; width:144px; }
-.ev-selection-report { display:flex; flex-direction:column; gap:8px; }
-.ev-selection-bulk { margin-top:20px; max-width:720px; }
-.ev-selection-bulk > summary { width:fit-content; min-height:44px; padding:10px 0; cursor:pointer; color:var(--ev-muted); font-size:14px; }
-.ev-selection-bulk label { margin-top:12px; }
-.ev-selection-bulk > .ev-muted { margin-top:8px; font-size:14px; }
-.ev-selection-table { width:auto; max-width:100%; table-layout:auto; }
-.ev-selection-table .ev-selection-row-number { width:180px; }
-.ev-selection-table .ev-selection-row-cpc { width:144px; }
+.ev-selection-table { min-width:848px; table-layout:auto; }
+.ev-selection-table th:first-child { width:304px; }
+.ev-selection-table .ev-application-number { width:272px; }
+.ev-selection-table .ev-selection-row-cpc { width:176px; }
+.ev-selection-number { font-variant-numeric:tabular-nums; }
+.ev-selection-cpc-value { max-width:240px; white-space:normal; overflow-wrap:anywhere; }
+.ev-selection-row-actions { display:flex; align-items:center; gap:8px; }
+.ev-selection-row-actions > .ev-button { min-width:56px; }
+.ev-selection-table .ev-selection-editing { background:var(--ev-teal-light); }
+.ev-selection-table .ev-selection-empty { padding:32px 16px; color:var(--ev-muted); text-align:center; white-space:normal; }
+.ev-selection-footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; margin-top:24px; }
+.ev-selection-footer > .ev-actions { margin-left:auto; }
+.ev-selection-save-status:empty { display:none; }
 .ev-selection-unrecorded { display:block; margin-top:4px; color:var(--ev-muted); font-size:12px; }
 .ev-review-case-report { display:block; margin-top:4px; font-size:13px; }
 .ev-subheading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:28px 0 16px; }
@@ -259,8 +261,6 @@
 }
 
 .ev-application-number { min-width:0; margin:0; padding:0; border:0; }
-.ev-selection-caption { display:flex; align-items:baseline; gap:6px; font-size:16px; font-weight:500; }
-.ev-application-number > .ev-selection-caption { margin-bottom:8px; }
 .ev-application-number-parts { display:grid; grid-template-columns:minmax(44px,52px) auto minmax(64px,76px) auto minmax(92px,108px); align-items:center; gap:6px; }
 .ev-application-number-part { display:contents; }
 .ev-application-number-part .krds-input { width:100%; min-width:0; padding-inline:8px; text-align:center; font-variant-numeric:tabular-nums; }
