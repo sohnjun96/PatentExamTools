@@ -579,12 +579,16 @@ function updateCaseSelection(state: EvaluationState, item: EvaluationCase, row: 
   item.cpc = row.cpc;
 }
 
+function removeUnusedDeletedGroupAssignments(state: EvaluationState, groupId: string) {
+  if (state.groups.some(group => group.id === groupId && group.deletedAt) && !state.cases.some(entry => entry.groupId === groupId && entry.status === 'confirmed')) {
+    const personnel = personnelOf(state);
+    state.personnel = { ...personnel, assignments: personnel.assignments.filter(entry => entry.groupId !== groupId) };
+  }
+}
+
 function cancelEvaluationCase(state: EvaluationState, item: EvaluationCase) {
   item.status = 'cancelled';
-  if (state.groups.some(group => group.id === item.groupId && group.deletedAt) && !state.cases.some(entry => entry.groupId === item.groupId && entry.status === 'confirmed')) {
-    const personnel = personnelOf(state);
-    state.personnel = { ...personnel, assignments: personnel.assignments.filter(entry => entry.groupId !== item.groupId) };
-  }
+  removeUnusedDeletedGroupAssignments(state, item.groupId);
 }
 
 function documentsFrom(values: string[], allowEmpty: boolean) {
@@ -837,7 +841,9 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
         const ownerConfirmed = month.confirmedUserIds.includes(user.id) || ownerCases.some((entry) => entry.status === 'confirmed');
         if (item.status === 'draft' && ownerConfirmed) fail('선정을 확정한 심사관에게는 임시저장 출원을 옮길 수 없습니다.');
         if (item.status === 'confirmed' && !ownerConfirmed && ownerCases.some((entry) => entry.status === 'draft')) fail('새 담당 심사관이 임시저장한 출원 목록을 먼저 선정 확정해 주세요.');
+        const previousGroupId = item.groupId;
         Object.assign(item, caseAssignment(state, user));
+        removeUnusedDeletedGroupAssignments(state, previousGroupId);
         if (item.status === 'confirmed' && !month.confirmedUserIds.includes(user.id)) month.confirmedUserIds.push(user.id);
       }
       updateCaseSelection(state, item, row);

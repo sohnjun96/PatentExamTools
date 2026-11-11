@@ -208,6 +208,15 @@ assert.equal(createInitialState(monthId).users.length, 0);
   });
   assert.deepEqual(moved.months.find(entry => entry.id === item.monthId).confirmedUserIds, [...month.confirmedUserIds, destination.id]);
 
+  const lastInGroup = structuredClone(pending);
+  for (const entry of lastInGroup.cases) {
+    if (entry.groupId === item.groupId && entry.id !== item.id) entry.status = 'cancelled';
+  }
+  const deletedGroup = applyAction(lastInGroup, admin, { type: 'deleteGroup', groupId: item.groupId });
+  assert(deletedGroup.personnel.assignments.some(entry => entry.groupId === item.groupId));
+  const movedFromDeletedGroup = applyAction(deletedGroup, admin, move);
+  assert.deepEqual(movedFromDeletedGroup.personnel.assignments, deletedGroup.personnel.assignments.filter(entry => entry.groupId !== item.groupId));
+
   const duplicate = pending.cases.find(entry => entry.examinerId === destination.id);
   assert.throws(() => applyAction(pending, admin, { ...move, row: { ...move.row, applicationNumber: duplicate.applicationNumber.replaceAll('-', '') } }), /중복 출원/);
   assert.throws(() => applyAction(pending, admin, { ...move, row: { ...move.row, applicationNumber: 'KR20-2023-0001234' } }), /출원번호 13자리/);
