@@ -128,13 +128,32 @@ const literatureFields = ['authors', 'title', 'publication', 'publicationPlace',
 const patentIdentifier = /^(?:KR|US|WO|EP|JP|CN|DE|GB|FR|AU|CA|TW|IN|RU|ES|IT|CH|AT|SE|FI|NL|BE|DK|NO|NZ|ZA|BR|MX|IL|SG|HK|MY|TH|ID|PH|VN|AR|CL|CO|PE|PT|PL|CZ|HU|RO|BG|GR|TR|UA|SU|EA|AP|OA|GC)(?:D|RE|PP)?\d{4,16}[A-Z]\d{0,2}$/;
 const literatureControls = /[\u0000-\u001f\u007f-\u009f]/;
 
+function joinCitationSentences(parts: (string | undefined)[]) {
+  return parts.filter((part): part is string => Boolean(part))
+    .reduce((citation, part) => citation ? `${citation}${/[.!?。]$/.test(citation) ? ' ' : '. '}${part}` : part, '');
+}
+
 /** A citation is also the stable association used by existing document evaluations. */
 function nonPatentCitation(document: LiteratureDocument) {
   const imprint = [document.publicationPlace, document.publisher].filter(Boolean).join(' : ');
   const date = document.publicationDate || (document.acquiredDate ? `입수일 ${document.acquiredDate}` : '');
-  return [document.authors, document.title, document.publication, imprint, date, document.volume,
-    document.issue, document.pages, document.acquiredDate && !document.publicationDate ? document.dateNote : ''].filter((part): part is string => Boolean(part))
-    .reduce((citation, part) => citation ? `${citation}${/[.!?。]$/.test(citation) ? ' ' : '. '}${part}` : part, '');
+  return joinCitationSentences([document.authors, document.title, document.publication, imprint, date, document.volume,
+    document.issue, document.pages, document.acquiredDate && !document.publicationDate ? document.dateNote : '']);
+}
+
+/** Format the citation shown to reviewers without changing the document's saved identity. */
+export function formatNonPatentCitation(document: LiteratureDocument) {
+  const place = document.publicationPlace?.trim();
+  const publisher = document.publisher?.trim();
+  const imprint = place && publisher ? `${place.replace(/\s*[:：]$/u, '')} : ${publisher}` : place || publisher;
+  const acquiredDate = document.acquiredDate?.trim();
+  const dateNote = document.dateNote?.trim();
+  const date = document.publicationDate?.trim() || (acquiredDate ? `입수일 ${acquiredDate}${dateNote ? ` (${dateNote})` : ''}` : '');
+  const issueDetails = [date, document.volume, document.issue, document.pages]
+    .map(part => part?.trim().replace(/[,，]$/u, '').trimEnd())
+    .filter(Boolean)
+    .join(', ');
+  return joinCitationSentences([document.authors?.trim(), document.title?.trim(), document.publication?.trim(), imprint, issueDetails]);
 }
 
 /** Validate every record before exposing any imported or saved document. */

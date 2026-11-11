@@ -23,6 +23,11 @@ assert.equal(documents.length, 2);
 assert.equal(documents[0].number, patent.number);
 assert.equal(documents[1].kind, 'non-patent');
 const citation = documents[1].number;
+assert.equal(citation, 'Kim, J.; Lee, S. Technical literature retrieval. Journal of Retrieval. Seoul : Research Press. 2020-06. Vol. 10. No. 2. pp. 101–115', 'Stored evaluation identities remain stable.');
+assert.equal(rules.formatNonPatentCitation(documents[1]), 'Kim, J.; Lee, S. Technical literature retrieval. Journal of Retrieval. Seoul : Research Press. 2020-06, Vol. 10, No. 2, pp. 101–115');
+assert.equal(rules.formatNonPatentCitation({ kind: 'non-patent', number: 'stored-key', title: ' 문서 제목 ', publisher: '발행처.', issue: '제2호, ', pages: 'pp 101-110' }), '문서 제목. 발행처. 제2호, pp 101-110');
+assert.equal(rules.formatNonPatentCitation({ kind: 'non-patent', number: 'stored-key', publicationPlace: '서울 :', publisher: '연구원', acquiredDate: '2026-10-30', dateNote: '발행일 불명', pages: '101-110' }), '서울 : 연구원. 입수일 2026-10-30 (발행일 불명), 101-110');
+assert.equal(rules.formatNonPatentCitation({ kind: 'non-patent', number: 'stored-key', title: '  ', url: 'https://example.test/' }), '');
 const citationFields = ['authors', 'title', 'publication', 'publicationPlace', 'publisher', 'publicationDate', 'volume', 'issue', 'pages'];
 let previous = -1;
 for (const field of citationFields) {

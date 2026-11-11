@@ -9,7 +9,9 @@ import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ts from 'typescript';
 import { literatureLink } from '../app/lib/literature-link.ts';
-import { LITERATURE_REPORT_TABLE_TEMPLATE } from '../app/lib/evaluation.ts';
+import * as evaluation from '../app/lib/evaluation.ts';
+
+const { LITERATURE_REPORT_TABLE_TEMPLATE } = evaluation;
 
 const require = createRequire(import.meta.url);
 const filename = path.resolve(import.meta.dirname, '../app/components/notice-markdown.tsx');
@@ -115,6 +117,7 @@ function loadComponent(relative, dependencies) {
 const AppIcon = loadComponent('../app/components/app-icon.tsx', {});
 const LiteratureLink = loadComponent('../app/components/literature-link.tsx', { '@/app/lib/literature-link': { literatureLink }, './app-icon': { __esModule: true, default: AppIcon } });
 const LiteratureReader = loadComponent('../app/evaluation/task/literature-reader.tsx', {
+  '@/app/lib/evaluation': evaluation,
   '@/app/components/notice-markdown': { __esModule: true, default: NoticeMarkdown },
   '@/app/components/literature-link': { __esModule: true, default: LiteratureLink },
 });
@@ -141,9 +144,24 @@ for (const preview of [true, false]) {
   assert(rendered.includes('role="region" aria-label="AI 검색 문헌 보고서 표" tabindex="0"'), 'Report tables must keep their own accessible scroll region label.');
   assert(rendered.includes('기존 보고서의 마지막 문단입니다.'));
   assert(!rendered.includes('| :--- |'), 'Markdown delimiter syntax must not leak into the report text.');
+  assert(!rendered.includes('aria-label="인용문 복사"'), 'Patent references do not have the non-patent citation control.');
 }
 const templateReport = renderToStaticMarkup(React.createElement(LiteratureReader, { document: { ...document, reportMarkdown: LITERATURE_REPORT_TABLE_TEMPLATE }, preview: true }));
 assert(templateReport.includes('<table>'), 'The editor\'s inserted table template must be accepted by the actual shared renderer.');
 assert(templateReport.includes('구성요소 1'));
 assert(templateReport.includes('구성요소 2'));
-console.log('Markdown passed: CommonMark/GFM, safe links, escaped code, blocked HTML, accessible tables and real report preview/publication with alignment, Korean labels and inline formatting.');
+const nonPatent = {
+  kind: 'non-patent', number: 'fixture citation identifier', authors: 'Kim, J.', title: 'Retrieval', publication: 'Journal',
+  publicationPlace: 'Seoul', publisher: 'Press', publicationDate: '2020-06', volume: 'Vol. 10', issue: 'No. 2', pages: 'pp. 101–115',
+};
+const renderNonPatent = preview => renderToStaticMarkup(React.createElement(LiteratureReader, { document: nonPatent, preview }));
+const bibliography = renderNonPatent(false).match(/<details class="tw-bibliographic-details">.*?<\/details>/s)?.[0];
+assert(bibliography?.includes('<summary>서지정보</summary>'));
+assert(bibliography.includes('class="tw-citation"'));
+assert(bibliography.includes('Kim, J. Retrieval. Journal. Seoul : Press. 2020-06, Vol. 10, No. 2, pp. 101–115'));
+assert.match(bibliography, /<button\b[^>]*aria-label="인용문 복사"/);
+assert(bibliography.includes('<dl>'), 'Individual bibliography fields remain available.');
+assert(!renderNonPatent(true).includes('class="tw-citation"'), 'The AI-side preview has no citation block.');
+const legacyReference = renderToStaticMarkup(React.createElement(LiteratureReader, { document: { kind: 'legacy', number: '기존에 입력한 논문 서지정보' } }));
+assert(!legacyReference.includes('aria-label="인용문 복사"'), 'Legacy references have no structured citation control.');
+console.log('Markdown passed: safe rendering, accessible report tables, and copyable non-patent citations in examiner view.');

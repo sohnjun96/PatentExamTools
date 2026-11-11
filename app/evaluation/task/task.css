@@ -65,6 +65,11 @@
 .tw-reader .tw-bibliography { margin-bottom:16px; color:var(--ev-muted); font-size:14px; }
 .tw-bibliographic-details { margin-bottom:18px; font-size:14px; }
 .tw-bibliographic-details summary { padding:8px 0; color:var(--krds-color-light-primary-70); cursor:pointer; }
+.tw-citation { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:12px; margin-top:4px; padding:12px; border-radius:8px; background:var(--krds-color-light-gray-5); }
+.tw-citation p { margin:0; line-height:1.7; user-select:text; }
+.tw button.tw-citation-copy { min-height:32px; padding:4px 9px; font-size:13px; white-space:nowrap; }
+.tw-citation-feedback { margin-top:6px; color:var(--ev-muted); font-size:13px; }
+@media (pointer:coarse) { .tw button.tw-citation-copy { min-height:44px; } }
 .tw-bibliographic-details dl { display:grid; gap:8px; margin-top:10px; }
 .tw-bibliographic-details dl > div { display:grid; grid-template-columns:80px minmax(0,1fr); gap:8px; }
 .tw-bibliographic-details dd { margin:0; }
