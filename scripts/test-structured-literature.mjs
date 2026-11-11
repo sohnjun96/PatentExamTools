@@ -39,11 +39,24 @@ assert.equal(rules.normalizeLiteratureDocuments([{ ...patent, number: ' kr 2010-
 assert.deepEqual(rules.parseLiteratureImport(JSON.stringify({ documents: [patent, paper] })), documents);
 assert.deepEqual(rules.parseLiteratureImport(JSON.stringify([patent, paper])), documents);
 assert.deepEqual(rules.parseLiteratureImport('```json\n' + JSON.stringify({ documents: [patent, paper] }) + '\n```'), documents);
+const resultJson = JSON.stringify({ documents: [patent, paper] });
+assert.deepEqual(rules.parseLiteratureImport('아래는 검색 결과입니다.\n' + resultJson + '\n이상입니다.'), documents);
+assert.deepEqual(rules.parseLiteratureImport('참고 [1] 및 [안내](https://example.test/)\n```JSON\n' + resultJson + '\n```\n후속 안내'), documents);
+assert.deepEqual(rules.parseLiteratureImport('문헌 목록\n' + JSON.stringify([patent, paper]) + '\n검토해 주세요.'), documents);
+assert.deepEqual(rules.parseLiteratureImport('처리 정보 {"count":2}\n' + resultJson + '\n[출처 1]'), documents);
+const reportWithDelimiters = { ...patent, reportMarkdown: '## 근거\n문구 "청구항"에 나온 {구성], [수치} 및 C:\\문헌을 확인합니다.' };
+assert.deepEqual(rules.parseLiteratureImport('설명\n' + JSON.stringify({ documents: [reportWithDelimiters] }) + '\n끝'), [reportWithDelimiters]);
 assert(rules.LITERATURE_FORMAT_PROMPT.includes('reportMarkdown'));
 assert(rules.LITERATURE_FORMAT_PROMPT.includes('publicationPlace'));
 assert(rules.parseLiteratureImport(rules.LITERATURE_IMPORT_EXAMPLE).length > 0, 'The copyable example must be accepted by the actual importer.');
 
 const badRequest = error => error instanceof rules.EvaluationError && error.status === 400;
+assert.throws(() => rules.parseLiteratureImport('첫 결과\n' + resultJson + '\n두 번째 결과\n' + JSON.stringify([patent])), /JSON이 여러 개/);
+assert.throws(() => rules.parseLiteratureImport('설명\n{"answer":' + resultJson + '}\n끝'), badRequest, 'A nested result inside a different object is not a standalone payload.');
+assert.throws(() => rules.parseLiteratureImport('설명\n[null,' + resultJson + ']\n끝'), badRequest, 'A nested result inside an array is not a standalone payload.');
+assert.throws(() => rules.parseLiteratureImport('설명\n{"answer":' + resultJson + ',}\n끝'), badRequest, 'Malformed outer objects must not yield partial results.');
+assert.throws(() => rules.parseLiteratureImport('설명\n' + JSON.stringify({ documents: [patent], extra: true }) + '\n끝'), /형식/);
+assert.throws(() => rules.parseLiteratureImport('설명\n' + JSON.stringify({ documents: [{ ...patent, url: 'file:///local.pdf' }] }) + '\n끝'), /URL/);
 for (const input of ['', '{broken', 'null', '{}', '{"documents":{}}', '{"documents":[null]}', '{"documents":["KR20100001234A"]}', '```json\n[]\n```\nadditional prose']) {
   assert.throws(() => rules.parseLiteratureImport(input), badRequest, `Reject malformed bulk input: ${input}`);
 }

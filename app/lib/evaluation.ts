@@ -210,14 +210,71 @@ function resultDraftEditorStateFrom(value: unknown): ResultDraftEditorState {
   return { documents, bulkInput: entry.bulkInput };
 }
 
-/** Accept the exact JSON response, including the single code block commonly returned by AI. */
+function hasDocumentsField(value: unknown): value is { documents: unknown } {
+  return value !== null && typeof value === 'object' && Object.hasOwn(value, 'documents');
+}
+
+/** Find one complete result in surrounding prose without parsing nested fragments on their own. */
+function findLiteratureImport(source: string): unknown {
+  const closers: string[] = [];
+  let start = 0;
+  let inString = false;
+  let escaped = false;
+  let result: unknown;
+
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index];
+    if (!closers.length) {
+      if (character !== '{' && character !== '[') continue;
+      let first = index + 1;
+      while (first < source.length && /[ \t\r\n]/.test(source[first])) first++;
+      const token = source[first];
+      // Skip brackets that cannot start JSON, such as Markdown link labels.
+      if (character === '{' && token !== '"' && token !== '}') continue;
+      if (character === '[' && !/^(?:[0-9-]|true|false|null|\[|\]|\{|")/u.test(source.slice(first, first + 5))) continue;
+      start = index;
+      closers.push(character === '{' ? '}' : ']');
+      continue;
+    }
+
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') inString = true;
+    else if (character === '{' || character === '[') closers.push(character === '{' ? '}' : ']');
+    else if (character === '}' || character === ']') {
+      if (closers.pop() !== character) {
+        closers.length = 0;
+        continue;
+      }
+      if (closers.length) continue;
+
+      let candidate: unknown;
+      try { candidate = JSON.parse(source.slice(start, index + 1)); }
+      catch { continue; }
+      const isDocumentArray = Array.isArray(candidate) && candidate.some(entry =>
+        entry !== null && typeof entry === 'object' && Object.hasOwn(entry, 'kind'));
+      if (!hasDocumentsField(candidate) && !isDocumentArray) continue;
+      if (result !== undefined) fail('검색 결과 JSON이 여러 개 있습니다. 가져올 결과 하나만 붙여 넣어 주세요.');
+      result = candidate;
+    }
+  }
+
+  if (result === undefined) fail('AI 검색 결과 JSON을 읽지 못했습니다. JSON 형식을 확인하고 보고서의 줄바꿈은 \\n으로 작성해 주세요.');
+  return result;
+}
+
+/** Accept a result object or array, with optional Markdown fences and explanatory text. */
 export function parseLiteratureImport(input: string): LiteratureDocument[] {
   if (typeof input !== 'string' || !input.trim()) fail('자동 입력할 JSON 결과를 붙여 넣어 주세요.');
   if (input.length > 600_000) fail('자동 입력 결과가 너무 큽니다. 최대 7문헌, 보고서별 30,000자 이내로 나누어 주세요.');
-  const source = input.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i, '$1');
+  const source = input.trim();
   let parsed: unknown;
-  try { parsed = JSON.parse(source); } catch { return fail('JSON 형식을 확인해 주세요. 결과 객체 또는 배열만 붙여 넣고, 보고서의 줄바꿈은 \\n으로 작성해 주세요.'); }
-  if (!Array.isArray(parsed) && (!parsed || typeof parsed !== 'object' || !Object.prototype.hasOwnProperty.call(parsed, 'documents') || Object.keys(parsed).some((key) => key !== 'documents'))) fail('자동 입력 결과는 {"documents": [...]} 형식으로 입력해 주세요.');
+  try { parsed = JSON.parse(source); } catch { parsed = findLiteratureImport(source); }
+  if (!Array.isArray(parsed) && (!hasDocumentsField(parsed) || Object.keys(parsed).some((key) => key !== 'documents'))) fail('자동 입력 결과는 {"documents": [...]} 형식으로 입력해 주세요.');
   const values = Array.isArray(parsed) ? parsed : (parsed as { documents: unknown }).documents;
   if (Array.isArray(values) && values.some((value) => value && typeof value === 'object' && (value as { kind?: unknown }).kind === 'legacy')) fail('자동 입력 문헌 종류는 patent 또는 non-patent로 입력해 주세요.');
   return normalizeLiteratureDocuments(values);
