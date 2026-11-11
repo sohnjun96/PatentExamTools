@@ -33,12 +33,18 @@ export function resolveTask(state: EvaluationState, request: TaskRequest) {
 
 /** A clean window can refresh phase/permission data without resetting its selected document. */
 export function taskContentKey(state: EvaluationState, request: TaskRequest) {
+  const item = state.cases.find(entry => entry.id === request.caseId);
+  const caseContext = {
+    applicationNumber: item?.applicationNumber.replace(/[\s-]/g, ''),
+    examinerId: item?.examinerId,
+    groupId: item?.groupId,
+  };
   if (request.kind === 'result') {
     const result = resultFor(state, request.caseId, request.methodId, request.userId);
-    return JSON.stringify({ draft: literatureDetailsFor(result, 'draft'), editorState: result?.draftEditorState, publishedVersion: result?.publishedVersion || 0 });
+    return JSON.stringify({ caseContext, draft: literatureDetailsFor(result, 'draft'), editorState: result?.draftEditorState, publishedVersion: result?.publishedVersion || 0 });
   }
-  const item = state.cases.find(entry => entry.id === request.caseId);
   return JSON.stringify({
+    caseContext,
     methods: item ? caseMethods(state, item).map(method => method.id) : [],
     results: state.results.filter(result => result.caseId === request.caseId).map(result => ({ methodId: result.methodId, comparisonKey: result.comparisonKey, ownerId: result.ownerId, version: result.publishedVersion, documents: literatureDetailsFor(result) })),
     evaluations: state.evaluations.filter(entry => entry.caseId === request.caseId),

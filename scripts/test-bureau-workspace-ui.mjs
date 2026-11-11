@@ -60,6 +60,7 @@ function loadModule(relative, append = '') {
     if (id === '@/app/components/literature-details') return loadModule('app/components/literature-details.tsx');
     if (id === '@/app/components/report-presence-toggle') return loadModule('app/components/report-presence-toggle.tsx');
     if (id === '@/app/lib/literature-link') return loadModule('app/lib/literature-link.ts');
+    if (id === '@/app/lib/patent-number') return loadModule('app/lib/patent-number.ts');
     if (id.endsWith('/evaluation-guidance')) return loadModule('app/lib/evaluation-guidance.ts');
     if (id.endsWith('/notice-markdown')) return NoticeMarkdownStub;
     if (id.endsWith('/evaluation')) return loadModule('app/lib/evaluation.ts');
@@ -1213,7 +1214,29 @@ for (const [id, locked] of [['december-case', true], [multiMonthState.cases[0].i
   const selected = scopedManager(['', 'all', '', id]);
   const cancel = descendants(selected).find(({ element }) => element.type?.name === 'Button' && element.props.children === '선정 취소').element;
   assert.equal(cancel.props.disabled, locked, 'Cancellation uses the selected case’s actual month.');
+  const basics = descendants(selected).find(({ element }) => element.type === adminUI.CaseEvaluationDetails).element.props.basicInfoAction;
+  assert.equal(basics.props.disabled, locked, 'Basic information editing uses the selected case’s actual month.');
+  assert.equal(basics.props['aria-haspopup'], 'dialog');
 }
+const editCase = multiMonthState.cases[0];
+const editState = {
+  ...multiMonthState,
+  results: multiMonthState.results.filter(result => result.caseId !== editCase.id),
+  evaluations: multiMonthState.evaluations.filter(evaluation => evaluation.caseId !== editCase.id),
+  rankings: multiMonthState.rankings.filter(ranking => ranking.caseId !== editCase.id),
+};
+const editScreen = scopedManager(['', 'all', '', editCase.id, true], { state: editState });
+const editDialog = descendants(editScreen).find(({ element }) => element.type?.name === 'CaseBasicsEditor').element;
+let editAction;
+hookIndex = 0;
+hookOverrides = [{ applicationNumber: '1020260000123', cpc: 'G06F', hasPriorArtReport: false, examinerId: editCase.examinerId }];
+const editableBasics = editDialog.type({ ...editDialog.props, save: async action => { editAction = action; return true; } });
+await descendants(editableBasics).find(({ element }) => element.type === 'form').element.props.onSubmit({ preventDefault() {} });
+assert.equal(editAction.type, 'adminUpdateCase');
+assert.equal(editAction.caseId, editCase.id);
+assert.equal(editAction.row.applicationNumber, '10-2026-0000123');
+assert.equal(editAction.row.cpc, 'G06F');
+assert.equal(editAction.row.hasPriorArtReport, false);
 function scopedOverview(overrides = [], props = {}) { hookIndex = 0; hookOverrides = overrides; return adminUI.TestOverview({ ...allAdminProps, ...props }); }
 const allOverview = scopedOverview();
 assert.equal(descendants(allOverview).find(({ element }) => element.type?.name === 'Metric' && element.props.label === '선정 출원').element.props.value, '21건');
@@ -1270,6 +1293,13 @@ const detailState = domain.applyAction(structuredState, { userId: detailCase.exa
   }),
 });
 const renderDetails = state => adminUI.CaseEvaluationDetails({ state, item: state.cases.find(item => item.id === detailCase.id) });
+hookIndex = 0;
+hookOverrides = [];
+const lockedBasics = editDialog.type({ ...editDialog.props, state: detailState, item: detailState.cases.find(item => item.id === detailCase.id) });
+const lockedFields = descendants(lockedBasics).map(({ element }) => element);
+assert(lockedFields.find(element => element.type === 'input' && element.props.value === detailCase.applicationNumber).props.readOnly);
+assert(lockedFields.find(element => element.type === 'select').props.disabled);
+assert(!lockedFields.find(element => element.type === 'input' && element.props.value === detailCase.cpc).props.disabled);
 const docTable = tree => descendants(tree).find(({ element }) => element.type === 'table' && element.props.className?.includes('adm-case-documents'))?.element;
 const tableRows = table => descendants(table).find(({ element }) => element.type === 'tbody').element.props.children;
 const detailTree = renderDetails(detailState), beforeDetailQuery = JSON.stringify(detailState);

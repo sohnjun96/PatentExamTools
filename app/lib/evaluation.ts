@@ -102,6 +102,7 @@ export type EvaluationAction =
   | { type: 'setMonthStage'; monthId: string; stage: OperationStage; status: OperationStageStatus }
   | { type: 'saveSelection'; monthId: string; rows: SelectionRow[]; confirm: boolean }
   | { type: 'adminAddCase'; monthId: string; examinerId: string; row: SelectionRow }
+  | { type: 'adminUpdateCase'; caseId: string; examinerId: string; row: SelectionRow }
   | { type: 'cancelCase'; caseId: string }
   | { type: 'saveResult'; caseId: string; methodId: string; documents: string[]; documentDetails?: LiteratureDocument[]; publish: boolean }
   | { type: 'saveResultDraft'; caseId: string; methodId: string; editorState: ResultDraftEditorState }
@@ -526,22 +527,56 @@ export function caseStatus(state: EvaluationState, item: EvaluationCase) {
   return { inputComplete, evaluationStatus: complete ? '평가 완료' : stale ? '재확인 필요' : started ? '평가 중' : '미평가', complete, stale };
 }
 
+function selectionRow(row: SelectionRow): SelectionRow {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) fail('대상 출원 입력 형식을 확인해 주세요.');
+  if (row.hasPriorArtReport !== undefined && typeof row.hasPriorArtReport !== 'boolean') fail('선행기술조사 보고서 유무는 있음 또는 없음으로 선택해 주세요.');
+  return { applicationNumber: text(row.applicationNumber, 40), cpc: text(row.cpc, 100), ...(row.hasPriorArtReport === undefined ? {} : { hasPriorArtReport: row.hasPriorArtReport }) };
+}
+
+function validateSelectionApplicationNumber(number: string) {
+  if (!/^[\d\s-]+$/.test(number) || !/^(10|20)\d{11}$/.test(number.replace(/[\s-]/g, ''))) fail('특허·실용신안 출원번호 13자리를 입력해 주세요. 숫자·공백·하이픈만 사용할 수 있습니다.');
+}
+
 function selectionRows(rows: SelectionRow[]) {
   if (!Array.isArray(rows) || rows.length > 500) fail('대상 출원 목록을 확인해 주세요.');
-  const result = rows.map((row) => {
-    if (!row || typeof row !== 'object' || Array.isArray(row)) return fail('대상 출원 입력 형식을 확인해 주세요.');
-    if (row.hasPriorArtReport !== undefined && typeof row.hasPriorArtReport !== 'boolean') return fail('선행기술조사 보고서 유무는 있음 또는 없음으로 선택해 주세요.');
-    return { applicationNumber: text(row.applicationNumber, 40), cpc: text(row.cpc, 100), ...(row.hasPriorArtReport === undefined ? {} : { hasPriorArtReport: row.hasPriorArtReport }) };
-  });
-  if (result.some((row) => !/^[\d\s-]+$/.test(row.applicationNumber) || !/^(10|20)\d{11}$/.test(row.applicationNumber.replace(/[\s-]/g, '')))) fail('특허·실용신안 출원번호 13자리를 입력해 주세요. 숫자·공백·하이픈만 사용할 수 있습니다.');
+  const result = rows.map(selectionRow);
+  for (const row of result) validateSelectionApplicationNumber(row.applicationNumber);
   if (new Set(result.map((row) => identity(row.applicationNumber))).size !== result.length) fail('같은 선정 목록에 중복된 출원이 있습니다.');
   return result;
 }
 
-function createCase(state: EvaluationState, month: OperationMonth, user: EvaluationUser, row: SelectionRow, status: EvaluationCase['status']): EvaluationCase {
+function caseAssignment(state: EvaluationState, user: EvaluationUser) {
   const participant = personnelOf(state).memberships.find((entry) => entry.userId === user.id) ?? fail('심사관 관리에서 소속 그룹을 먼저 배정해 주세요.');
   const group = currentGroups(state).find((entry) => entry.id === participant.groupId) ?? fail('심사관 관리에서 소속 그룹을 다시 배정해 주세요.');
-  return { applicationNumber: row.applicationNumber, cpc: row.cpc, ...(row.hasPriorArtReport === undefined ? {} : { hasPriorArtReport: row.hasPriorArtReport }), id: uid(), monthId: month.id, examinerId: user.id, examinerName: user.name, bureau: user.bureau, division: user.division, groupId: group.id, groupName: group.name, status };
+  return { examinerId: user.id, examinerName: user.name, bureau: user.bureau, division: user.division, groupId: group.id, groupName: group.name };
+}
+
+function createCase(state: EvaluationState, month: OperationMonth, user: EvaluationUser, row: SelectionRow, status: EvaluationCase['status']): EvaluationCase {
+  return { ...row, id: uid(), monthId: month.id, ...caseAssignment(state, user), status };
+}
+
+function ensureUniqueCase(state: EvaluationState, monthId: string, examinerId: string, applicationNumber: string, excludeCaseId?: string) {
+  if (state.cases.some((entry) => entry.id !== excludeCaseId && entry.monthId === monthId && entry.examinerId === examinerId && entry.status !== 'cancelled' && identity(entry.applicationNumber) === identity(applicationNumber))) fail('같은 월·심사관에 중복 출원이 있습니다.');
+}
+
+export function caseHasWork(state: EvaluationState, item: EvaluationCase) {
+  return state.results.some(result => result.caseId === item.id)
+    || state.evaluations.some(evaluation => evaluation.caseId === item.id)
+    || state.rankings.some(ranking => ranking.caseId === item.id);
+}
+
+function updateCaseSelection(state: EvaluationState, item: EvaluationCase, row: SelectionRow) {
+  if (row.hasPriorArtReport !== undefined) {
+    const wasAvailable = caseMethods(state, item).some((method) => method.kind === 'baseline');
+    const willBeAvailable = row.hasPriorArtReport !== false && state.methods.some((method) => method.kind === 'baseline');
+    if (wasAvailable !== willBeAvailable) {
+      const ranking = state.rankings.find((entry) => entry.caseId === item.id);
+      if (ranking && ranking.baselineAvailable === undefined) ranking.baselineAvailable = wasAvailable;
+    }
+    item.hasPriorArtReport = row.hasPriorArtReport;
+  }
+  item.applicationNumber = row.applicationNumber;
+  item.cpc = row.cpc;
 }
 
 function cancelEvaluationCase(state: EvaluationState, item: EvaluationCase) {
@@ -760,17 +795,7 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
         for (const row of rows) {
           const existing = previous.find(entry => identity(entry.applicationNumber) === identity(row.applicationNumber));
           if (existing) {
-            if (row.hasPriorArtReport !== undefined) {
-              const wasAvailable = caseMethods(state, existing).some((method) => method.kind === 'baseline');
-              const willBeAvailable = row.hasPriorArtReport !== false && state.methods.some((method) => method.kind === 'baseline');
-              if (wasAvailable !== willBeAvailable) {
-                const ranking = state.rankings.find((entry) => entry.caseId === existing.id);
-                if (ranking && ranking.baselineAvailable === undefined) ranking.baselineAvailable = wasAvailable;
-              }
-              existing.hasPriorArtReport = row.hasPriorArtReport;
-            }
-            existing.applicationNumber = row.applicationNumber;
-            existing.cpc = row.cpc;
+            updateCaseSelection(state, existing, row);
             retained.add(existing.id);
           } else state.cases.push(createCase(state, month, user, row, 'confirmed'));
         }
@@ -786,9 +811,36 @@ export function applyAction(input: EvaluationState, actor: EvaluationActor, acti
       editable(month);
       const user = state.users.find((entry) => entry.id === action.examinerId && entry.roles.includes('examiner')) ?? fail('담당 심사관을 확인해 주세요.');
       const [row] = selectionRows([action.row]);
-      if (state.cases.some((entry) => entry.monthId === month.id && entry.examinerId === user.id && entry.status !== 'cancelled' && identity(entry.applicationNumber) === identity(row.applicationNumber))) fail('같은 월·심사관에 중복 출원이 있습니다.');
+      ensureUniqueCase(state, month.id, user.id, row.applicationNumber);
       state.cases.push(createCase(state, month, user, row, 'confirmed'));
       if (!month.confirmedUserIds.includes(user.id)) month.confirmedUserIds.push(user.id);
+      return state;
+    }
+    case 'adminUpdateCase': {
+      requireAdmin(actor);
+      const item = state.cases.find((entry) => entry.id === action.caseId) ?? fail('출원이 없습니다.', 404);
+      const month = monthOf(state, item.monthId);
+      editable(month);
+      if (item.status === 'cancelled') fail('선정을 취소한 출원은 수정할 수 없습니다.');
+
+      const row = selectionRow(action.row);
+      if (row.applicationNumber !== item.applicationNumber.trim()) validateSelectionApplicationNumber(row.applicationNumber);
+      const numberChanged = identity(row.applicationNumber) !== identity(item.applicationNumber);
+      const examinerChanged = action.examinerId !== item.examinerId;
+      if (numberChanged || examinerChanged) {
+        if (caseHasWork(state, item)) fail('저장된 AI 입력 또는 평가가 있는 출원은 출원번호와 담당 심사관을 바꿀 수 없습니다.');
+        ensureUniqueCase(state, month.id, action.examinerId, row.applicationNumber, item.id);
+      }
+      if (examinerChanged) {
+        const user = state.users.find((entry) => entry.id === action.examinerId && entry.active && entry.roles.includes('examiner')) ?? fail('활성 상태인 담당 심사관을 선택해 주세요.');
+        const ownerCases = state.cases.filter((entry) => entry.monthId === month.id && entry.examinerId === user.id);
+        const ownerConfirmed = month.confirmedUserIds.includes(user.id) || ownerCases.some((entry) => entry.status === 'confirmed');
+        if (item.status === 'draft' && ownerConfirmed) fail('선정을 확정한 심사관에게는 임시저장 출원을 옮길 수 없습니다.');
+        if (item.status === 'confirmed' && !ownerConfirmed && ownerCases.some((entry) => entry.status === 'draft')) fail('새 담당 심사관이 임시저장한 출원 목록을 먼저 선정 확정해 주세요.');
+        Object.assign(item, caseAssignment(state, user));
+        if (item.status === 'confirmed' && !month.confirmedUserIds.includes(user.id)) month.confirmedUserIds.push(user.id);
+      }
+      updateCaseSelection(state, item, row);
       return state;
     }
     case 'cancelCase': {

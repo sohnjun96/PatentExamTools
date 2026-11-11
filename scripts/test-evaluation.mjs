@@ -172,4 +172,52 @@ assert.equal('caseLimit' in withoutLimit.months.find(month => month.id === '2026
 assert.deepEqual(withoutLimit.cases, legacyLimitedState.cases);
 assert.deepEqual(withoutLimit.months.find(month => month.id === '2026-11').stages, legacyMonth.stages);
 assert.equal(createInitialState(monthId).users.length, 0);
-console.log('Evaluation rules: 20 cases / 40 AI bundles / 280 literature evaluations verified; drafts, 0/X, recheck, scopes, rankings, assignments, deadlines and closure passed.');
+
+// Editing a case preserves its identity and work. A report change reopens comparison only.
+{
+  const admin = { admin: true };
+  const seed = createDemoState('2026-11');
+  const item = seed.cases[0];
+  const update = {
+    type: 'adminUpdateCase', caseId: item.id, examinerId: item.examinerId,
+    row: { applicationNumber: item.applicationNumber.replaceAll('-', ' '), cpc: ' A47L 15/48 ', hasPriorArtReport: false },
+  };
+  seed.users.find(user => user.id === item.examinerId).active = false;
+  const edited = applyAction(seed, admin, update);
+  const changedCase = edited.cases.find(entry => entry.id === item.id);
+  assert.deepEqual(changedCase, { ...item, ...update.row, cpc: 'A47L 15/48' });
+  assert.deepEqual(edited.results, seed.results);
+  assert.deepEqual(edited.evaluations, seed.evaluations);
+  assert.equal(caseStatus(edited, changedCase).evaluationStatus, '재확인 필요');
+  assert.deepEqual(edited.rankings[0], { ...seed.rankings[0], baselineAvailable: true });
+  assert.throws(() => applyAction(seed, { userId: item.examinerId }, update), error => error.status === 403);
+  assert.throws(() => applyAction(seed, admin, { ...update, row: { ...update.row, applicationNumber: '20-2023-0001234' } }), /저장된 AI 입력 또는 평가/);
+  assert.throws(() => applyAction(seed, admin, { ...update, examinerId: 'demo-user-6' }), /저장된 AI 입력 또는 평가/);
+
+  const pending = structuredClone(seed);
+  for (const key of ['results', 'evaluations', 'rankings']) pending[key] = pending[key].filter(entry => entry.caseId !== item.id);
+  const destination = pending.users.find(user => user.id === 'demo-user-6');
+  const destinationGroup = pending.groups.find(group => group.id === pending.personnel.memberships.find(entry => entry.userId === destination.id).groupId);
+  const month = pending.months.find(entry => entry.id === item.monthId);
+  month.confirmedUserIds = month.confirmedUserIds.filter(id => id !== destination.id);
+  const move = { ...update, examinerId: destination.id, row: { ...update.row, applicationNumber: '20-2023-0001234' } };
+  const moved = applyAction(pending, admin, move);
+  assert.deepEqual(moved.cases.find(entry => entry.id === item.id), {
+    ...item, ...move.row, cpc: 'A47L 15/48', examinerId: destination.id, examinerName: destination.name,
+    bureau: destination.bureau, division: destination.division, groupId: destinationGroup.id, groupName: destinationGroup.name,
+  });
+  assert.deepEqual(moved.months.find(entry => entry.id === item.monthId).confirmedUserIds, [...month.confirmedUserIds, destination.id]);
+
+  const duplicate = pending.cases.find(entry => entry.examinerId === destination.id);
+  assert.throws(() => applyAction(pending, admin, { ...move, row: { ...move.row, applicationNumber: duplicate.applicationNumber.replaceAll('-', '') } }), /중복 출원/);
+  assert.throws(() => applyAction(pending, admin, { ...move, row: { ...move.row, applicationNumber: 'KR20-2023-0001234' } }), /출원번호 13자리/);
+  assert.throws(() => applyAction(pending, admin, { ...move, examinerId: 'missing' }), /담당 심사관/);
+  const closed = applyAction(pending, admin, { type: 'setMonthClosed', monthId: item.monthId, closed: true });
+  assert.throws(() => applyAction(closed, admin, move), /마감한 운영월/);
+  const cancelled = applyAction(pending, admin, { type: 'cancelCase', caseId: item.id });
+  assert.throws(() => applyAction(cancelled, admin, move), /선정을 취소한 출원/);
+  const draft = structuredClone(pending);
+  draft.cases.find(entry => entry.id === item.id).status = 'draft';
+  assert.throws(() => applyAction(draft, admin, move), /선정을 확정한 심사관/);
+}
+console.log('Evaluation rules: 20 cases / 40 AI bundles / 280 literature evaluations verified; drafts, 0/X, recheck, scopes, rankings, assignments, deadlines, closure and administrator case editing passed.');

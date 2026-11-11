@@ -181,6 +181,31 @@ function harness(seed = rules.createDemoState('2026-11'), requestPatch = {}) {
   view.dispose();
 }
 
+// A stale first draft must stay local when the administrator changes its patent or examiner.
+for (const changed of ['applicationNumber', 'examinerId']) {
+  const seed = rules.createDemoState('2026-11');
+  const item = seed.cases[0];
+  for (const key of ['results', 'evaluations', 'rankings']) seed[key] = seed[key].filter(entry => entry.caseId !== item.id);
+  const view = harness(seed);
+  await view.mount();
+  const editor = view.editor();
+  editor.props.dirty(true);
+  const local = snapshot('before-correction');
+  editor.props.onDraftChange(local);
+  view.server.state = rules.applyAction(view.server.state, { admin: true }, {
+    type: 'adminUpdateCase', caseId: item.id,
+    examinerId: changed === 'examinerId' ? 'demo-user-2' : item.examinerId,
+    row: { applicationNumber: changed === 'applicationNumber' ? '10-2023-0001234' : item.applicationNumber, cpc: item.cpc },
+  });
+  view.server.revision++;
+  assert.equal(await editor.props.onAutoSave(local), false);
+  assert.equal(view.posts().length, 1, `A changed ${changed} must prevent retrying the old draft.`);
+  assert.equal(rules.resultFor(view.server.state, item.id, view.request.methodId, view.request.userId), undefined);
+  view.render();
+  assert.deepEqual((await view.backup()).action.editorState, local);
+  view.dispose();
+}
+
 // A colleague saving the same AI/case can rebase without overwriting either person's draft.
 {
   const seed = rules.createDemoState('2026-11');

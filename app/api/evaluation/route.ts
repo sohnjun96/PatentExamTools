@@ -46,9 +46,10 @@ export async function POST(request: NextRequest) {
     const actor: EvaluationActor = { admin: body.actor?.admin === true, userId: typeof body.actor?.userId === 'string' ? body.actor.userId : undefined };
     const action = body.action as EvaluationAction;
     const current = await mutateEvaluationState(body.revision, actor, action, bureau);
-    const selectionRows = action.type === 'saveSelection' ? action.rows : action.type === 'adminAddCase' ? [action.row] : [];
-    const selectionExaminer = action.type === 'adminAddCase' ? action.examinerId : actor.userId;
-    const selectionMonth = action.type === 'saveSelection' || action.type === 'adminAddCase' ? action.monthId : '';
+    const updatedCase = action.type === 'adminUpdateCase' ? current.state.cases.find((item) => item.id === action.caseId) : undefined;
+    const selectionRows = action.type === 'saveSelection' ? action.rows : action.type === 'adminAddCase' ? [action.row] : updatedCase ? [updatedCase] : [];
+    const selectionExaminer = action.type === 'adminAddCase' ? action.examinerId : updatedCase?.examinerId ?? actor.userId;
+    const selectionMonth = action.type === 'saveSelection' || action.type === 'adminAddCase' ? action.monthId : updatedCase?.monthId ?? '';
     const duplicateWarnings = selectionRows.filter((row) => current.state.cases.some((item) => item.monthId === selectionMonth && item.examinerId !== selectionExaminer && item.status === 'confirmed' && item.applicationNumber.replace(/\D/g, '') === row.applicationNumber.replace(/\D/g, ''))).map((row) => `${row.applicationNumber}: 같은 운영월에 다른 심사관이 선정 확정한 출원입니다.`);
     return NextResponse.json({ revision: current.revision, state: visibleState(current.state, actor), warnings: duplicateWarnings }, { headers });
   } catch (error) { return failure(error, 'save'); }
