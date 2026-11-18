@@ -52,4 +52,34 @@ assert.equal(getStatistics(state, '2027-01').summary.cases, 1);
 assert.equal(getStatistics(state, 'invalid').summary.cases, 0);
 assert.equal(getStatistics({ ...state, months: [], cases: [] }, ALL_OPERATION_MONTHS).summary.cases, 0);
 assert.equal(JSON.stringify(state), before, 'Queries never rewrite months, cases or evaluation data.');
+
+assert.equal(all.cases.find(item => item.id === december.cases[0].id).averageScore, 0, 'The same application in another month has independent scores.');
+const pending = all.cases.find(item => item.id === 'january-pending');
+assert.equal(pending.documentCount, 0); assert.equal(pending.citedCount, 0); assert.equal(pending.averageScore, null);
+assert.deepEqual(pending.comparisons.map(method => [method.kind, method.rank]), [['baseline', null]]);
+
+const partial = sample('2026-11', 1);
+const claudeResult = partial.results.find(result => result.methodId === 'claude');
+claudeResult.publishedDocuments = claudeResult.publishedDocuments.slice(0, 1);
+const chatEvaluations = partial.evaluations.find(entry => entry.methodId === 'chatgpt').documents;
+chatEvaluations.forEach(document => { document.score = null; document.cited = null; });
+Object.assign(chatEvaluations[0], { score: 0, cited: 'O' });
+Object.assign(chatEvaluations[1], { score: 2, cited: 'X' });
+chatEvaluations[2].cited = 'O';
+partial.rankings[0].finalized = false;
+const currentCase = () => getStatistics(partial, '2026-11').cases[0];
+const progress = currentCase();
+assert.equal(progress.complete, false);
+assert.equal(progress.documentCount, 8); assert.equal(progress.citedCount, 3);
+assert.equal(progress.averageScore, 7 / 3, 'Average only entered scores, including zero, across individual documents.');
+assert.deepEqual(progress.comparisons.map(method => [method.id, method.citedCount, method.documentCount, method.averageScore, method.rank]), [
+  ['chatgpt', 2, 7, 1, 1], ['claude', 1, 1, 5, 3], ['baseline', 0, 0, null, 2],
+]);
+claudeResult.publishedVersion++;
+const stale = currentCase();
+assert.equal(stale.averageScore, 1); assert.equal(stale.citedCount, 2); assert.equal(stale.documentCount, 8);
+assert(stale.comparisons.every(method => method.rank === null), 'New delivery invalidates every rank in the former comparison.');
+assert.equal(stale.comparisons.find(method => method.id === 'claude').averageScore, null);
+partial.cases[0].hasPriorArtReport = false;
+assert.equal(currentCase().comparisons.at(-1).rank, null);
 console.log('All-month statistics passed: listed and closed month scope, archived exclusion, unique headcounts, weighted document scores, 0/X, drafts, historical groups and filters.');

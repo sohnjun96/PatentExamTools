@@ -353,7 +353,9 @@ hookIndex=0;hookOverrides=[];
 const taskList=ui.TestAIWorkspace({state:archiveState,month:archiveState.months[0],user:archiveUser,bureau:'기획국',busy:false,dirty(){},save:async()=>true,notify(){}});
 for(const {element} of descendants(taskList).filter(({element})=>element.type===ui.AITaskCard)){const url=new URL(element.props.href,'http://localhost');assert.equal(url.pathname,'/evaluation/task');assert.equal(url.searchParams.get('userId'),archiveUser.id);assert.equal(url.searchParams.get('caseId'),element.props.item.id);assert.equal(url.searchParams.get('bureau'),'기획국');}
 
-assert.deepEqual(Array.from(adminUI.ADMIN_NAV, entry => entry.id), ['overview', 'examiners', 'ai', 'month', 'cases', 'notices', 'prompts']);
+assert.deepEqual(Array.from(adminUI.ADMIN_NAV, entry => entry.id), ['overview', 'examiners', 'ai', 'month', 'cases', 'literature', 'notices', 'prompts']);
+assert.equal(adminUI.ADMIN_NAV.find(entry => entry.id === 'literature').label, 'AI 선행기술 문헌 목록');
+assert.equal(adminUI.readAdminSection(JSON.stringify({ adminSection: 'literature' }), '샘플'), 'literature');
 assert.equal(adminUI.ADMIN_NAV.at(-1).label, '표준 검색 프롬프트 관리');
 assert.equal(adminUI.readAdminSection(JSON.stringify({ adminSection: 'prompts' }), '전기국', 'settings'), 'prompts');
 assert.equal(adminUI.readAdminSection(null, '전기국', 'settings'), 'examiners');
@@ -1180,13 +1182,13 @@ multiMonthState.cases.push(
   { ...multiMonthState.cases[0], id: 'archived-case', monthId: '2026-10', applicationNumber: '10-2026-0012347' },
 );
 function scopePage(section, scope = 'all', admin = true) {
-  const key = ui.workspaceSessionKey(`simsadesk-workspace-${admin ? 'admin' : 'user'}`, '기획국');
+  const key = ui.workspaceSessionKey(`simsadesk-workspace-${admin ? 'admin' : 'user'}`, '샘플');
   hookIndex = 0; hookOverrides = [];
   hookOverrides[0] = multiMonthState; hookOverrides[1] = key; hookOverrides[3] = admin ? '' : demo.users[0].id;
   hookOverrides[4] = scope; hookOverrides[5] = admin ? 'stats' : 'review'; hookOverrides[6] = section; hookOverrides[7] = false; hookOverrides[13] = key;
-  return ui.default({ admin, bureau: '기획국' });
+  return ui.default({ admin, bureau: '샘플' });
 }
-for (const section of ['overview', 'cases']) {
+for (const section of ['overview', 'cases', 'literature']) {
   const nodes = descendants(scopePage(section));
   const selector = nodes.find(({ element }) => element.props['aria-label'] === '운영월').element;
   assert.equal(selector.props.value, 'all');
@@ -1252,7 +1254,42 @@ const accountProgress = accountProgressTable(allOverview);
 assert.deepEqual(descendants(accountProgress).filter(({ element }) => element.type === 'th').map(({ element }) => element.props.children), ['심사과', '이름', '소속 그룹', '담당 AI', '대상 건 선정', 'AI 입력 대상', 'AI 입력 완료', '평가 완료']);
 const firstAccount = descendants(accountProgress).find(({ element }) => element.type === 'tbody').element.props.children[0];
 assert.deepEqual(Array.from(firstAccount.props.children.slice(4), cell => cell.props.children), [3, 11, 10, 2], 'Selection, AI target, AI completion, and evaluation counts stay in their labelled columns.');
-assert(descendants(scopedOverview(['', '', 'documents'])).some(({ element }) => element.type === 'th' && element.props.children === '운영월'));
+const summaryComponent = descendants(scopedOverview(['', '', 'documents'])).find(({ element }) => element.type?.name === 'CaseEvaluationSummary').element;
+hookIndex = 0; hookOverrides = [];
+const summaryTable = descendants(summaryComponent.type(summaryComponent.props));
+assert.deepEqual(summaryTable.filter(({ element }) => element.type === 'th').map(({ element }) => element.props.children), ['출원번호', '담당심사관', '인용여부', '평균점수', '평가상태']);
+const summaryRows = summaryTable.find(({ element }) => element.type === 'tbody').element.props.children;
+assert.equal(summaryRows.length, 21);
+assert.equal(summaryRows[0].props.children[4].props.children.props.children, '평가완료');
+assert.equal(summaryRows.at(-1).props.children[4].props.children.props.children, '미평가');
+const summaryButtons = descendants(summaryRows[0]).filter(({ element }) => element.props['aria-haspopup'] === 'dialog').map(({ element }) => element);
+assert.deepEqual(summaryButtons.map(button => [button.props.children].flat().join('')), ['4/14', '2.86']);
+for (const button of summaryButtons) {
+  hookWrites.length = 0;
+  button.props.onClick();
+  assert.equal(hookWrites[0].value, multiMonthState.cases[0].id);
+}
+hookIndex = 0; hookOverrides = [multiMonthState.cases[0].id];
+const comparison = descendants(summaryComponent.type(summaryComponent.props)).find(({ element }) => element.props.labelledBy === 'adm-evaluation-comparison-title').element;
+const comparisonRows = descendants(comparison).filter(({ element }) => element.type === 'tr').map(({ element }) =>
+  descendants(element).filter(({ element: cell }) => cell.type === 'td' || cell.type === 'th').map(({ element: cell }) => cell.props.children));
+assert.deepEqual(comparisonRows, [
+  ['구분', 'ChatGPT', '클로드', '선행기술조사 보고서'], ['평균점수', '2.86', '2.86', '-'], ['인용여부', '2/7', '2/7', '-'], ['순위', 1, 3, 2],
+]);
+const documentsPage = adminUI.default({ ...allAdminProps, section: 'literature', bureau: '샘플' });
+const documentList = descendants(documentsPage).find(({ element }) => element.type?.name === 'DocumentList').element;
+hookIndex = 0; hookOverrides = ['group-a', demo.users[0].id];
+const filteredDocuments = descendants(documentList.type(documentList.props));
+assert.deepEqual(filteredDocuments.filter(({ element }) => element.type === 'th').map(({ element }) => element.props.children), [
+  '운영월', '출원번호', '담당 심사관', 'AI 담당자', '조사 방식', 'AI 검색 결과', '인용여부', '점수', '평가 상태',
+]);
+const filteredDocumentRows = filteredDocuments.find(({ element }) => element.type === 'tbody').element.props.children;
+assert.equal(filteredDocumentRows.length, 28);
+assert(filteredDocumentRows.every(row => row.props.children[0].props.children === '2026년 11월' && row.props.children[2].props.children === demo.users[0].name));
+hookIndex = 0; hookOverrides = [];
+const emptyDocuments = descendants(documentList.type({ ...documentList.props, allMonths: false, month: multiMonthState.months.find(month => month.id === '2026-12') }));
+assert(emptyDocuments.some(({ element }) => element.props.title === '공개된 AI 문헌이 없습니다.'));
+assert(!emptyDocuments.some(({ element }) => element.type === 'th' && element.props.children === '운영월'));
 hookIndex = 0; hookOverrides = [];
 const rootAll = adminUI.default({ ...allAdminProps, section: 'overview' });
 assert(descendants(rootAll).some(({ element }) => element.type === adminUI.TestOverview), 'All-month pages render without inventing a writable month record.');
@@ -1428,4 +1465,4 @@ assert.equal(adminUI.accountAssignmentLabels(assignedAccount, demo.users[2].id).
 hookIndex = 0; hookOverrides = [];
 const customPromptTasks = ui.TestAIWorkspace({ state: { ...archiveState, standardSearchPrompt: { text: '심사국 전용 검색 프롬프트', updatedAt: '2026-10-31T00:00:00Z' } }, month: archiveState.months[0], user: archiveUser, bureau: '기획국', busy: false, dirty() {}, save: async () => true, notify() {} });
 assert.equal(descendants(customPromptTasks).find(({ element }) => element.type === StandardPromptButtonStub).element.props.prompt, '심사국 전용 검색 프롬프트');
-console.log('Admin and bureau workspace UI tests passed: seven task menus, scoped prompt management, AI prompt delivery, sessions and forms, filters, publication handoff, downloads, closed-month controls, and six-sheet exports.');
+console.log('Admin and bureau workspace UI tests passed: task menus, scoped prompt management, AI prompt delivery, sessions and forms, document filters, publication handoff, downloads, closed-month controls, and six-sheet exports.');

@@ -96,6 +96,10 @@ assert.equal(claudeStats.target, 2); assert.equal(claudeStats.completed, 2); ass
 assert.equal(claudeStats.documents, 2); assert.equal(claudeStats.averageScore, 3); assert.equal(claudeStats.firstPlace, 1);
 assert.equal(stats.rows.filter(row => row.baseMethodId === 'claude').length, 2);
 assert.equal(new Set(stats.rows.filter(row => row.baseMethodId === 'claude').map(row => row.methodId)).size, 2);
+const comparisonColumns = stats.cases[0].comparisons.filter(method => method.name.startsWith('클로드 · '));
+assert.deepEqual(comparisonColumns.map(method => [method.id, method.averageScore, method.citedCount, method.rank]), [
+  ['claude', 5, 1, 1], [secondKey, 1, 0, 2],
+], 'Identical documents from different authors retain their own score, citation and rank in the case comparison.');
 for (const userId of [first, second]) {
   assert.equal(stats.accounts.find(account => account.id === userId).aiTarget, 1);
   assert.equal(stats.accounts.find(account => account.id === userId).aiCompleted, 1);
