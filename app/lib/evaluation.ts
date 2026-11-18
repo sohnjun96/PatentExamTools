@@ -1063,6 +1063,32 @@ function documentEvaluationTotals(rows: Pick<DocumentEvaluation, 'score' | 'cite
   };
 }
 
+export function getReportScoreComparison(
+  rows: ReadonlyArray<{ baseMethodId: string; score: number | null }>,
+  methods: ReadonlyArray<Pick<InvestigationMethod, 'id' | 'name'>>,
+) {
+  const empty = () => ({ higher: 0, equal: 0, lower: 0, points: 0 });
+  const totals = new Map(methods.map(method => [method.id, empty()]));
+  const overall = empty();
+  for (const { baseMethodId, score } of rows) {
+    const method = totals.get(baseMethodId);
+    if (!method || score === null) continue;
+    const band = score >= 4 ? 'higher' : score === 3 ? 'equal' : 'lower';
+    method[band]++;
+    method.points += score;
+    overall[band]++;
+    overall.points += score;
+  }
+  function summarize({ higher, equal, lower, points }: typeof overall) {
+    const scored = higher + equal + lower;
+    return { higher, equal, lower, scored, averageScore: scored ? points / scored : null };
+  }
+  return {
+    methods: methods.map(({ id, name }) => ({ id, name, ...summarize(totals.get(id)!) })),
+    total: { name: '전체', ...summarize(overall) },
+  };
+}
+
 function publishedEvaluationRows(state: EvaluationState, item: EvaluationCase, method: InvestigationMethod) {
   const result = resultFor(state, item.id, method.id);
   const evaluation = validEvaluation(state, item.id, method.id);

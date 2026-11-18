@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { ALL_OPERATION_MONTHS, createDemoState, emptyMonth, getStatistics, operationGroups, operationMonthsForScope } from '../app/lib/evaluation.ts';
+import { ALL_OPERATION_MONTHS, createDemoState, emptyMonth, getReportScoreComparison, getStatistics, operationGroups, operationMonthsForScope } from '../app/lib/evaluation.ts';
 
 function sample(monthId, count) {
   const state = createDemoState(monthId);
@@ -75,6 +75,16 @@ assert.equal(progress.averageScore, 7 / 3, 'Average only entered scores, includi
 assert.deepEqual(progress.comparisons.map(method => [method.id, method.citedCount, method.documentCount, method.averageScore, method.rank]), [
   ['chatgpt', 2, 7, 1, 1], ['claude', 1, 1, 5, 3], ['baseline', 0, 0, null, 2],
 ]);
+const visibleAi = partial.methods.filter(method => ['chatgpt', 'claude', 'gemini'].includes(method.id));
+const compare = () => getReportScoreComparison(getStatistics(partial, '2026-11').rows, visibleAi);
+assert.deepEqual(compare().methods.map(method => [method.id, method.higher, method.equal, method.lower, method.scored, method.averageScore]), [
+  ['chatgpt', 0, 0, 2, 2, 1], ['claude', 1, 0, 0, 1, 5], ['gemini', 0, 0, 0, 0, null],
+]);
+assert.deepEqual(compare().total, { name: '전체', higher: 1, equal: 0, lower: 2, scored: 3, averageScore: 7 / 3 });
+const allBands = getReportScoreComparison(all.rows, visibleAi).total;
+assert.deepEqual(allBands, { name: '전체', higher: 12, equal: 4, lower: 26, scored: 42, averageScore: 80 / 42 });
+const historicRows = getStatistics(state, ALL_OPERATION_MONTHS, 'historical').rows;
+assert.deepEqual(getReportScoreComparison(historicRows, visibleAi).total, { name: '전체', higher: 0, equal: 0, lower: 14, scored: 14, averageScore: 0 });
 claudeResult.publishedVersion++;
 const stale = currentCase();
 assert.equal(stale.averageScore, 1); assert.equal(stale.citedCount, 2); assert.equal(stale.documentCount, 8);
@@ -82,4 +92,5 @@ assert(stale.comparisons.every(method => method.rank === null), 'New delivery in
 assert.equal(stale.comparisons.find(method => method.id === 'claude').averageScore, null);
 partial.cases[0].hasPriorArtReport = false;
 assert.equal(currentCase().comparisons.at(-1).rank, null);
+assert.deepEqual(compare().total, { name: '전체', higher: 0, equal: 0, lower: 2, scored: 2, averageScore: 1 }, 'Current scores still compare to the three-point benchmark when the case has no report.');
 console.log('All-month statistics passed: listed and closed month scope, archived exclusion, unique headcounts, weighted document scores, 0/X, drafts, historical groups and filters.');

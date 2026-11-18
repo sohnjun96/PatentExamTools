@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ALL_OPERATION_MONTHS, caseHasWork, caseMethods, caseStatus, currentGroups, DEFAULT_OPERATION_MONTHS, listedOperationMonths, getStatistics, literatureDetailsFor, personnelOf, operationGroups, operationMonthsForScope, preferredOperationMonth, operationStageStatus, OPERATION_STAGES, OPERATION_STAGE_STATUS_LABELS, rankingIsCurrent, resultFor, validEvaluation,
+  ALL_OPERATION_MONTHS, caseHasWork, caseMethods, caseStatus, currentGroups, DEFAULT_OPERATION_MONTHS, listedOperationMonths, getReportScoreComparison, getStatistics, literatureDetailsFor, personnelOf, operationGroups, operationMonthsForScope, preferredOperationMonth, operationStageStatus, OPERATION_STAGES, OPERATION_STAGE_STATUS_LABELS, rankingIsCurrent, resultFor, validEvaluation,
   type EvaluationAction, type EvaluationCase, type EvaluationState,
   type InvestigationMethod, type OperationMonth, type OperationStage, type OperationStageStatus,
 } from '@/app/lib/evaluation';
@@ -533,9 +533,15 @@ function DocumentList({ state, month, allMonths }: AdminProps) {
   const { stats, filters } = useFilteredStatistics(state, scopeId, 'AI 선행기술 문헌 목록');
   return <>
     <div className="adm-toolbar">{filters}</div>
-    <div className="adm-list"><div className="adm-table-wrap">
-      <table className="adm-table">
+    <div className="adm-list"><div className="adm-table-wrap adm-literature-scroll" role="region" aria-label="AI 선행기술 문헌 목록 표" tabIndex={0}>
+      <table className="adm-table adm-literature-table">
         <caption className="sr-only">AI 문헌별 최신 결과에 대한 평가</caption>
+        <colgroup>
+          {allMonths && <col className="adm-literature-month" />}
+          <col className="adm-literature-application" /><col className="adm-literature-person" /><col className="adm-literature-person" />
+          <col className="adm-literature-method" /><col /><col className="adm-literature-cited" />
+          <col className="adm-literature-score" /><col className="adm-literature-status" />
+        </colgroup>
         <thead><tr>
           {allMonths && <th scope="col">운영월</th>}
           <th scope="col">출원번호</th><th scope="col">담당 심사관</th><th scope="col">AI 담당자</th>
@@ -545,7 +551,7 @@ function DocumentList({ state, month, allMonths }: AdminProps) {
         <tbody>{stats.rows.map(row => <tr key={`${row.caseId}:${row.methodId}:${row.number}`}>
           {allMonths && <td>{monthLabel(row.monthId)}</td>}
           <td>{row.applicationNumber}</td><td>{row.examinerName}</td><td>{row.authorName}</td>
-          <td>{row.methodName}</td><td>{row.number}</td><td>{row.cited ?? '—'}</td>
+          <td>{row.methodName}</td><td className="adm-literature-reference">{row.number}</td><td>{row.cited ?? '—'}</td>
           <td>{row.score ?? '—'}</td><td>{row.status}</td>
         </tr>)}</tbody>
       </table>
@@ -595,6 +601,40 @@ function CaseEvaluationSummary({ cases, allMonths }: { cases: ReturnType<typeof 
   </>;
 }
 
+const reportScoreBands = [
+  { key: 'higher', label: '동등 이상', range: '4~5점' },
+  { key: 'equal', label: '동등', range: '3점' },
+  { key: 'lower', label: '동등 이하', range: '0~2점' },
+] as const;
+
+function ReportScoreComparison({ comparison }: { comparison: ReturnType<typeof getReportScoreComparison> }) {
+  function renderRow(row: typeof comparison.total, key: string) {
+    return <tr key={key}>
+      <th scope="row">{row.name}</th>
+      {reportScoreBands.map(({ key: band }) => <td key={band}>
+        <span>{row[band]}건</span>{' '}<small>({percent(row.scored ? row[band] / row.scored : null)})</small>
+      </td>)}
+      <td>{row.averageScore?.toFixed(2) ?? '—'}</td>
+    </tr>;
+  }
+  return <section className="adm-list">
+    <EditorHeader title="선행기술조사 보고서 대비 비교(점수 기준)" />
+    <div className="adm-table-wrap">
+      <table className="adm-table adm-score-bands" aria-describedby="adm-score-bands-note">
+        <caption className="sr-only">선행기술조사 보고서 대비 점수 분포</caption>
+        <thead><tr>
+          <th scope="col">조사방식</th>
+          {reportScoreBands.map(band => <th key={band.key} scope="col">{band.label}<span>{band.range}</span></th>)}
+          <th scope="col">평균</th>
+        </tr></thead>
+        <tbody>{comparison.methods.map(method => renderRow(method, method.id))}</tbody>
+        <tfoot>{renderRow(comparison.total, 'total')}</tfoot>
+      </table>
+    </div>
+    <p className="adm-score-bands-note" id="adm-score-bands-note">괄호 안은 각 행에서 점수를 입력한 문헌 중 해당 구간이 차지하는 비율입니다.</p>
+  </section>;
+}
+
 function Overview(props: AdminProps) {
   const { state, month, allMonths, busy, save, notify, onNavigate, bureau } = props;
   const scopeId = allMonths ? ALL_OPERATION_MONTHS : month!.id;
@@ -603,10 +643,46 @@ function Overview(props: AdminProps) {
   const { summary } = stats;
   const accountRows = stats.accounts.map(account => ({ ...account, ...accountAssignmentLabels(state, account.id) }));
   const methodStats = overviewMethodStatistics(state, stats);
+  const reportScores = getReportScoreComparison(stats.rows, methodStats);
   const inputMethods = stats.methods.filter(method => method.kind === 'ai');
+  const answeredCitations = stats.rows.filter(row => row.cited !== null).length;
+  const citedDocuments = stats.cases.reduce((sum, item) => sum + item.citedCount, 0);
+  const totalFirstPlaces = methodStats.reduce((sum, method) => sum + method.firstPlace, 0);
   const inputComplete = inputMethods.reduce((total, method) => total + method.completed, 0);
   const inputTarget = inputMethods.reduce((total, method) => total + method.target, 0);
-  return <><div className="adm-toolbar">{filters}<Button onClick={async () => { const result = await exportAdminStatistics(state, scopeId, groupId, examinerId, bureau); if (result) notify(result); }}>현재 범위 엑셀 저장</Button>{month && <Button primary={month.closed} disabled={busy} onClick={() => { if (window.confirm(month.closed ? `${monthLabel(month.id)} 운영을 재개방하시겠습니까? 각 단계의 운영 상태에 따라 입력과 평가를 진행할 수 있습니다.` : `${monthLabel(month.id)} 운영을 마감하시겠습니까? 선정·검색 결과·평가 입력이 중단됩니다.`)) void save({ type: 'setMonthClosed', monthId: month.id, closed: !month.closed }, month.closed ? `${monthLabel(month.id)} 운영을 재개방했습니다. 각 단계의 운영 상태는 그대로 유지됩니다.` : `${monthLabel(month.id)} 운영을 마감했습니다. 자료 조회와 다운로드는 계속할 수 있습니다.`); }}>{month.closed ? '운영 재개방' : '월 운영 마감'}</Button>}</div><div className="adm-metrics"><Metric label="참여 심사관" value={`${summary.participants}명`} hint={`${allMonths ? '전체 기간 ' : ''}미선정 ${summary.unselected}명`} /><Metric label="선정 출원" value={`${summary.cases}건`} hint={`공개 문헌 ${summary.documents}건`} /><Metric label="AI 입력 완료 / AI 입력 대상" value={`${inputComplete}건 / ${inputTarget}건`} hint={`완료율 ${percent(inputTarget ? inputComplete / inputTarget : null)}`} /><Metric label="평가 완료" value={`${summary.complete}건`} hint={`완료율 ${percent(summary.evaluationRate)}`} /></div><div className="adm-overview-grid"><section className="adm-list"><EditorHeader title="그룹별 진행" /><div className="adm-table-wrap"><table className="adm-table"><caption className="sr-only">그룹별 운영 진행</caption><thead><tr><th scope="col">그룹</th><th scope="col">대상건 선정</th><th scope="col">AI 검색 완료</th><th scope="col">평가 완료</th><th scope="col">완료율</th></tr></thead><tbody>{stats.groups.map((group) => <tr key={group.id}><td>{group.name}</td><td>{group.cases}</td><td>{group.inputComplete}</td><td>{group.complete}</td><td>{percent(group.completionRate)}</td></tr>)}</tbody></table>{!stats.groups.length && <Empty title="등록된 그룹이 없습니다." actions={<Button onClick={() => onNavigate('examiners')}>그룹 등록</Button>} />}</div></section><section className="adm-list"><EditorHeader title="조사 방식별 평가" /><div className="adm-table-wrap"><table className="adm-table adm-method-table"><caption className="sr-only">조사 방식별 유효 평가 통계</caption><thead><tr><th scope="col">조사 방식</th><th scope="col">문헌 수</th><th scope="col">평균 점수</th><th scope="col">인용률</th><th scope="col">1위 횟수</th></tr></thead><tbody>{methodStats.map((method) => <tr key={method.id}><td>{method.name}</td><td>{method.kind === 'baseline' ? '—' : method.documents}</td><td>{method.averageScore === null ? '—' : method.averageScore.toFixed(2)}</td><td>{percent(method.citationRate)}</td><td>{method.firstPlace}</td></tr>)}</tbody></table></div></section></div>
+  return <><div className="adm-toolbar">{filters}<Button onClick={async () => { const result = await exportAdminStatistics(state, scopeId, groupId, examinerId, bureau); if (result) notify(result); }}>현재 범위 엑셀 저장</Button>{month && <Button primary={month.closed} disabled={busy} onClick={() => { if (window.confirm(month.closed ? `${monthLabel(month.id)} 운영을 재개방하시겠습니까? 각 단계의 운영 상태에 따라 입력과 평가를 진행할 수 있습니다.` : `${monthLabel(month.id)} 운영을 마감하시겠습니까? 선정·검색 결과·평가 입력이 중단됩니다.`)) void save({ type: 'setMonthClosed', monthId: month.id, closed: !month.closed }, month.closed ? `${monthLabel(month.id)} 운영을 재개방했습니다. 각 단계의 운영 상태는 그대로 유지됩니다.` : `${monthLabel(month.id)} 운영을 마감했습니다. 자료 조회와 다운로드는 계속할 수 있습니다.`); }}>{month.closed ? '운영 재개방' : '월 운영 마감'}</Button>}</div><div className="adm-metrics"><Metric label="참여 심사관" value={`${summary.participants}명`} hint={`${allMonths ? '전체 기간 ' : ''}미선정 ${summary.unselected}명`} /><Metric label="선정 출원" value={`${summary.cases}건`} hint={`공개 문헌 ${summary.documents}건`} /><Metric label="AI 입력 완료 / AI 입력 대상" value={`${inputComplete}건 / ${inputTarget}건`} hint={`완료율 ${percent(inputTarget ? inputComplete / inputTarget : null)}`} /><Metric label="평가 완료" value={`${summary.complete}건`} hint={`완료율 ${percent(summary.evaluationRate)}`} /></div>
+    <div className="adm-overview-grid">
+      <section className="adm-list adm-overview-groups">
+        <EditorHeader title="그룹별 진행" />
+        <div className="adm-table-wrap">
+          <table className="adm-table">
+            <caption className="sr-only">그룹별 운영 진행</caption>
+            <thead><tr><th scope="col">그룹</th><th scope="col">대상건 선정</th><th scope="col">AI 검색 완료</th><th scope="col">평가 완료</th><th scope="col">완료율</th></tr></thead>
+            <tbody>{stats.groups.map(group => <tr key={group.id}><td>{group.name}</td><td>{group.cases}</td><td>{group.inputComplete}</td><td>{group.complete}</td><td>{percent(group.completionRate)}</td></tr>)}</tbody>
+            <tfoot><tr>
+              <th scope="row">전체</th><td>{summary.cases}</td><td>{summary.inputComplete}</td>
+              <td>{summary.complete}</td><td>{percent(summary.evaluationRate)}</td>
+            </tr></tfoot>
+          </table>
+          {!stats.groups.length && <Empty title="등록된 그룹이 없습니다." actions={<Button onClick={() => onNavigate('examiners')}>그룹 등록</Button>} />}
+        </div>
+      </section>
+      <section className="adm-list">
+        <EditorHeader title="조사 방식별 평가" />
+        <div className="adm-table-wrap">
+          <table className="adm-table adm-method-table">
+            <caption className="sr-only">조사 방식별 유효 평가 통계</caption>
+            <thead><tr><th scope="col">조사 방식</th><th scope="col">문헌 수</th><th scope="col">평균 점수</th><th scope="col">인용률</th><th scope="col">1위 횟수</th></tr></thead>
+            <tbody>{methodStats.map(method => <tr key={method.id}><td>{method.name}</td><td>{method.documents}</td><td>{method.averageScore === null ? '—' : method.averageScore.toFixed(2)}</td><td>{percent(method.citationRate)}</td><td>{method.firstPlace}</td></tr>)}</tbody>
+            <tfoot><tr>
+              <th scope="row">전체</th><td>{summary.documents}</td><td>{reportScores.total.averageScore?.toFixed(2) ?? '—'}</td>
+              <td>{percent(answeredCitations ? citedDocuments / answeredCitations : null)}</td><td>{totalFirstPlaces}</td>
+            </tr></tfoot>
+          </table>
+        </div>
+      </section>
+      <ReportScoreComparison comparison={reportScores} />
+    </div>
     <section className="adm-list">
       <div className="adm-list-head">
         <div><h2>진행 상세</h2>

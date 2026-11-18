@@ -1241,6 +1241,30 @@ assert.equal(editAction.row.cpc, 'G06F');
 assert.equal(editAction.row.hasPriorArtReport, false);
 function scopedOverview(overrides = [], props = {}) { hookIndex = 0; hookOverrides = overrides; return adminUI.TestOverview({ ...allAdminProps, ...props }); }
 const allOverview = scopedOverview();
+function overviewTotal(tree, caption) {
+  const table = descendants(tree).find(({ element }) => element.type === 'table' && element.props.children[0]?.props.children === caption).element;
+  const footer = descendants(table).find(({ element }) => element.type === 'tfoot').element;
+  return Array.from(footer.props.children.props.children, cell => cell.props.children);
+}
+const groupCaption = '그룹별 운영 진행', methodCaption = '조사 방식별 유효 평가 통계';
+assert.deepEqual(overviewTotal(allOverview, groupCaption), ['전체', 21, 20, 20, '95.2%']);
+const examinerOverview = scopedOverview(['group-a', demo.users[0].id], { bureau: '샘플' });
+assert.deepEqual(overviewTotal(examinerOverview, groupCaption), ['전체', 3, 2, 2, '66.7%']);
+assert.deepEqual(overviewTotal(examinerOverview, methodCaption), ['전체', 28, '2.86', '28.6%', 2]);
+const unevenScores = structuredClone(multiMonthState);
+const singleCase = unevenScores.cases[0];
+unevenScores.cases = [singleCase];
+for (const evaluation of unevenScores.evaluations.filter(entry => entry.caseId === singleCase.id)) {
+  for (const [index, document] of evaluation.documents.entries()) {
+    document.score = evaluation.methodId === 'chatgpt' ? 0 : index === 0 ? 5 : null;
+    document.cited = evaluation.methodId === 'chatgpt' ? 'X' : index === 0 ? 'O' : null;
+  }
+}
+const weightedOverview = scopedOverview([], { state: unevenScores, bureau: '샘플' });
+assert.deepEqual(overviewTotal(weightedOverview, methodCaption), ['전체', 14, '0.63', '12.5%', 1]);
+const emptyOverview = scopedOverview([], { state: { ...unevenScores, cases: [] }, bureau: '샘플' });
+assert.deepEqual(overviewTotal(emptyOverview, methodCaption), ['전체', 0, '—', '—', 0]);
+assert.deepEqual(overviewTotal(emptyOverview, groupCaption), ['전체', 0, 0, 0, '—']);
 assert.equal(descendants(allOverview).find(({ element }) => element.type?.name === 'Metric' && element.props.label === '선정 출원').element.props.value, '21건');
 assert.equal(descendants(allOverview).find(({ element }) => element.type?.name === 'Metric' && element.props.label === '참여 심사관').element.props.value, '10명');
 assert.equal(descendants(allOverview).find(({ element }) => element.type?.name === 'Metric' && element.props.label === 'AI 입력 완료 / AI 입력 대상').element.props.value, '40건 / 42건');
