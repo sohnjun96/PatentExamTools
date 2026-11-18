@@ -617,11 +617,12 @@ function ReportScoreComparison({ comparison }: { comparison: ReturnType<typeof g
       <td>{row.averageScore?.toFixed(2) ?? '—'}</td>
     </tr>;
   }
-  return <section className="adm-list">
+  return <section className="adm-list adm-score-panel">
     <EditorHeader title="선행기술조사 보고서 대비 비교(점수 기준)" />
     <div className="adm-table-wrap">
-      <table className="adm-table adm-score-bands" aria-describedby="adm-score-bands-note">
+      <table className="adm-table adm-score-bands">
         <caption className="sr-only">선행기술조사 보고서 대비 점수 분포</caption>
+        <colgroup><col className="adm-score-method-col" /><col span={reportScoreBands.length} /><col className="adm-score-average-col" /></colgroup>
         <thead><tr>
           <th scope="col">조사방식</th>
           {reportScoreBands.map(band => <th key={band.key} scope="col">{band.label}<span>{band.range}</span></th>)}
@@ -631,7 +632,6 @@ function ReportScoreComparison({ comparison }: { comparison: ReturnType<typeof g
         <tfoot>{renderRow(comparison.total, 'total')}</tfoot>
       </table>
     </div>
-    <p className="adm-score-bands-note" id="adm-score-bands-note">괄호 안은 각 행에서 점수를 입력한 문헌 중 해당 구간이 차지하는 비율입니다.</p>
   </section>;
 }
 
