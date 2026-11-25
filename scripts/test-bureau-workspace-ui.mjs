@@ -11,6 +11,7 @@ const root = path.resolve(import.meta.dirname, '..');
 let hookOverrides = [];
 let hookIndex = 0;
 let downloads = 0;
+let printCalls = 0;
 let exportedWorkbook;
 let allowDiscard = true;
 const confirmations = [];
@@ -47,6 +48,7 @@ function loadModule(relative, append = '') {
     if (id.endsWith('/target-publication-archive')) return TargetArchiveStub;
     if (id.endsWith('/accessible-dialog')) return loadModule('app/components/accessible-dialog.tsx');
     if (id === './examiner-manager') return loadModule('app/evaluation/examiner-manager.tsx');
+    if (id === './operation-report-details') return loadModule('app/evaluation/operation-report-details.tsx');
     if (id === './admin-workspace') return loadModule('app/evaluation/admin-workspace.tsx');
     if (id === './notice-manager') return NoticeManagerStub;
     if (id === './search-prompt-manager') return SearchPromptManagerStub;
@@ -71,7 +73,7 @@ function loadModule(relative, append = '') {
     if (id.startsWith('@/app/') || id.endsWith('.css')) return {};
     return require(id);
   };
-  vm.runInNewContext(outputText, { module: moduleRecord, exports: moduleRecord.exports, require: localRequire, URL, URLSearchParams, console, structuredClone, crypto: webcrypto, window: { confirm(message) { confirmations.push(message); return allowDiscard; } } }, { filename });
+  vm.runInNewContext(outputText, { module: moduleRecord, exports: moduleRecord.exports, require: localRequire, URL, URLSearchParams, console, structuredClone, crypto: webcrypto, window: { print() { printCalls++; }, confirm(message) { confirmations.push(message); return allowDiscard; } } }, { filename });
   return moduleRecord.exports;
 }
 const ui = loadModule('app/evaluation/workspace.tsx', '\nexport { AIWorkspace as TestAIWorkspace, SelectionEditor as TestSelectionEditor, StageNotice as TestStageNotice, ReviewWorkspace as TestReviewWorkspace, exportPersonal as TestExportPersonal };');
@@ -1249,6 +1251,12 @@ function overviewTotal(tree, caption) {
 const groupCaption = '그룹별 운영 진행', methodCaption = '조사 방식별 유효 평가 통계';
 assert.deepEqual(overviewTotal(allOverview, groupCaption), ['전체', 21, 20, 20, '95.2%']);
 const examinerOverview = scopedOverview(['group-a', demo.users[0].id], { bureau: '샘플' });
+const examinerReport = descendants(examinerOverview).find(({ element }) => element.props.className === 'adm-operation-report').element;
+const reportScope = descendants(examinerReport).find(({ element }) => element.props.className === 'adm-report-scope').element.props.children;
+for (const label of ['샘플', '전체 운영월', '가상 1그룹', demo.users[0].name]) assert(reportScope.includes(label));
+const reportButton = descendants(examinerOverview).find(({ element }) => element.props.children === '보고서 출력').element;
+reportButton.props.onClick();
+assert.equal(printCalls, 1);
 assert.deepEqual(overviewTotal(examinerOverview, groupCaption), ['전체', 3, 2, 2, '66.7%']);
 assert.deepEqual(overviewTotal(examinerOverview, methodCaption), ['전체', 28, '28.6%', '100.0%', 2]);
 const unevenScores = structuredClone(multiMonthState);
@@ -1261,6 +1269,13 @@ for (const evaluation of unevenScores.evaluations.filter(entry => entry.caseId =
   }
 }
 const weightedOverview = scopedOverview([], { state: unevenScores, bureau: '샘플' });
+const reportDetails = descendants(weightedOverview).find(({ element }) => element.type?.name === 'OperationReportDetails').element;
+const { OperationReportDetailTable } = loadModule('app/evaluation/operation-report-details.tsx');
+const reportRows = descendants(OperationReportDetailTable(reportDetails.props)).filter(({ element, ancestors }) =>
+  element.type === 'tr' && ancestors.some(parent => parent.type === 'tbody'));
+assert.deepEqual(reportRows.map(({ element }) => Array.from(element.props.children.slice(3), cell => [cell.props.children].flat().join(''))), [
+  ['ChatGPT', '0/7', '0.00', '1/14', '0.63'], ['클로드', '1/7', '5.00', '1/14', '0.63'],
+]);
 assert.deepEqual(overviewTotal(weightedOverview, methodCaption), ['전체', 14, '12.5%', '—', 1]);
 const emptyOverview = scopedOverview([], { state: { ...unevenScores, cases: [] }, bureau: '샘플' });
 assert.deepEqual(overviewTotal(emptyOverview, methodCaption), ['전체', 0, '—', '—', 0]);

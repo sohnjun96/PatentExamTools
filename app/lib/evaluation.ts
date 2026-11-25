@@ -1054,7 +1054,7 @@ export function visibleState(state: EvaluationState, actor: EvaluationActor): Ev
   };
 }
 
-function documentEvaluationTotals(rows: Pick<DocumentEvaluation, 'score' | 'cited'>[]) {
+export function documentEvaluationTotals(rows: Pick<DocumentEvaluation, 'score' | 'cited'>[]) {
   const scored = rows.filter(row => row.score !== null);
   return {
     documentCount: rows.length,
