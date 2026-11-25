@@ -1125,11 +1125,15 @@ export function getStatistics(state: EvaluationState, monthId: string, groupId =
   });
   const rows = caseDetails.flatMap(entry => entry.rows);
   const statuses = caseDetails.map(entry => entry.status);
+  const completedCases = statuses.filter(item => item.complete);
+  const completedCaseIds = new Set(completedCases.map(item => item.id));
   const availableIds = new Set(months.flatMap(month => aiMethods(state, month.id).map(method => method.id)));
   const methods = (months.length ? state.methods.filter((method) => method.kind === 'baseline' || availableIds.has(method.id)) : []).map((method) => {
     const documents = rows.filter((row) => row.baseMethodId === method.id);
     const { averageScore, citedCount } = documentEvaluationTotals(documents);
     const citations = documents.filter((row) => row.cited !== null);
+    const utilizedCaseIds = new Set(citations.filter(row => row.cited === 'O' && completedCaseIds.has(row.caseId)).map(row => row.caseId));
+    const utilizationRate = method.kind === 'ai' && completedCases.length ? utilizedCaseIds.size / completedCases.length : null;
     const targets = method.kind === 'ai' ? cases.flatMap(item => {
       const assigned = assignedCaseMethods(state, item).some(entry => entry.id === method.id);
       const slots = new Map<string, AIResult | undefined>();
@@ -1142,9 +1146,29 @@ export function getStatistics(state: EvaluationState, monthId: string, groupId =
     }) : [];
     const completed = targets.filter(result => (result?.publishedVersion ?? 0) > 0).length;
     const target = targets.length;
-    return { id: method.id, name: method.name, kind: method.kind, target, completed, pending: target - completed, documents: documents.length, averageScore, citationRate: citations.length ? citedCount / citations.length : null, firstPlace: cases.filter((item) => { const ranking = state.rankings.find((entry) => entry.caseId === item.id); return ranking?.finalized !== false && rankingIsCurrent(state, item, ranking) && rankingComplete(state, item, ranking?.values ?? {}) && caseMethods(state, item).some(entry => (entry.baseMethodId ?? entry.id) === method.id && ranking?.values[entry.id] === 1); }).length };
+    const firstPlace = cases.filter(item => {
+      const ranking = state.rankings.find(entry => entry.caseId === item.id);
+      return ranking && ranking.finalized !== false && rankingIsCurrent(state, item, ranking)
+        && rankingComplete(state, item, ranking.values)
+        && caseMethods(state, item).some(entry => (entry.baseMethodId ?? entry.id) === method.id && ranking.values[entry.id] === 1);
+    }).length;
+    return {
+      id: method.id, name: method.name, kind: method.kind, target, completed, pending: target - completed,
+      documents: documents.length, averageScore, citationRate: citations.length ? citedCount / citations.length : null, utilizationRate, firstPlace,
+    };
   });
-  const summary = { participants: participants.length, unselected: participants.filter((participant) => !months.some(month => month.confirmedUserIds.includes(participant.userId))).length, cases: cases.length, inputComplete: statuses.filter((item) => item.inputComplete).length, inputPending: statuses.filter((item) => !item.inputComplete).length, unevaluated: statuses.filter((item) => item.evaluationStatus === '미평가').length, inProgress: statuses.filter((item) => item.evaluationStatus === '평가 중').length, complete: statuses.filter((item) => item.complete).length, recheck: statuses.filter((item) => item.stale).length, documents: rows.length, inputRate: cases.length ? statuses.filter((item) => item.inputComplete).length / cases.length : null, evaluationRate: cases.length ? statuses.filter((item) => item.complete).length / cases.length : null };
+  const inputComplete = statuses.filter(item => item.inputComplete).length;
+  const summary = {
+    participants: participants.length,
+    unselected: participants.filter(participant => !months.some(month => month.confirmedUserIds.includes(participant.userId))).length,
+    cases: cases.length, inputComplete, inputPending: cases.length - inputComplete,
+    unevaluated: statuses.filter(item => item.evaluationStatus === '미평가').length,
+    inProgress: statuses.filter(item => item.evaluationStatus === '평가 중').length,
+    complete: completedCases.length, recheck: statuses.filter(item => item.stale).length, documents: rows.length,
+    inputRate: cases.length ? inputComplete / cases.length : null,
+    evaluationRate: cases.length ? completedCases.length / cases.length : null,
+    utilizationRate: completedCases.length ? completedCases.filter(item => item.citedCount > 0).length / completedCases.length : null,
+  };
   const groups = operationGroups(state, monthId).filter((group) => !groupId || group.id === groupId).map((group) => {
     const items = statuses.filter((item) => item.groupId === group.id);
     return { id: group.id, name: group.name, participants: participants.filter((entry) => entry.groupId === group.id).length, cases: items.length, inputComplete: items.filter((item) => item.inputComplete).length, complete: items.filter((item) => item.complete).length, documents: rows.filter((row) => row.groupId === group.id).length, completionRate: items.length ? items.filter((item) => item.complete).length / items.length : null };

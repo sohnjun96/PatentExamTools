@@ -53,6 +53,30 @@ assert.equal(getStatistics(state, 'invalid').summary.cases, 0);
 assert.equal(getStatistics({ ...state, months: [], cases: [] }, ALL_OPERATION_MONTHS).summary.cases, 0);
 assert.equal(JSON.stringify(state), before, 'Queries never rewrite months, cases or evaluation data.');
 
+const utilization = sample('2026-11', 5);
+const [bothCited, claudeOnlyCited, noneCited, draftRanking, staleRanking] = utilization.cases;
+for (const evaluation of utilization.evaluations) {
+  if (evaluation.caseId === noneCited.id || (evaluation.caseId === claudeOnlyCited.id && evaluation.methodId === 'chatgpt')) {
+    for (const document of evaluation.documents) document.cited = 'X';
+  }
+}
+for (const ranking of utilization.rankings) ranking.values = { baseline: 1, chatgpt: 2, claude: 3 };
+utilization.results = utilization.results.filter(result => !(result.caseId === noneCited.id && result.methodId === 'chatgpt'));
+utilization.evaluations = utilization.evaluations.filter(entry => !(entry.caseId === noneCited.id && entry.methodId === 'chatgpt'));
+const twoWayRank = utilization.rankings.find(ranking => ranking.caseId === noneCited.id);
+twoWayRank.versions = { claude: 1 }; twoWayRank.values = { claude: 1, baseline: 2 };
+utilization.rankings.find(ranking => ranking.caseId === draftRanking.id).finalized = false;
+utilization.results.find(result => result.caseId === staleRanking.id && result.methodId === 'claude').publishedVersion++;
+const usage = getStatistics(utilization, ALL_OPERATION_MONTHS);
+assert.equal(usage.summary.complete, 3);
+assert.equal(usage.methods.find(method => method.id === 'chatgpt').utilizationRate, 1 / 3, 'Two citations in one completed application count once, including cases without GPT in the denominator.');
+assert.equal(usage.methods.find(method => method.id === 'claude').utilizationRate, 2 / 3);
+assert.equal(usage.summary.utilizationRate, 2 / 3, 'Citations by two methods in one case count once in the total.');
+assert.equal(usage.methods.find(method => method.kind === 'baseline').utilizationRate, null);
+assert.equal(usage.methods.find(method => method.kind === 'baseline').firstPlace, 2, 'Draft and stale first-place report rankings are excluded.');
+assert.equal(getStatistics(utilization, '2026-11', '', bothCited.examinerId).summary.utilizationRate, 1);
+assert.equal(getStatistics(utilization, '2026-11', '', staleRanking.examinerId).summary.utilizationRate, null);
+
 assert.equal(all.cases.find(item => item.id === december.cases[0].id).averageScore, 0, 'The same application in another month has independent scores.');
 const pending = all.cases.find(item => item.id === 'january-pending');
 assert.equal(pending.documentCount, 0); assert.equal(pending.citedCount, 0); assert.equal(pending.averageScore, null);

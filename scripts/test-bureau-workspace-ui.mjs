@@ -1250,7 +1250,7 @@ const groupCaption = '그룹별 운영 진행', methodCaption = '조사 방식�
 assert.deepEqual(overviewTotal(allOverview, groupCaption), ['전체', 21, 20, 20, '95.2%']);
 const examinerOverview = scopedOverview(['group-a', demo.users[0].id], { bureau: '샘플' });
 assert.deepEqual(overviewTotal(examinerOverview, groupCaption), ['전체', 3, 2, 2, '66.7%']);
-assert.deepEqual(overviewTotal(examinerOverview, methodCaption), ['전체', 28, '2.86', '28.6%', 2]);
+assert.deepEqual(overviewTotal(examinerOverview, methodCaption), ['전체', 28, '28.6%', '100.0%', 2]);
 const unevenScores = structuredClone(multiMonthState);
 const singleCase = unevenScores.cases[0];
 unevenScores.cases = [singleCase];
@@ -1261,7 +1261,7 @@ for (const evaluation of unevenScores.evaluations.filter(entry => entry.caseId =
   }
 }
 const weightedOverview = scopedOverview([], { state: unevenScores, bureau: '샘플' });
-assert.deepEqual(overviewTotal(weightedOverview, methodCaption), ['전체', 14, '0.63', '12.5%', 1]);
+assert.deepEqual(overviewTotal(weightedOverview, methodCaption), ['전체', 14, '12.5%', '—', 1]);
 const emptyOverview = scopedOverview([], { state: { ...unevenScores, cases: [] }, bureau: '샘플' });
 assert.deepEqual(overviewTotal(emptyOverview, methodCaption), ['전체', 0, '—', '—', 0]);
 assert.deepEqual(overviewTotal(emptyOverview, groupCaption), ['전체', 0, 0, 0, '—']);
@@ -1447,6 +1447,7 @@ assert.equal(inputMetric(scopedOverview([], { state: pendingInputs })).props.val
 assert.equal(inputMetric(scopedOverview(['group-a', demo.users[0].id], { state: multiMonthState })).props.value, '4건 / 6건');
 // Active AI and genuine publication history are visible across months; private drafts do not qualify.
 const methodHistory = structuredClone(multiMonthState);
+methodHistory.rankings[0].values = { baseline: 1, chatgpt: 2, claude: 3 };
 methodHistory.methods.find(method => method.id === 'claude').active = false;
 methodHistory.methods.push(
   { id: 'new-active', name: '활성 새 AI', kind: 'ai', active: true },
@@ -1466,10 +1467,16 @@ const visibleMethods = adminUI.overviewMethodStatistics(methodHistory, scopedSta
 assert.deepEqual(Array.from(visibleMethods, method => method.name), ['ChatGPT', '클로드', '활성 새 AI', '지난 AI']);
 assert.equal(visibleMethods.find(method => method.id === 'past-ai').documents, 0, 'Previously researched AI remain visible with zero results in the selected month.');
 assert.equal(visibleMethods.find(method => method.id === 'past-ai').averageScore, null);
+assert.equal(visibleMethods.find(method => method.id === 'past-ai').utilizationRate, 0);
 assert.equal(visibleMethods.find(method => method.id === 'claude').documents, 140);
 const historyOverview = scopedOverview([], { state: methodHistory, allMonths: false, month: methodHistory.months[0] });
 const qualityTable = descendants(historyOverview).find(({ element }) => element.type === 'table' && element.props.children[0]?.props.children === '조사 방식별 유효 평가 통계').element;
-assert.deepEqual(Array.from(tableRows(qualityTable), row => row.props.children[0].props.children), ['ChatGPT', '클로드', '활성 새 AI', '지난 AI']);
+const qualityHeaders = descendants(qualityTable).find(({ element }) => element.type === 'thead').element;
+assert.deepEqual(descendants(qualityHeaders).filter(({ element }) => element.type === 'th').map(({ element }) => element.props.children), ['조사 방식', '문헌 수', '인용률', '활용률', '1위 횟수']);
+const qualityRows = Array.from(tableRows(qualityTable)).flat();
+assert.deepEqual(qualityRows.map(row => row.props.children[0].props.children), ['ChatGPT', '클로드', '활성 새 AI', '지난 AI', '선행기술조사']);
+assert.deepEqual(Array.from(qualityRows.at(-1).props.children, cell => cell.props.children), ['선행기술조사', '-', '-', '-', 1]);
+assert.equal(overviewTotal(historyOverview, methodCaption).at(-1), 20);
 await adminUI.exportAdminStatistics(methodHistory, '2026-11', '', '', '기획국');
 assert.deepEqual(Array.from(exportedWorkbook.sheets.find(sheet => sheet.name === '조사 방식별 통계').rows.slice(1), row => row[0]), ['ChatGPT', '클로드', '활성 새 AI', '지난 AI']);
 assert.equal(JSON.stringify(methodHistory), historyBefore);

@@ -84,6 +84,7 @@
 .adm-comparison-table :is(td,th) { text-align:center; }
 .adm-comparison-table :is(td,th):first-child { position:sticky; left:0; z-index:2; text-align:left; }
 .adm-comparison-table tbody th { top:auto; }
+.adm-method-table { table-layout:auto; }
 .adm-method-table th,.adm-method-table td { padding:14px 12px; }
 .adm-method-table :is(th,td):first-child { white-space:nowrap; }
 .adm-table td > select { min-width:160px; min-height:44px; font-size:15px; }
